@@ -428,8 +428,10 @@ export class DocumentModel {
     /**
      * Track an externally-created feature (from app.js legacy path)
      * This allows gradual migration to the unified architecture
+     * @param {Object} data - Feature data
+     * @param {boolean} triggerCallbacks - Whether to trigger UI callbacks (default: true)
      */
-    trackExternalFeature(data) {
+    trackExternalFeature(data, triggerCallbacks = true) {
         // Create a lightweight feature reference without full evaluation
         const feature = new Feature(data.type, {
             name: data.name,
@@ -450,21 +452,35 @@ export class DocumentModel {
         this.rootFeatures.push(feature.id);
         this.modifiedAt = Date.now();
         
-        // Don't trigger full callbacks for external features
-        // This prevents re-evaluation loops
+        // Trigger UI callbacks to update feature tree (but not evaluator)
+        if (triggerCallbacks && this.onFeatureAdded) {
+            this.onFeatureAdded(feature);
+        }
+        if (triggerCallbacks && this.onDocumentChanged) {
+            this.onDocumentChanged();
+        }
         
         return feature;
     }
     
     /**
      * Remove tracking for an external feature
+     * @param {string} featureId - Feature ID to untrack
+     * @param {boolean} triggerCallbacks - Whether to trigger UI callbacks (default: true)
      */
-    untrackExternalFeature(featureId) {
+    untrackExternalFeature(featureId, triggerCallbacks = true) {
         const feature = this.features.get(featureId);
         if (feature?.params?.external) {
             this.features.delete(featureId);
             this.rootFeatures = this.rootFeatures.filter(id => id !== featureId);
             this.modifiedAt = Date.now();
+            
+            if (triggerCallbacks && this.onFeatureRemoved) {
+                this.onFeatureRemoved(feature);
+            }
+            if (triggerCallbacks && this.onDocumentChanged) {
+                this.onDocumentChanged();
+            }
         }
     }
 }

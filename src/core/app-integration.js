@@ -13,6 +13,7 @@ import { execute, registerCommand, on as onCommand, listCommands, autocomplete }
 import { registerPrimitiveCommands } from '../commands/primitives.js';
 import { registerBooleanCommands } from '../commands/booleans.js';
 import { registerGeneralCommands } from '../commands/general.js';
+import { registerExportCommands } from '../commands/export.js';
 
 // Application context - shared state between commands
 const appContext = {
@@ -137,6 +138,7 @@ function registerAllCommands() {
     registerPrimitiveCommands(wrappedKernel);
     registerBooleanCommands(wrappedKernel);
     registerGeneralCommands(appContext);
+    registerExportCommands(appContext);
     
     // Register custom app commands
     registerAppCommands();

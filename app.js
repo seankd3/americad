@@ -898,10 +898,16 @@ function deleteSelected() {
     if (!selected) return;
     
     const name = selected.userData.name;
+    const featureId = selected.userData.id;
     
     // Record in history
     const cmd = new DeleteCommand(scene, System.objects, selected);
     commandManager.execute(cmd);
+    
+    // Remove from document model (triggers feature tree update)
+    if (featureId && System.americad?.document) {
+        System.americad.document.untrackExternalFeature(featureId, true);
+    }
     
     selectionManager.deselect(transformControl);
     
@@ -2522,6 +2528,8 @@ window.AmericaD = {
     zoomToFit,
     clearScene,
     exportScene,
+    saveDocument,
+    openDocument,
     enterSketchMode,
     exitSketchMode,
     extrudeSketch,

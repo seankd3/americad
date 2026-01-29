@@ -19,10 +19,32 @@ export class FeatureTreeUI {
         this.onFeatureDelete = null;
         this.onFeatureRename = null;
         
-        // Bind document events
-        this.document.onFeatureAdded = () => this.render();
-        this.document.onFeatureRemoved = () => this.render();
-        this.document.onFeatureModified = () => this.render();
+        // Chain document events (don't overwrite existing handlers)
+        const existingAdded = this.document.onFeatureAdded;
+        const existingRemoved = this.document.onFeatureRemoved;
+        const existingModified = this.document.onFeatureModified;
+        
+        this.document.onFeatureAdded = (feature) => {
+            // Don't trigger evaluator for external features
+            if (existingAdded && !feature?.params?.external) {
+                existingAdded(feature);
+            }
+            this.render();
+        };
+        
+        this.document.onFeatureRemoved = (feature) => {
+            if (existingRemoved && !feature?.params?.external) {
+                existingRemoved(feature);
+            }
+            this.render();
+        };
+        
+        this.document.onFeatureModified = (feature) => {
+            if (existingModified && !feature?.params?.external) {
+                existingModified(feature);
+            }
+            this.render();
+        };
         
         // Initial render
         this.render();
@@ -120,9 +142,11 @@ export class FeatureTreeUI {
     getFeatureIcon(type) {
         const icons = {
             'box': '📦',
+            'cube': '📦',
             'cylinder': '🛢️',
             'sphere': '🔵',
             'cone': '🔺',
+            'torus': '🍩',
             'boolean_union': '➕',
             'boolean_subtract': '➖',
             'boolean_intersect': '✖️',
@@ -130,7 +154,8 @@ export class FeatureTreeUI {
             'chamfer': '📐',
             'transform': '↔️',
             'extrude': '⬆️',
-            'sketch': '✏️'
+            'sketch': '✏️',
+            'body': '▪️'
         };
         return icons[type] || '📄';
     }
