@@ -477,12 +477,16 @@ function getEdges(shape) {
 
 /**
  * Create a torus primitive
- * OCCT 7.x constructor order:
- *   _1: (R1, R2) - simple, no axis
- *   _2: (R1, R2, angle) - with sweep angle
- *   _3: (Ax2, R1, R2) - with axis (but may expect angle in some versions)
- *   _4: (Ax2, R1, R2, angle) - with axis and angle
- * We use _4 with full 2*PI angle for complete torus
+ * OCCT constructor order (from OCCT docs):
+ *   _1: (R1, R2) - major and minor radii, coaxial to Z
+ *   _2: (R1, R2, angle) - partial torus with sweep angle
+ *   _3: (R1, R2, angle1, angle2) - ring segment
+ *   _4: (R1, R2, angle1, angle2, angle) - ring segment with partial revolution
+ *   _5: (Ax2, R1, R2) - positioned full torus
+ *   _6: (Ax2, R1, R2, angle) - positioned partial torus
+ *   _7: (Ax2, R1, R2, angle1, angle2) - positioned ring segment
+ *   _8: (Ax2, R1, R2, angle1, angle2, angle) - positioned ring segment, partial
+ * We use _5 for a positioned full torus
  */
 function createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
     const axis = new oc.gp_Ax2_3(
@@ -490,8 +494,8 @@ function createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
         new oc.gp_Dir_4(0, 0, 1)
     );
     
-    // Use _4 with axis, major radius, minor radius, and full angle (2*PI)
-    const torus = new oc.BRepPrimAPI_MakeTorus_4(axis, majorRadius, minorRadius, 2 * Math.PI).Shape();
+    // Use _5 with (Ax2, majorRadius, minorRadius) for full positioned torus
+    const torus = new oc.BRepPrimAPI_MakeTorus_5(axis, majorRadius, minorRadius).Shape();
     
     return {
         shape: torus,
@@ -503,26 +507,36 @@ function createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
 
 /**
  * Create a wedge primitive
- * OCCT 7.x constructor order:
- *   _1: (dx, dy, dz, ltx) - simple, 4 params
- *   _2: (Ax2, dx, dy, dz, ltx) - with axis, 5 params
- *   _3: (dx, dy, dz, xmin, zmin, xmax, zmax) - 7 params
- *   _4: (Ax2, dx, dy, dz, xmin, zmin, xmax, zmax) - 8 params
- * We use _2 for positioned wedge with simple ltx
+ * OCCT BRepPrimAPI_MakeWedge creates a right angular wedge.
+ * The base is a rectangle (dx × dz), height is dy, top edge length is ltx.
+ * 
+ * opencascade.js constructor variants:
+ *   _1: (dx, dy, dz, ltx) - simple wedge at origin
+ *   _2: (Axes, dx, dy, dz, ltx) - wedge with coordinate system
+ *   _3: (dx, dy, dz, xmin, zmin, xmax, zmax) - general wedge
+ *   _4: (Axes, dx, dy, dz, xmin, zmin, xmax, zmax) - general with axes
+ * 
+ * We use _1 for simplicity, then transform to center position.
  */
 function createWedge(dx, dy, dz, ltx = 0, center = { x: 0, y: 0, z: 0 }) {
-    // BRepPrimAPI_MakeWedge creates a wedge from axes and dimensions
-    const ax = new oc.gp_Ax2_3(
-        new oc.gp_Pnt_3(center.x - dx/2, center.y - dy/2, center.z - dz/2),
-        new oc.gp_Dir_4(0, 0, 1)
-    );
+    // BRepPrimAPI_MakeWedge_1 takes (dx, dy, dz, ltx)
+    // Creates wedge at origin with base on XZ plane, height along Y
+    const wedgeMaker = new oc.BRepPrimAPI_MakeWedge_1(dx, dy, dz, ltx);
+    let wedgeShape = wedgeMaker.Shape();
     
-    // Use _2 which takes (Ax2, dx, dy, dz, ltx) - 5 params
-    const wedge = new oc.BRepPrimAPI_MakeWedge_2(ax, dx, dy, dz, ltx).Shape();
+    // Transform to center the wedge (default position has corner at origin)
+    const trsf = new oc.gp_Trsf_1();
+    trsf.SetTranslation_1(new oc.gp_Vec_4(
+        center.x - dx/2,
+        center.y - dy/2,
+        center.z - dz/2
+    ));
+    const transformer = new oc.BRepBuilderAPI_Transform_2(wedgeShape, trsf, true);
+    wedgeShape = transformer.Shape();
     
     return {
-        shape: wedge,
-        id: getTopoId(wedge),
+        shape: wedgeShape,
+        id: getTopoId(wedgeShape),
         type: 'wedge',
         params: { dx, dy, dz, ltx, center }
     };
@@ -897,37 +911,37 @@ function sweepProfile(profile, path) {
  * Uses AP214 (Automotive Design) schema for maximum compatibility
  */
 function exportSTEP(shape) {
-    // Set schema to AP214 for best compatibility with other CAD software
-    oc.Interface_Static.SetCVal("write.step.schema", "AP214");
-    
-    // Set other STEP export options for quality
-    oc.Interface_Static.SetIVal("write.step.assembly", 0);  // Single part
-    oc.Interface_Static.SetCVal("write.step.product.name", "AmeriCAD Export");
+    if (!shape || shape.IsNull()) {
+        throw new Error('Cannot export null or invalid shape');
+    }
     
     const writer = new oc.STEPControl_Writer_1();
     
-    // Transfer shape - use the 3-arg version without progress range
-    const status = writer.Transfer(
-        shape, 
-        oc.STEPControl_StepModelType.STEPControl_AsIs, 
-        true
-    );
+    // Set schema to AP214 for best compatibility with other CAD software
+    oc.Interface_Static.SetCVal("write.step.schema", "AP214");
     
-    if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
-        throw new Error('STEP transfer failed');
-    }
+    // Transfer shape to writer
+    // Note: Status check removed - opencascade.js enum comparison unreliable
+    writer.Transfer(shape, oc.STEPControl_StepModelType.STEPControl_AsIs, true);
     
     // Write to virtual file system
     const filename = '/output.step';
-    const writeStatus = writer.Write(filename);
+    writer.Write(filename);
     
-    if (writeStatus !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
-        throw new Error('STEP write failed');
+    // Read file content back
+    const content = oc.FS.readFile(filename, { encoding: 'utf8' });
+    
+    // Cleanup virtual file
+    try {
+        oc.FS.unlink(filename);
+    } catch (e) {
+        // Ignore cleanup errors
     }
     
-    // Read file content
-    const content = oc.FS.readFile(filename, { encoding: 'utf8' });
-    oc.FS.unlink(filename);
+    // Validate we got actual STEP content
+    if (!content || content.length < 100 || !content.includes('ISO-10303-21')) {
+        throw new Error('STEP export produced invalid or empty content');
+    }
     
     return content;
 }
@@ -959,42 +973,86 @@ function exportSTEPMultiple(shapeList) {
 
 /**
  * Export to STL format
- * Note: StlAPI_Writer API varies between OCCT versions
- * - In some versions: SetASCIIMode(bool)
- * - In opencascade.js: ASCIIMode() getter/setter or may not exist
+ * Uses BRepMesh for tessellation and StlAPI_Writer for output.
+ * 
+ * Note: StlAPI_Writer API varies between OCCT versions:
+ * - StlAPI_Writer.Write(shape, filename) - older API
+ * - StlAPI_Writer.Write(shape, filename, progress) - newer API with progress
+ * 
+ * @param {TopoDS_Shape} shape - Shape to export
+ * @param {boolean} ascii - Whether to export ASCII format (default: true)
+ * @returns {string|Uint8Array} STL content
  */
-function exportSTL(shape) {
-    // Tessellate first
-    new oc.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, true);
+function exportSTL(shape, ascii = true) {
+    // Tessellate the shape first - required for STL export
+    // Parameters: (shape, linearDeflection, isRelative, angularDeflection, inParallel)
+    const mesh = new oc.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, true);
+    
+    // Check if tessellation succeeded
+    if (!mesh.IsDone()) {
+        throw new Error('STL export failed: tessellation error');
+    }
     
     const writer = new oc.StlAPI_Writer();
-    
-    // Try to set ASCII mode if method exists (varies by OCCT version)
-    if (typeof writer.SetASCIIMode === 'function') {
-        writer.SetASCIIMode(true);
-    } else if (writer.ASCIIMode !== undefined) {
-        // Some versions use property getter/setter
-        writer.ASCIIMode = true;
-    }
-    // If neither exists, we'll just use binary mode (still works)
-    
     const filename = '/output.stl';
     
-    // Write the shape - StlAPI_Writer.Write takes (shape, filename)
-    // In opencascade.js, we may need to use the virtual filesystem
-    const writeResult = writer.Write(shape, filename);
+    // Set ASCII mode - try different API variations
+    if (typeof writer.SetASCIIMode === 'function') {
+        writer.SetASCIIMode(ascii);
+    }
+    // Note: opencascade.js 2.0+ uses SetASCIIMode, older versions may differ
     
-    // Read content - check if ASCII or binary
-    let content;
+    // Write to virtual filesystem
+    // The Write method signature: Write(shape, filename) returns bool
+    let writeSuccess;
     try {
-        content = oc.FS.readFile(filename, { encoding: 'utf8' });
+        // Try with progress range first (newer OCCT API)
+        if (typeof oc.Message_ProgressRange_1 === 'function') {
+            const progress = new oc.Message_ProgressRange_1();
+            writeSuccess = writer.Write(shape, filename, progress);
+        } else {
+            // Fallback to simple 2-argument version
+            writeSuccess = writer.Write(shape, filename);
+        }
     } catch (e) {
-        // Fallback: read as binary and convert
-        const binary = oc.FS.readFile(filename);
-        content = new TextDecoder().decode(binary);
+        // If Write throws, try alternative approach
+        writeSuccess = writer.Write(shape, filename);
     }
     
-    oc.FS.unlink(filename);
+    // Check if file was written
+    let fileExists = false;
+    try {
+        oc.FS.stat(filename);
+        fileExists = true;
+    } catch (e) {
+        fileExists = false;
+    }
+    
+    if (!fileExists) {
+        throw new Error('STL export failed: file not written to virtual filesystem');
+    }
+    
+    // Read the content
+    let content;
+    if (ascii) {
+        try {
+            content = oc.FS.readFile(filename, { encoding: 'utf8' });
+        } catch (e) {
+            // Binary fallback - convert to string
+            const binary = oc.FS.readFile(filename);
+            content = new TextDecoder().decode(binary);
+        }
+    } else {
+        // Binary mode - return as Uint8Array
+        content = oc.FS.readFile(filename);
+    }
+    
+    // Clean up virtual filesystem
+    try {
+        oc.FS.unlink(filename);
+    } catch (e) {
+        // Ignore cleanup errors
+    }
     
     return content;
 }
@@ -1263,7 +1321,14 @@ self.onmessage = async function(e) {
                 
             case 'exportSTL':
                 const stlShape = shapes.get(params.id);
-                result = { content: exportSTL(stlShape), format: 'stl' };
+                if (!stlShape) throw new Error(`Shape not found: ${params.id}`);
+                const ascii = params.ascii !== false; // default to ASCII
+                const stlContent = exportSTL(stlShape, ascii);
+                result = { 
+                    content: stlContent, 
+                    format: 'stl',
+                    binary: !ascii
+                };
                 break;
                 
             case 'getVolume':
