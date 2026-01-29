@@ -17,6 +17,11 @@ import { solveSketch } from '../sketch/constraint-solver.js';
 import { snapManager } from '../ui/snap-manager.js';
 import { trimEntity } from '../sketch/trim.js';
 import { extendEntity } from '../sketch/extend.js';
+import {
+  detectProfiles as _detectProfiles,
+  getExtrudeDirection as _getExtrudeDirection,
+  getOuterProfiles as _getOuterProfiles,
+} from '../sketch/profile-detector.js';
 
 /**
  * Register all sketch-related commands
@@ -55,16 +60,16 @@ export function registerSketchCommands(_context) {
     },
   });
 
-  // EXIT - Exit sketch mode
+  // EXIT - Exit sketch mode (quick exit without profile info)
   registerCommand('exit', {
-    aliases: ['finish', 'done'],
-    description: 'Exit sketch mode',
+    aliases: ['quit', 'q'],
+    description: 'Exit sketch mode quickly',
     category: 'sketch',
     params: [],
-    async execute(params, ctx) {
+    async execute(_params, ctx) {
       if (ctx.exitSketchMode) {
         const sketch = ctx.exitSketchMode();
-        return { success: true, sketch };
+        return { success: true, sketch: sketch?.id };
       }
       return { success: false, error: 'Not in sketch mode' };
     },
@@ -163,31 +168,209 @@ export function registerSketchCommands(_context) {
     },
   });
 
-  // EXTRUDE - Extrude sketch profiles
+  // EXTRUDE - Extrude sketch profiles (Fusion 360-style)
   registerCommand('extrude', {
-    aliases: ['ext', 'push'],
-    description: 'Extrude sketch profile into 3D',
+    aliases: ['ext', 'push', 'e'],
+    description:
+      'Extrude sketch profile into 3D. Supports: extrude 50, extrude -50 (reverse), ' +
+      'extrude 50 symmetric, extrude 50 new, extrude 50 cut, extrude 50 toface',
     category: 'sketch',
     params: [
-      { name: 'height', type: 'number', required: true, description: 'Extrusion height' },
       {
-        name: 'direction',
+        name: 'height',
+        type: 'number',
+        required: false,
+        description: 'Extrusion height (negative = reverse direction)',
+      },
+      {
+        name: 'mode',
         type: 'string',
         required: false,
-        default: 'normal',
-        description: 'Direction (normal, both, reverse)',
+        default: 'join',
+        description: 'Operation: join (default), new, cut, intersect, symmetric, toface',
       },
     ],
     validate(params) {
-      if (params.height === 0) return 'Height cannot be zero';
+      if (params.height !== undefined && params.height === 0) {
+        return 'Height cannot be zero';
+      }
+      const validModes = ['join', 'new', 'cut', 'intersect', 'symmetric', 'toface', 'both'];
+      if (params.mode && !validModes.includes(params.mode.toLowerCase())) {
+        return `Invalid mode: ${params.mode}. Use: ${validModes.join(', ')}`;
+      }
       return true;
     },
     async execute(params, ctx) {
+      // Parse height and direction
+      let height = params.height;
+      const mode = (params.mode || 'join').toLowerCase();
+      let direction = 'normal';
+
+      // Handle negative height as reverse direction
+      if (height < 0) {
+        height = Math.abs(height);
+        direction = 'reverse';
+      }
+
+      // Symmetric mode splits height in both directions
+      if (mode === 'symmetric' || mode === 'both') {
+        direction = 'both';
+        // Height stays the same - will be split 50/50 in each direction
+      }
+
+      // If no height specified, prompt for it or use default
+      if (height === undefined || height === null) {
+        // Try to get from selected profile or use default
+        height = 10; // Default fallback
+      }
+
+      // Call the context's extrude function with enhanced options
       if (ctx.extrudeSketch) {
-        await ctx.extrudeSketch(Math.abs(params.height));
-        return { success: true, height: params.height };
+        const options = {
+          height: height,
+          direction: direction,
+          operation: mode === 'symmetric' || mode === 'both' ? 'join' : mode,
+        };
+
+        await ctx.extrudeSketch(height, options);
+
+        return {
+          success: true,
+          height: height,
+          direction: direction,
+          operation: options.operation,
+        };
       }
       return { success: false, error: 'Extrude not available' };
+    },
+  });
+
+  // FINISH - Exit sketch mode (trigger profile detection)
+  registerCommand('finish', {
+    aliases: ['done', 'ok'],
+    description: 'Finish sketch mode and detect profiles for extrusion',
+    category: 'sketch',
+    params: [],
+    async execute(_params, ctx) {
+      if (!ctx.inSketchMode) {
+        return { success: false, error: 'Not in sketch mode' };
+      }
+
+      // Exit sketch mode - this triggers profile detection
+      if (ctx.exitSketchMode) {
+        const sketch = ctx.exitSketchMode();
+
+        // Detect profiles in the completed sketch
+        let profileCount = 0;
+        if (sketch && sketch.getClosedProfiles) {
+          const profiles = sketch.getClosedProfiles();
+          profileCount = profiles.length;
+        }
+
+        return {
+          success: true,
+          sketch: sketch?.id,
+          profilesDetected: profileCount,
+          message:
+            profileCount > 0
+              ? `Sketch finished. ${profileCount} profile(s) detected. Use 'extrude <height>' to create solid.`
+              : 'Sketch finished. No closed profiles found - draw closed shapes to extrude.',
+        };
+      }
+
+      return { success: false, error: 'Exit sketch mode not available' };
+    },
+  });
+
+  // PROFILES - List and select detected profiles
+  registerCommand('profiles', {
+    aliases: ['prof', 'regions'],
+    description: 'List detected profiles in the current or last sketch',
+    category: 'sketch',
+    params: [
+      {
+        name: 'index',
+        type: 'number',
+        required: false,
+        description: 'Profile index to select (1-based)',
+      },
+    ],
+    async execute(params, ctx) {
+      // Get the active sketch or the last sketch
+      const sketch =
+        (ctx.inSketchMode && sketchManager.activeSketch) ||
+        (ctx.sketches && ctx.sketches[ctx.sketches.length - 1]) ||
+        sketchManager.activeSketch;
+
+      if (!sketch) {
+        return { success: false, error: 'No sketch available' };
+      }
+
+      // Detect profiles using enhanced detector
+      const profiles = detectProfiles(sketch);
+
+      if (profiles.length === 0) {
+        return {
+          success: true,
+          profiles: [],
+          message: 'No closed profiles detected. Draw closed shapes (rectangles, circles, or connected lines).',
+        };
+      }
+
+      // Filter to outer profiles only for listing
+      const outerProfiles = getOuterProfiles(profiles);
+
+      // If an index is provided, select that profile
+      if (params.index !== undefined) {
+        const idx = params.index - 1; // Convert to 0-based
+        if (idx < 0 || idx >= outerProfiles.length) {
+          return {
+            success: false,
+            error: `Invalid profile index. Use 1-${outerProfiles.length}`,
+          };
+        }
+
+        const selectedProfile = outerProfiles[idx];
+
+        // Store selected profile for extrusion
+        if (ctx.setSelectedProfile) {
+          ctx.setSelectedProfile(selectedProfile);
+        }
+
+        // Highlight the profile visually
+        if (ctx.highlightProfile) {
+          ctx.highlightProfile(selectedProfile);
+        }
+
+        return {
+          success: true,
+          selected: idx + 1,
+          profile: {
+            id: selectedProfile.id,
+            type: selectedProfile.type,
+            area: selectedProfile.area?.toFixed(2),
+            hasHoles: (selectedProfile.holes?.length || 0) > 0,
+          },
+          message: `Selected profile ${idx + 1}: ${selectedProfile.type}`,
+        };
+      }
+
+      // List all profiles
+      const profileList = outerProfiles.map((p, i) => ({
+        index: i + 1,
+        id: p.id,
+        type: p.type,
+        area: p.area?.toFixed(2) || 'N/A',
+        holes: p.holes?.length || 0,
+        center: p.center || p.centroid,
+      }));
+
+      return {
+        success: true,
+        count: outerProfiles.length,
+        profiles: profileList,
+        message: `Found ${outerProfiles.length} profile(s). Use 'profiles <n>' to select or 'extrude <height>' to extrude all.`,
+      };
     },
   });
 

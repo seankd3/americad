@@ -21,7 +21,9 @@
     "format:check": "prettier --check 'src/**/*.js' 'app.js'",
     "prepare": "husky",
     "docs:screenshots": "node scripts/capture-screenshots.js",
-    "docs:serve": "npx serve docs -p 3000"
+    "docs:serve": "npx serve docs -p 3000",
+    "dashboard": "node scripts/dev-dashboard.js",
+    "changelog": "node scripts/generate-changelog.js"
   },
   "repository": {
     "type": "git",
