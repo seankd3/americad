@@ -14,6 +14,7 @@ import { registerPrimitiveCommands } from '../commands/primitives.js';
 import { registerBooleanCommands } from '../commands/booleans.js';
 import { registerGeneralCommands } from '../commands/general.js';
 import { registerExportCommands } from '../commands/export.js';
+import { registerSweepCommands } from '../commands/sweep.js';
 
 // Application context - shared state between commands
 const appContext = {
@@ -139,6 +140,7 @@ function registerAllCommands() {
     registerBooleanCommands(wrappedKernel);
     registerGeneralCommands(appContext);
     registerExportCommands(appContext);
+    registerSweepCommands(wrappedKernel);
     
     // Register custom app commands
     registerAppCommands();

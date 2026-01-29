@@ -1519,6 +1519,167 @@ async function extrudeProfile(profile, sketch, height) {
     }
 }
 
+/**
+ * Revolve the active sketch around an axis
+ * @param {number} angle - Revolution angle in degrees (default 360)
+ * @param {string} axisName - Axis name ('x', 'y', or 'z')
+ */
+async function revolveSketch(angle = 360, axisName = 'y') {
+    if (!System.activeSketch && System.sketches.length === 0) {
+        log('NO SKETCH TO REVOLVE', 'error');
+        return;
+    }
+    
+    // Get the sketch to revolve
+    const sketch = System.activeSketch || System.sketches[System.sketches.length - 1];
+    
+    // Exit sketch mode if still in it
+    if (System.inSketchMode) {
+        exitSketchMode();
+    }
+    
+    // Find closed profiles (rectangles, circles, or closed line chains)
+    const profiles = findClosedProfiles(sketch);
+    
+    if (profiles.length === 0) {
+        log('NO CLOSED PROFILES TO REVOLVE', 'error');
+        return;
+    }
+    
+    log(`REVOLVING ${profiles.length} PROFILE(S) BY ${angle}°...`, 'info');
+    
+    // Revolve each profile
+    for (const profile of profiles) {
+        await revolveProfile(profile, sketch, angle, axisName);
+    }
+}
+
+/**
+ * Revolve a profile into a 3D body around an axis
+ * @param {Object} profile - Profile data
+ * @param {Object} sketch - Source sketch
+ * @param {number} angle - Revolution angle in degrees
+ * @param {string} axisName - Axis name ('x', 'y', 'z')
+ */
+async function revolveProfile(profile, sketch, angle, axisName) {
+    const plane = sketch.plane;
+    const name = `REVOLVE_${String(System.objects.length + 1).padStart(3, '0')}`;
+    
+    // Determine axis based on name and plane
+    // For lathe-like revolve, we typically revolve around an axis at the edge of the profile
+    let axis;
+    
+    // Calculate profile bounds for axis positioning
+    let profileMinX = 0, profileMaxX = 0, profileMinY = 0, profileMaxY = 0;
+    if (profile.type === 'rectangle') {
+        profileMinX = profile.center.x - profile.width / 2;
+        profileMaxX = profile.center.x + profile.width / 2;
+        profileMinY = profile.center.y - profile.height / 2;
+        profileMaxY = profile.center.y + profile.height / 2;
+    } else if (profile.type === 'circle') {
+        profileMinX = profile.center.x - profile.radius;
+        profileMaxX = profile.center.x + profile.radius;
+        profileMinY = profile.center.y - profile.radius;
+        profileMaxY = profile.center.y + profile.radius;
+    }
+    
+    // Set axis based on plane and axis name
+    // The axis origin is positioned at the edge of the profile for lathe-like behavior
+    switch (axisName.toLowerCase()) {
+        case 'x':
+            axis = {
+                origin: { x: 0, y: 0, z: 0 },
+                direction: { x: 1, y: 0, z: 0 }
+            };
+            break;
+        case 'y':
+            // For Y-axis revolve on XY plane, put axis at left edge of profile
+            axis = {
+                origin: { x: profileMinX, y: 0, z: 0 },
+                direction: { x: 0, y: 1, z: 0 }
+            };
+            break;
+        case 'z':
+            axis = {
+                origin: { x: 0, y: 0, z: 0 },
+                direction: { x: 0, y: 0, z: 1 }
+            };
+            break;
+        default:
+            axis = {
+                origin: { x: profileMinX, y: 0, z: 0 },
+                direction: { x: 0, y: 1, z: 0 }
+            };
+    }
+    
+    // Try kernel-based revolution for real B-Rep geometry
+    if (isKernelReady()) {
+        try {
+            log('REVOLVING VIA KERNEL...', 'info');
+            
+            const result = await kernel.revolveSketchProfile(profile, axis, angle, plane);
+            
+            // Convert kernel mesh to Three.js
+            const geometry = meshToThreeGeometry(result.mesh, THREE);
+            
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x808080,
+                metalness: 0.4,
+                roughness: 0.6
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            
+            // Add edges for CAD look
+            const edges = new THREE.EdgesGeometry(geometry, 15);
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+            mesh.add(new THREE.LineSegments(edges, edgeMat));
+            
+            // Metadata
+            mesh.userData = {
+                type: 'body',
+                name: name,
+                id: generateId(),
+                kernelId: result.id,
+                bodyType: 'revolve',
+                material: 'AL-6061-T6',
+                created: Date.now(),
+                isKernelGeometry: true,
+                sourceProfile: profile.type,
+                sketchPlane: plane,
+                revolveAngle: angle,
+                revolveAxis: axisName
+            };
+            
+            scene.add(mesh);
+            System.objects.push(mesh);
+            
+            // Track in DocumentModel
+            if (System.americad?.document) {
+                System.americad.document.trackExternalFeature({
+                    id: mesh.userData.id,
+                    kernelId: result.id,
+                    type: 'revolve',
+                    name: name,
+                    mesh: mesh
+                });
+            }
+            
+            selectObject(mesh);
+            log(`REVOLVED: ${profile.type.toUpperCase()} ${angle}° (B-REP)`, 'success');
+            return mesh;
+            
+        } catch (error) {
+            console.warn('[Ameri-CAD] Kernel revolve failed:', error);
+            log('KERNEL REVOLVE FAILED: ' + error.message, 'error');
+        }
+    } else {
+        log('REVOLVE REQUIRES KERNEL - NOT AVAILABLE', 'error');
+    }
+}
+
 function zoomToFit() {
     if (!camera || !controls) {
         log('ZOOM FIT (3D NOT READY)', 'warn');
@@ -2685,6 +2846,7 @@ window.AmericaD = {
     enterSketchMode,
     exitSketchMode,
     extrudeSketch,
+    revolveSketch,
     log,
     // Unified architecture access
     get app() { return System.americad; },

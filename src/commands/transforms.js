@@ -101,23 +101,54 @@ export function registerTransformCommands(kernel) {
     registerCommand('mirror', {
         aliases: ['mir', 'flip'],
         description: 'Mirror selected objects across a plane',
+        usage: 'mirror [plane] [keep]\n  mirror       - Mirror across YZ plane (X=0)\n  mirror xy    - Mirror across XY plane\n  mirror xz    - Mirror across XZ plane\n  mirror yz    - Mirror across YZ plane\n  mirror yz keep - Mirror and keep original (symmetric part)',
         category: 'transform',
         params: [
-            { name: 'plane', type: 'string', required: false, default: 'xy', description: 'Mirror plane: xy, xz, or yz' },
-            { name: 'copy', type: 'boolean', required: false, default: false, description: 'Keep original' }
+            { name: 'plane', type: 'string', required: false, default: 'yz', description: 'Mirror plane: xy, xz, or yz (default: yz)' },
+            { name: 'keep', type: 'flag', required: false, default: false, description: 'Keep original (makes symmetric part)' }
         ],
         validate(params, context) {
             if (!context.selection?.length) return 'Nothing selected';
-            if (!['xy', 'xz', 'yz'].includes(params.plane.toLowerCase())) {
-                return 'Plane must be xy, xz, or yz';
+            const plane = params.plane.toLowerCase();
+            if (!['xy', 'xz', 'yz'].includes(plane)) {
+                return `Invalid plane: ${params.plane}. Use xy, xz, or yz`;
             }
             return true;
         },
         async execute(params, context) {
             const results = [];
+            const plane = params.plane.toLowerCase();
             
             for (const id of context.selection) {
-                const result = await kernel.mirror(id, params.plane, params.copy);
+                // Get original mesh info for document tracking
+                const originalBody = context.document?.features?.get(id);
+                
+                // Mirror the shape
+                const result = await kernel.mirror(id, plane);
+                
+                if (params.keep) {
+                    // Keep original, add mirrored as new body
+                    if (context.document && result.id) {
+                        context.document.addBody(result.id, {
+                            ...result,
+                            type: 'mirror',
+                            name: `${originalBody?.name || 'Shape'}_mirrored`
+                        });
+                    }
+                } else {
+                    // Replace original with mirrored
+                    // Remove old shape from kernel and document
+                    await kernel.deleteShape(id);
+                    if (context.document) {
+                        context.document.removeFeature(id);
+                        context.document.addBody(result.id, {
+                            ...result,
+                            type: 'mirror',
+                            name: originalBody?.name || 'Mirrored'
+                        });
+                    }
+                }
+                
                 results.push(result);
             }
             
@@ -196,82 +227,147 @@ export function registerTransformCommands(kernel) {
         }
     });
     
-    // PATTERN LINEAR - Create linear pattern as B-Rep compound
+    // PATTERN - Create linear or circular patterns as B-Rep compound
     registerCommand('pattern', {
         aliases: ['pat'],
-        description: 'Create patterns: pattern linear <count> <spacing> [axis]',
+        description: 'Create patterns: pattern linear <count> <spacing> [axis] | pattern circular <count> [angle]',
         category: 'transform',
         params: [
-            { name: 'type', type: 'string', required: true, description: 'Pattern type: linear' },
+            { name: 'type', type: 'string', required: true, description: 'Pattern type: linear or circular' },
             { name: 'count', type: 'int', required: true, description: 'Number of copies (including original)' },
-            { name: 'spacing', type: 'number', required: true, description: 'Distance between copies' },
-            { name: 'axis', type: 'string', required: false, default: 'x', description: 'Direction: x, y, z, or custom vector' }
+            { name: 'arg1', type: 'number', required: false, default: null, description: 'For linear: spacing. For circular: angle in degrees (default 360)' },
+            { name: 'arg2', type: 'string', required: false, default: null, description: 'For linear: axis (x/y/z). For circular: axis (x/y/z, default z)' }
         ],
         validate(params, context) {
             if (!context.selection?.length) return 'Nothing selected';
-            if (params.type.toLowerCase() !== 'linear') {
-                return `Unknown pattern type: ${params.type}. Supported: linear`;
+            const type = params.type.toLowerCase();
+            if (!['linear', 'lin', 'l', 'circular', 'circ', 'c'].includes(type)) {
+                return `Unknown pattern type: ${params.type}. Supported: linear, circular`;
             }
-            if (params.count < 1) return 'Count must be at least 1';
+            if (params.count < 2) return 'Count must be at least 2';
             if (params.count > 1000) return 'Count too large (max 1000)';
-            if (params.spacing <= 0) return 'Spacing must be positive';
+            
+            const isLinear = ['linear', 'lin', 'l'].includes(type);
+            if (isLinear && (params.arg1 === null || params.arg1 <= 0)) {
+                return 'Linear pattern requires positive spacing';
+            }
             return true;
         },
         async execute(params, context) {
             const results = [];
+            const type = params.type.toLowerCase();
+            const isCircular = ['circular', 'circ', 'c'].includes(type);
             
-            // Parse direction from axis parameter
-            let direction;
-            const axisLower = params.axis.toLowerCase();
-            
-            if (axisLower === 'x') {
-                direction = [1, 0, 0];
-            } else if (axisLower === 'y') {
-                direction = [0, 1, 0];
-            } else if (axisLower === 'z') {
-                direction = [0, 0, 1];
-            } else if (axisLower === '-x') {
-                direction = [-1, 0, 0];
-            } else if (axisLower === '-y') {
-                direction = [0, -1, 0];
-            } else if (axisLower === '-z') {
-                direction = [0, 0, -1];
-            } else {
-                // Try to parse as vector "x,y,z"
-                const parts = params.axis.split(',').map(p => parseFloat(p.trim()));
-                if (parts.length === 3 && parts.every(p => !isNaN(p))) {
-                    // Normalize the vector
-                    const len = Math.sqrt(parts[0]**2 + parts[1]**2 + parts[2]**2);
-                    if (len < 1e-10) {
-                        throw new Error('Direction vector cannot be zero');
-                    }
-                    direction = [parts[0]/len, parts[1]/len, parts[2]/len];
-                } else {
-                    throw new Error(`Invalid axis: ${params.axis}. Use x, y, z, -x, -y, -z, or x,y,z vector`);
-                }
-            }
-            
-            for (const id of context.selection) {
-                const result = await kernel.linearPattern(
-                    id,
-                    direction,
-                    params.count,
-                    params.spacing
-                );
-                results.push(result);
+            if (isCircular) {
+                // Circular pattern
+                const angle = params.arg1 !== null ? params.arg1 : 360;
+                const axisStr = (params.arg2 || 'z').toLowerCase();
                 
-                // Add pattern result to document
-                if (context.document && result.id) {
-                    context.document.addBody(result.id, {
-                        ...result,
-                        type: 'linearPattern',
-                        sourceId: id,
-                        params: {
-                            count: params.count,
-                            spacing: params.spacing,
-                            direction
+                // Parse axis direction
+                let axisDirection;
+                if (axisStr === 'x') {
+                    axisDirection = [1, 0, 0];
+                } else if (axisStr === 'y') {
+                    axisDirection = [0, 1, 0];
+                } else if (axisStr === 'z') {
+                    axisDirection = [0, 0, 1];
+                } else if (axisStr === '-x') {
+                    axisDirection = [-1, 0, 0];
+                } else if (axisStr === '-y') {
+                    axisDirection = [0, -1, 0];
+                } else if (axisStr === '-z') {
+                    axisDirection = [0, 0, -1];
+                } else {
+                    // Try to parse as vector "x,y,z"
+                    const parts = axisStr.split(',').map(p => parseFloat(p.trim()));
+                    if (parts.length === 3 && parts.every(p => !isNaN(p))) {
+                        const len = Math.sqrt(parts[0]**2 + parts[1]**2 + parts[2]**2);
+                        if (len < 1e-10) {
+                            throw new Error('Axis vector cannot be zero');
                         }
-                    });
+                        axisDirection = [parts[0]/len, parts[1]/len, parts[2]/len];
+                    } else {
+                        throw new Error(`Invalid axis: ${params.arg2}. Use x, y, z, or x,y,z vector`);
+                    }
+                }
+                
+                for (const id of context.selection) {
+                    const result = await kernel.circularPattern(
+                        id,
+                        params.count,
+                        angle,
+                        [0, 0, 0],     // axis origin at world origin
+                        axisDirection
+                    );
+                    results.push(result);
+                    
+                    if (context.document && result.id) {
+                        context.document.addBody(result.id, {
+                            ...result,
+                            type: 'circularPattern',
+                            sourceId: id,
+                            params: {
+                                count: params.count,
+                                angle,
+                                axisDirection
+                            }
+                        });
+                    }
+                }
+            } else {
+                // Linear pattern
+                const spacing = params.arg1;
+                const axisStr = (params.arg2 || 'x').toLowerCase();
+                
+                // Parse direction from axis parameter
+                let direction;
+                if (axisStr === 'x') {
+                    direction = [1, 0, 0];
+                } else if (axisStr === 'y') {
+                    direction = [0, 1, 0];
+                } else if (axisStr === 'z') {
+                    direction = [0, 0, 1];
+                } else if (axisStr === '-x') {
+                    direction = [-1, 0, 0];
+                } else if (axisStr === '-y') {
+                    direction = [0, -1, 0];
+                } else if (axisStr === '-z') {
+                    direction = [0, 0, -1];
+                } else {
+                    // Try to parse as vector "x,y,z"
+                    const parts = axisStr.split(',').map(p => parseFloat(p.trim()));
+                    if (parts.length === 3 && parts.every(p => !isNaN(p))) {
+                        const len = Math.sqrt(parts[0]**2 + parts[1]**2 + parts[2]**2);
+                        if (len < 1e-10) {
+                            throw new Error('Direction vector cannot be zero');
+                        }
+                        direction = [parts[0]/len, parts[1]/len, parts[2]/len];
+                    } else {
+                        throw new Error(`Invalid axis: ${params.arg2}. Use x, y, z, -x, -y, -z, or x,y,z vector`);
+                    }
+                }
+                
+                for (const id of context.selection) {
+                    const result = await kernel.linearPattern(
+                        id,
+                        direction,
+                        params.count,
+                        spacing
+                    );
+                    results.push(result);
+                    
+                    if (context.document && result.id) {
+                        context.document.addBody(result.id, {
+                            ...result,
+                            type: 'linearPattern',
+                            sourceId: id,
+                            params: {
+                                count: params.count,
+                                spacing,
+                                direction
+                            }
+                        });
+                    }
                 }
             }
             
