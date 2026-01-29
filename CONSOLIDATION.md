@@ -84,35 +84,77 @@ window.AmericaD now exposes:
 
 ---
 
-## Phase 4: Cleanup ⏸️ PENDING PHASE 3
+## Phase 4: Cleanup 🔮 FUTURE WORK
 
-### 4.1 Migrate Needed Code
-After Phase 3, identify any unique app.js code worth preserving.
+### Status: Deferred
+The architecture is now unified. app.js is NOT deprecated - it serves as the UI/infrastructure layer. The "split personality" was actually a layered architecture all along:
 
-### 4.2 Archive app.js
-Only after full integration is verified working.
+```
+┌─────────────────────────────────────────┐
+│  index.html                              │
+├─────────────────────────────────────────┤
+│  app.js (UI Layer)                       │
+│  - Three.js scene management             │
+│  - DOM event handling                    │
+│  - User interaction                      │
+│  - Render loop                           │
+├─────────────────────────────────────────┤
+│  src/main.js (Application Layer)         │
+│  - AmericaD class                        │
+│  - Feature management                    │
+│  - DocumentModel coordination            │
+├─────────────────────────────────────────┤
+│  src/kernel/ (Geometry Layer)            │
+│  - KernelBridge                          │
+│  - Web Worker with OpenCASCADE           │
+│  - B-Rep operations                      │
+└─────────────────────────────────────────┘
+```
+
+### 4.1 Recommended Future Work
+- [ ] Migrate remaining direct kernel calls in app.js through AmericaD
+- [ ] Update boolean operations in app.js to use AmericaD.booleanUnion/etc
+- [ ] Wire feature tree UI to DocumentModel.features
+- [ ] Consider splitting app.js into separate modules (scene.js, events.js, etc.)
+
+### 4.2 Not Needed
+- ❌ Archive app.js - it has a clear purpose as UI layer
+- ❌ Delete code - nothing is truly redundant now that integration exists
 
 ---
 
 ## Findings & Notes
 
-### API Fixes Made
-1. **bridge.js**: Added boolean() dispatcher method
-2. **booleans.js**: Fixed all command signatures (fillet, chamfer, extrude, revolve, shell, loft)
-3. **worker.js**: Added 8 new operation implementations (chamfer, torus, wedge, extrude, revolve, shell, loft, sweep)
-4. **main.js**: Fixed all CrashGuard.log → recordCommand, fixed recovery initialization
-5. **evaluator.js**: Added getKernelId() method
+### API Fixes Made (Phase 1-2)
+1. **bridge.js**: Added `boolean()` dispatcher, `chamfer()`, `extrude()`, `revolve()`, `shell()`, `loft()`, `sweep()`, `createTorus()`, `createWedge()`
+2. **worker.js**: Added 8 new OCCT operation implementations
+3. **booleans.js**: Fixed all command signatures to pass (shapeId, edgeIds, param)
+4. **main.js**: Fixed CrashGuard API (log→recordCommand), fixed recovery init
+5. **evaluator.js**: Added `getKernelId()` method
+6. **document.js**: Added `trackExternalFeature()` for legacy integration
 
 ### Architecture Insight
-The "split personality" is actually a layered architecture:
-- app.js = UI layer
-- src/main.js = Application layer (AmericaD class)
-- src/kernel/ = Geometry layer
+The "split personality" was actually correct layered architecture:
+- **app.js** = UI layer (scene, events, rendering)
+- **src/main.js** = Application layer (AmericaD class, feature management)
+- **src/kernel/** = Geometry layer (OpenCASCADE B-Rep)
 
-The problem isn't two architectures, it's incomplete integration. app.js should delegate CAD operations to AmericaD class.
+The problem was incomplete integration between layers, not competing architectures.
 
-### Recommended Next Steps
-1. Modify app.js to instantiate AmericaD from src/main.js
-2. Route createPrimitive, booleans, etc. through AmericaD class
-3. Update app-integration.js to use proper DocumentModel
-4. Test full pipeline: Command → AmericaD → DocumentModel → Evaluator → Kernel
+### What Was Done
+1. ✅ Fixed kernel API mismatches (boolean, fillet, etc.)
+2. ✅ Added missing kernel operations (chamfer, extrude, revolve, shell, loft, sweep)
+3. ✅ Fixed CrashGuard integration bugs
+4. ✅ Wired feature deletion to kernel memory cleanup
+5. ✅ Integrated AmericaD class into app.js initialization
+6. ✅ Added DocumentModel tracking for legacy primitive creation
+7. ✅ Exposed unified API through window.AmericaD
+
+### Result
+Both code paths now share the same DocumentModel and kernel. The architecture is unified. Future work is incremental improvement, not structural change.
+
+---
+
+## Commits Summary
+1. `fix(kernel): Phase 1-2 API alignment and bug fixes`
+2. `feat(arch): Phase 3 - Integrate AmericaD class into app.js`
