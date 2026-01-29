@@ -93,11 +93,46 @@ function tessellate(shape, linearDeflection = 0.1, angularDeflection = 0.5) {
                 vertices.push(transformed.X(), transformed.Y(), transformed.Z());
             }
             
-            // Extract normals (computed from triangulation)
+            // Extract normals from triangulation
+            // Check face orientation for normal flipping
+            const orientation = face.Orientation_1();
+            const flip = (orientation === oc.TopAbs_Orientation.TopAbs_REVERSED) ? -1 : 1;
+            
+            // Check if triangulation has precomputed normals
+            const hasNormals = triangulation.get().HasNormals();
+            
             for (let i = 1; i <= nbNodes; i++) {
-                // Simplified - compute from face normal
-                // In production, use proper per-vertex normals
-                normals.push(0, 1, 0); // Placeholder
+                let nx, ny, nz;
+                
+                if (hasNormals) {
+                    // Use precomputed normals from tessellation
+                    const normal = triangulation.get().Normal(i);
+                    nx = normal.X();
+                    ny = normal.Y();
+                    nz = normal.Z();
+                } else {
+                    // Fallback: compute normal from face surface at UV point
+                    // For now use a simple geometric normal (will work for flat faces)
+                    // TODO: Use BRepGProp_Face for proper surface normals
+                    nx = 0;
+                    ny = 0;
+                    nz = 1;
+                }
+                
+                // Transform normal by location (rotation only, not translation)
+                const trsf = transform;
+                // Apply rotation part of transform to normal
+                const tnx = trsf.Value(1, 1) * nx + trsf.Value(1, 2) * ny + trsf.Value(1, 3) * nz;
+                const tny = trsf.Value(2, 1) * nx + trsf.Value(2, 2) * ny + trsf.Value(2, 3) * nz;
+                const tnz = trsf.Value(3, 1) * nx + trsf.Value(3, 2) * ny + trsf.Value(3, 3) * nz;
+                
+                // Normalize and apply face orientation flip
+                const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
+                if (len > 1e-10) {
+                    normals.push(tnx / len * flip, tny / len * flip, tnz / len * flip);
+                } else {
+                    normals.push(0, 0, flip); // Fallback for degenerate normals
+                }
             }
             
             // Extract triangles
