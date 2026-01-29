@@ -2194,6 +2194,204 @@ function mirrorShape(shape, planeOrigin, planeNormal) {
 }
 
 /**
+ * Create a 2D grid pattern (linear pattern in two directions)
+ * @param {TopoDS_Shape} shape - Shape to pattern
+ * @param {[number, number, number]} direction1 - First direction vector
+ * @param {number} count1 - Number of copies in first direction (including original)
+ * @param {number} spacing1 - Spacing in first direction
+ * @param {[number, number, number]} direction2 - Second direction vector (optional)
+ * @param {number} count2 - Number of copies in second direction (default: 1)
+ * @param {number} spacing2 - Spacing in second direction (default: 0)
+ * @returns {{shape: TopoDS_Compound, id: string, type: string, totalCopies: number}}
+ */
+function _createLinearPatternGrid(
+  shape,
+  direction1,
+  count1,
+  spacing1,
+  direction2 = null,
+  count2 = 1,
+  spacing2 = 0
+) {
+  if (count1 < 1) {
+    throw new Error('Linear pattern requires at least 1 copy in first direction');
+  }
+
+  const compound = new oc.TopoDS_Compound();
+  const builder = new oc.BRep_Builder();
+  builder.MakeCompound(compound);
+
+  let totalCopies = 0;
+
+  // Normalize direction1
+  const len1 = Math.sqrt(direction1[0] ** 2 + direction1[1] ** 2 + direction1[2] ** 2);
+  const dir1 = [direction1[0] / len1, direction1[1] / len1, direction1[2] / len1];
+
+  // Normalize direction2 if provided
+  let dir2 = [0, 0, 0];
+  if (direction2 && count2 > 1) {
+    const len2 = Math.sqrt(direction2[0] ** 2 + direction2[1] ** 2 + direction2[2] ** 2);
+    dir2 = [direction2[0] / len2, direction2[1] / len2, direction2[2] / len2];
+  }
+
+  // Create grid of copies
+  for (let i = 0; i < count1; i++) {
+    for (let j = 0; j < count2; j++) {
+      const offsetX = dir1[0] * spacing1 * i + dir2[0] * spacing2 * j;
+      const offsetY = dir1[1] * spacing1 * i + dir2[1] * spacing2 * j;
+      const offsetZ = dir1[2] * spacing1 * i + dir2[2] * spacing2 * j;
+
+      const trsf = new oc.gp_Trsf_1();
+      trsf.SetTranslation_1(new oc.gp_Vec_4(offsetX, offsetY, offsetZ));
+
+      const transformer = new oc.BRepBuilderAPI_Transform_2(shape, trsf, true);
+      const copy = transformer.Shape();
+      builder.Add(compound, copy);
+      totalCopies++;
+    }
+  }
+
+  return {
+    shape: compound,
+    id: getTopoId(compound),
+    type: 'linearPatternGrid',
+    totalCopies,
+    count1,
+    count2,
+  };
+}
+
+/**
+ * Create a pattern along a path (curve or wire)
+ * Copies are positioned and optionally oriented along the path
+ * @param {TopoDS_Shape} shape - Shape to pattern
+ * @param {TopoDS_Shape} pathShape - Path (wire or edge) to follow
+ * @param {number} count - Number of copies (including start position)
+ * @param {boolean} orientToPath - Whether to rotate copies to follow path tangent
+ * @returns {{shape: TopoDS_Compound, id: string, type: string, copies: number}}
+ */
+function _createPatternAlongPath(shape, pathShape, count, orientToPath = false) {
+  if (count < 1) {
+    throw new Error('Pattern along path requires at least 1 copy');
+  }
+
+  const compound = new oc.TopoDS_Compound();
+  const builder = new oc.BRep_Builder();
+  builder.MakeCompound(compound);
+
+  // Get the curve adaptor from the path
+  // First try to get as wire, then as edge
+  let curve;
+  let firstParam, lastParam;
+
+  try {
+    // Try as wire first
+    const wire = oc.TopoDS.Wire_1(pathShape);
+    const adaptor = new oc.BRepAdaptor_CompCurve_2(wire, true);
+    curve = adaptor;
+    firstParam = adaptor.FirstParameter();
+    lastParam = adaptor.LastParameter();
+  } catch {
+    // Try as edge
+    try {
+      const edge = oc.TopoDS.Edge_1(pathShape);
+      const adaptor = new oc.BRepAdaptor_Curve_2(edge);
+      curve = adaptor;
+      firstParam = adaptor.FirstParameter();
+      lastParam = adaptor.LastParameter();
+    } catch {
+      throw new Error('Path must be a wire or edge');
+    }
+  }
+
+  const paramRange = lastParam - firstParam;
+
+  // Create copies along the path
+  for (let i = 0; i < count; i++) {
+    // Calculate parameter at this position (evenly spaced)
+    const t = count === 1 ? firstParam : firstParam + (paramRange * i) / (count - 1);
+
+    // Get point on curve
+    const point = curve.Value(t);
+
+    // Create transformation
+    const trsf = new oc.gp_Trsf_1();
+
+    if (orientToPath && count > 1) {
+      // Get tangent at this point for orientation
+      const tangent = new oc.gp_Vec_1();
+      const pnt = new oc.gp_Pnt_1();
+      curve.D1(t, pnt, tangent);
+
+      // Normalize tangent
+      const tanLen = tangent.Magnitude();
+      if (tanLen > 1e-10) {
+        const tanDir = new oc.gp_Dir_2(tangent);
+
+        // Create a coordinate system aligned with tangent
+        // X = tangent direction, Z = up (or perpendicular), Y = cross product
+        const zDir = new oc.gp_Dir_4(0, 0, 1);
+        const yVec = tanDir.IsParallel(zDir, 1e-6)
+          ? new oc.gp_Dir_4(0, 1, 0)
+          : new oc.gp_Dir_2(zDir.IsOpposite(tanDir, 1e-6) ? zDir.Reversed() : zDir);
+
+        const ax3 = new oc.gp_Ax3_4(point, yVec, tanDir);
+        trsf.SetTransformation_2(ax3, new oc.gp_Ax3_1());
+      } else {
+        // Fallback to simple translation
+        trsf.SetTranslation_2(new oc.gp_Pnt_1(), point);
+      }
+    } else {
+      // Simple translation to point
+      trsf.SetTranslation_2(new oc.gp_Pnt_1(), point);
+    }
+
+    const transformer = new oc.BRepBuilderAPI_Transform_2(shape, trsf, true);
+    const copy = transformer.Shape();
+    builder.Add(compound, copy);
+  }
+
+  return {
+    shape: compound,
+    id: getTopoId(compound),
+    type: 'patternAlongPath',
+    copies: count,
+  };
+}
+
+/**
+ * Mirror a shape and optionally fuse with original to create symmetric part
+ * @param {TopoDS_Shape} shape - Shape to mirror
+ * @param {Array} planeOrigin - [x, y, z] point on the mirror plane
+ * @param {Array} planeNormal - [nx, ny, nz] normal vector of the mirror plane
+ * @param {boolean} keepOriginal - If true, fuse mirrored with original
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function _mirrorShapeSymmetric(shape, planeOrigin, planeNormal, keepOriginal = false) {
+  const mirrored = mirrorShape(shape, planeOrigin, planeNormal);
+
+  if (!keepOriginal) {
+    return mirrored;
+  }
+
+  // Fuse original and mirrored to create symmetric part
+  const progress = new oc.Message_ProgressRange_1();
+  const fuse = new oc.BRepAlgoAPI_Fuse_3(shape, mirrored.shape, progress);
+
+  if (!fuse.IsDone()) {
+    throw new Error('Failed to fuse mirrored shapes');
+  }
+
+  const fusedShape = fuse.Shape();
+
+  return {
+    shape: fusedShape,
+    id: getTopoId(fusedShape),
+    type: 'mirrorSymmetric',
+  };
+}
+
+/**
  * Export to STEP format (ISO 10303-21)
  * Uses AP214 (Automotive Design) schema for maximum compatibility
  */
