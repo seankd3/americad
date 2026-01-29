@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMERICA-D // CAD SYSTEM</title>
+    <meta name="description" content="Professional 3D CAD - Space Grade, HiRel, RadHard">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Three.js from jsDelivr -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    
+    <!-- Error handling and polyfills -->
+    <script>
+        // Global error handling
+        window.addEventListener('error', (e) => {
+            console.error('[AMERICA-D] Loading error:', e.message);
+            const status = document.getElementById('loading-status');
+            if (status) status.textContent = 'ERROR: ' + e.message.substring(0, 30);
+        });
+        
+        window.addEventListener('unhandledrejection', (e) => {
+            console.error('[AMERICA-D] Promise rejection:', e.reason);
+            e.preventDefault();
+            // Show app anyway
+            setTimeout(() => {
+                const splash = document.getElementById('splash-screen');
+                const app = document.getElementById('app');
+                if (splash) splash.classList.add('hidden');
+                if (app) app.classList.remove('hidden');
+            }, 100);
+        });
+        
+        // Module loading timeout
+        window.AMERICAD_LOADED = false;
+        setTimeout(() => {
+            if (!window.AMERICAD_LOADED) {
+                console.warn('[AMERICA-D] Module load timeout - showing app');
+                const splash = document.getElementById('splash-screen');
+                const app = document.getElementById('app');
+                if (splash) splash.classList.add('hidden');
+                if (app) app.classList.remove('hidden');
+            }
+        }, 3000);
+    </script>
+</head>
+<body>
+    <!-- ========================================
+         SPLASH SCREEN - SYSTEM BOOT
+         ======================================== -->
+    <div id="splash-screen" class="splash-screen">
+        <div class="splash-content">
+            <div class="splash-brand">
+                <div class="splash-logo">AMERICA-D</div>
+                <div class="splash-version">VER 2.0.1-LA // UNRESTRICTED</div>
+            </div>
+            <div class="splash-loading">
+                <div class="loading-bar"></div>
+                <div class="loading-text">
+                    <span>INIT SEQUENCE</span>
+                    <span class="loading-status" id="loading-status">LOADING...</span>
+                </div>
+            </div>
+            <button onclick="document.getElementById('splash-screen').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');" style="margin-top: 30px; padding: 8px 16px; background: transparent; border: 1px solid #e8b13f; color: #e8b13f; font-family: monospace; cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;">Force Continue (if stuck)</button>
+        </div>
+    </div>
+
+    <!-- ========================================
+         MAIN APPLICATION
+         ======================================== -->
+    <div id="app" class="app hidden">
+        
+        <!-- Header - System Bar -->
+        <header class="system-header">
+            <div class="header-left">
+                <div class="brand">AMERICA-D</div>
+                <nav class="menu-bar">
+                    <div class="menu-item" data-menu="file">
+                        FILE
+                        <div class="dropdown">
+                            <div class="dropdown-item" data-action="new">
+                                <span>NEW DESIGN</span>
+                                <span class="shortcut">CTRL+N</span>
+                            </div>
+                            <div class="dropdown-item" data-action="open">
+                                <span>OPEN</span>
+                                <span class="shortcut">CTRL+O</span>
+                            </div>
+                            <div class="dropdown-item" data-action="save">
+                                <span>SAVE</span>
+                                <span class="shortcut">CTRL+S</span>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" data-action="import">
+                                <span>IMPORT</span>
+                                <span class="shortcut">CTRL+I</span>
+                            </div>
+                            <div class="dropdown-item" data-action="export">
+                                <span>EXPORT</span>
+                                <span class="shortcut">CTRL+E</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="menu-item" data-menu="edit">
+                        EDIT
+                        <div class="dropdown">
+                            <div class="dropdown-item" data-action="undo">
+                                <span>UNDO</span>
+                                <span class="shortcut">CTRL+Z</span>
+                            </div>
+                            <div class="dropdown-item" data-action="redo">
+                                <span>REDO</span>
+                                <span class="shortcut">CTRL+Y</span>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" data-action="copy">
+                                <span>COPY</span>
+                                <span class="shortcut">CTRL+C</span>
+                            </div>
+                            <div class="dropdown-item" data-action="paste">
+                                <span>PASTE</span>
+                                <span class="shortcut">CTRL+V</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="menu-item" data-menu="view">
+                        VIEW
+                        <div class="dropdown">
+                            <div class="dropdown-item" data-action="fit">
+                                <span>ZOOM FIT</span>
+                                <span class="shortcut">F</span>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" data-action="front">
+                                <span>FRONT</span>
+                                <span class="shortcut">1</span>
+                            </div>
+                            <div class="dropdown-item" data-action="top">
+                                <span>TOP</span>
+                                <span class="shortcut">2</span>
+                            </div>
+                            <div class="dropdown-item" data-action="right">
+                                <span>RIGHT</span>
+                                <span class="shortcut">3</span>
+                            </div>
+                            <div class="dropdown-item" data-action="iso">
+                                <span>ISOMETRIC</span>
+                                <span class="shortcut">4</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="menu-item" data-menu="tools">
+                        TOOLS
+                        <div class="dropdown">
+                            <div class="dropdown-item" data-action="measure">
+                                <span>MEASURE</span>
+                                <span class="shortcut">M</span>
+                            </div>
+                            <div class="dropdown-item" data-action="section">
+                                <span>SECTION</span>
+                                <span class="shortcut">/</span>
+                            </div>
+                            <div class="dropdown-item" data-action="render">
+                                <span>RENDER</span>
+                                <span class="shortcut">R</span>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+            
+            <div class="header-center">
+                <div class="doc-title">
+                    <span contenteditable="true">UNTITLED.AD</span>
+                    <span class="badge badge-primary">MODIFIED</span>
+                </div>
+            </div>
+            
+            <div class="header-right">
+                <button class="header-btn" title="Settings" data-action="settings">◉</button>
+                <button class="header-btn" title="Help" data-action="help">?</button>
+                <div class="user-indicator" title="User Profile">OP</div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="workspace">
+            
+            <!-- Left Toolbar -->
+            <aside class="tool-palette">
+                <div class="tool-section">
+                    <button class="tool-btn active" data-tool="select" title="SELECT (S)">◉</button>
+                    <button class="tool-btn" data-tool="sketch" title="SKETCH (C)">✎</button>
+                    <button class="tool-btn" data-tool="extrude" title="EXTRUDE (E)">▮</button>
+                    <button class="tool-btn" data-tool="revolve" title="REVOLVE">↻</button>
+                </div>
+                <div class="tool-divider"></div>
+                <div class="tool-section">
+                    <button class="tool-btn" data-tool="line" title="LINE (L)">╱</button>
+                    <button class="tool-btn" data-tool="rectangle" title="RECTANGLE (R)">▭</button>
+                    <button class="tool-btn" data-tool="circle" title="CIRCLE (O)">○</button>
+                    <button class="tool-btn" data-tool="arc" title="ARC (A)">⌒</button>
+                    <button class="tool-btn" data-tool="polygon" title="POLYGON">⬡</button>
+                </div>
+                <div class="tool-divider"></div>
+                <div class="tool-section">
+                    <button class="tool-btn" data-tool="fillet" title="FILLET (F)">⊃</button>
+                    <button class="tool-btn" data-tool="chamfer" title="CHAMFER">⊐</button>
+                    <button class="tool-btn" data-tool="mirror" title="MIRROR">⇄</button>
+                    <button class="tool-btn" data-tool="pattern" title="PATTERN">⫯</button>
+                </div>
+                <div class="tool-divider"></div>
+                <div class="tool-section">
+                    <button class="tool-btn" data-tool="move" data-transform="translate" title="MOVE (T)">⇖</button>
+                    <button class="tool-btn" data-tool="rotate" data-transform="rotate" title="ROTATE (R)">↻</button>
+                    <button class="tool-btn" data-tool="scale" data-transform="scale" title="SCALE">⤢</button>
+                </div>
+            </aside>
+
+            <!-- Viewport Area -->
+            <main class="viewport-area">
+                <!-- Viewport Toolbar -->
+                <div class="viewport-toolbar">
+                    <div class="toolbar-left-group">
+                        <button class="view-btn active" data-view="3d">3D</button>
+                        <button class="view-btn" data-view="top">TOP</button>
+                        <button class="view-btn" data-view="front">FRONT</button>
+                        <button class="view-btn" data-view="right">RIGHT</button>
+                        <button class="view-btn" data-view="left">LEFT</button>
+                    </div>
+                    <div class="toolbar-right-group">
+                        <button class="toggle-btn active" data-toggle="grid" title="Toggle Grid">⊞</button>
+                        <button class="toggle-btn active" data-toggle="axes" title="Toggle Axes">⚯</button>
+                        <button class="toggle-btn" data-toggle="shadows" title="Toggle Shadows">◐</button>
+                        <select class="render-select" id="render-mode">
+                            <option value="shaded">SHADED</option>
+                            <option value="wireframe">WIREFRAME</option>
+                            <option value="hidden">HIDDEN LINE</option>
+                            <option value="xray">X-RAY</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 3D Viewport -->
+                <div class="viewport" id="viewport">
+                    <canvas id="cad-canvas"></canvas>
+                    
+                    <!-- ViewCube -->
+                    <div class="viewcube-container">
+                        <div class="viewcube" id="viewcube">
+                            <div class="face front">FRONT</div>
+                            <div class="face back">BACK</div>
+                            <div class="face right">RIGHT</div>
+                            <div class="face left">LEFT</div>
+                            <div class="face top">TOP</div>
+                            <div class="face bottom">BOTTOM</div>
+                        </div>
+                    </div>
+
+                    <!-- Navigation Gizmo -->
+                    <div class="nav-gizmo">
+                        <div class="gizmo-ring"></div>
+                        <div class="gizmo-axis x">X</div>
+                        <div class="gizmo-axis y">Y</div>
+                        <div class="gizmo-axis z">Z</div>
+                    </div>
+
+                    <!-- Data Readouts -->
+                    <div class="viewport-overlay">
+                        <div class="data-readout">
+                            <span>SCALE: <span class="value">1.000</span></span>
+                        </div>
+                        <div class="data-readout">
+                            <span>UNITS: <span class="value">MM</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Command Line -->
+                <div class="command-line">
+                    <div class="command-input-wrap">
+                        <span class="command-prompt">></span>
+                        <input type="text" id="command-input" placeholder="ENTER COMMAND..." autocomplete="off">
+                    </div>
+                    <div class="command-hint" id="command-hint">READY // TYPE '?' FOR HELP</div>
+                </div>
+            </main>
+
+            <!-- Right Data Panel -->
+            <aside class="data-panel">
+                <div class="panel-tabs">
+                    <button class="tab-btn active" data-tab="properties">PROPERTIES</button>
+                    <button class="tab-btn" data-tab="browser">BROWSER</button>
+                    <button class="tab-btn" data-tab="materials">MATERIALS</button>
+                </div>
+
+                <div class="panel-content">
+                    <!-- Properties Panel -->
+                    <div class="panel active" id="panel-properties">
+                        <div class="data-section">
+                            <div class="section-header">
+                                <span class="section-title">IDENTITY</span>
+                            </div>
+                            <div class="section-body">
+                                <div class="property-row">
+                                    <span class="property-label">NAME</span>
+                                    <input type="text" class="property-input" value="BODY_001">
+                                </div>
+                                <div class="property-row">
+                                    <span class="property-label">TYPE</span>
+                                    <select class="property-select">
+                                        <option>SOLID</option>
+                                        <option>SURFACE</option>
+                                        <option>MESH</option>
+                                    </select>
+                                </div>
+                                <div class="property-row">
+                                    <span class="property-label">MATERIAL</span>
+                                    <select class="property-select">
+                                        <option>AL-6061-T6</option>
+                                        <option>STL-1018</option>
+                                        <option>TI-6AL-4V</option>
+                                        <option>CUSTOM</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="data-section">
+                            <div class="section-header">
+                                <span class="section-title">TRANSFORM</span>
+                            </div>
+                            <div class="section-body">
+                                <div class="vector-group">
+                                    <label class="vector-label">POSITION (MM)</label>
+                                    <div class="vector-inputs">
+                                        <div class="vector-input">
+                                            <span class="axis-marker x">X</span>
+                                            <input type="number" value="0.000" step="0.1">
+                                        </div>
+                                        <div class="vector-input">
+                                            <span class="axis-marker y">Y</span>
+                                            <input type="number" value="0.000" step="0.1">
+                                        </div>
+                                        <div class="vector-input">
+                                            <span class="axis-marker z">Z</span>
+                                            <input type="number" value="0.000" step="0.1">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="vector-group">
+                                    <label class="vector-label">ROTATION (DEG)</label>
+                                    <div class="vector-inputs">
+                                        <div class="vector-input">
+                                            <span class="axis-marker x">X</span>
+                                            <input type="number" value="0" step="1">
+                                        </div>
+                                        <div class="vector-input">
+                                            <span class="axis-marker y">Y</span>
+                                            <input type="number" value="0" step="1">
+                                        </div>
+                                        <div class="vector-input">
+                                            <span class="axis-marker z">Z</span>
+                                            <input type="number" value="0" step="1">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="vector-group">
+                                    <label class="vector-label">SCALE</label>
+                                    <div class="vector-inputs">
+                                        <div class="vector-input">
+                                            <span class="axis-marker x">X</span>
+                                            <input type="number" value="1.000" step="0.01">
+                                        </div>
+                                        <div class="vector-input">
+                                            <span class="axis-marker y">Y</span>
+                                            <input type="number" value="1.000" step="0.01">
+                                        </div>
+                                        <div class="vector-input">
+                                            <span class="axis-marker z">Z</span>
+                                            <input type="number" value="1.000" step="0.01">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="data-section">
+                            <div class="section-header">
+                                <span class="section-title">GEOMETRY DATA</span>
+                            </div>
+                            <div class="section-body">
+                                <div class="info-grid">
+                                    <div class="info-item">
+                                        <span class="info-label">VOLUME</span>
+                                        <span class="info-value">1250.00 MM³</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <span class="info-label">SURFACE</span>
+                                        <span class="info-value">650.00 MM²</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <span class="info-label">FACES</span>
+                                        <span class="info-value">6</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <span class="info-label">EDGES</span>
+                                        <span class="info-value">12</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <span class="info-label">VERTICES</span>
+                                        <span class="info-value">8</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <span class="info-label">MASS</span>
+                                        <span class="info-value">3.375 KG</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Browser Panel -->
+                    <div class="panel" id="panel-browser">
+                        <div class="data-section">
+                            <div class="section-header">
+                                <span class="section-title">FEATURE TREE</span>
+                            </div>
+                            <div class="section-body">
+                                <div class="feature-tree">
+                                    <div class="tree-node expanded">
+                                        <span class="tree-toggle">▶</span>
+                                        <span class="tree-icon">◈</span>
+                                        <span class="tree-label">ORIGIN</span>
+                                    </div>
+                                    <div class="tree-children">
+                                        <div class="tree-node">
+                                            <span class="tree-icon">─</span>
+                                            <span class="tree-label">XY_PLANE</span>
+                                        </div>
+                                        <div class="tree-node">
+                                            <span class="tree-icon">─</span>
+                                            <span class="tree-label">YZ_PLANE</span>
+                                        </div>
+                                        <div class="tree-node">
+                                            <span class="tree-icon">─</span>
+                                            <span class="tree-label">ZX_PLANE</span>
+                                        </div>
+                                    </div>
+                                    <div class="tree-node">
+                                        <span class="tree-toggle">▶</span>
+                                        <span class="tree-icon">▪</span>
+                                        <span class="tree-label">BODIES</span>
+                                    </div>
+                                    <div class="tree-node">
+                                        <span class="tree-toggle">▶</span>
+                                        <span class="tree-icon">✎</span>
+                                        <span class="tree-label">SKETCHES</span>
+                                    </div>
+                                    <div class="tree-node">
+                                        <span class="tree-toggle">▶</span>
+                                        <span class="tree-icon">⚙</span>
+                                        <span class="tree-label">CONSTRUCTION</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Materials Panel -->
+                    <div class="panel" id="panel-materials">
+                        <div class="data-section">
+                            <div class="section-header">
+                                <span class="section-title">MATERIAL LIBRARY</span>
+                            </div>
+                            <div class="section-body">
+                                <div class="property-row">
+                                    <span class="property-label">SEARCH</span>
+                                    <input type="text" class="property-input" placeholder="MATERIAL...">
+                                </div>
+                                <div class="divider"></div>
+                                <div class="info-grid" style="gap: var(--space-2);">
+                                    <div class="info-item" style="padding: var(--space-2); background: var(--bg-300); border-radius: var(--radius-sm);">
+                                        <span class="info-label">AL-6061-T6</span>
+                                        <span class="info-value">ρ: 2700 KG/M³</span>
+                                    </div>
+                                    <div class="info-item" style="padding: var(--space-2); background: var(--bg-300); border-radius: var(--radius-sm);">
+                                        <span class="info-label">STL-1018</span>
+                                        <span class="info-value">ρ: 7850 KG/M³</span>
+                                    </div>
+                                    <div class="info-item" style="padding: var(--space-2); background: var(--bg-300); border-radius: var(--radius-sm);">
+                                        <span class="info-label">TI-6AL-4V</span>
+                                        <span class="info-value">ρ: 4430 KG/M³</span>
+                                    </div>
+                                    <div class="info-item" style="padding: var(--space-2); background: var(--bg-300); border-radius: var(--radius-sm);">
+                                        <span class="info-label">CU-110</span>
+                                        <span class="info-value">ρ: 8960 KG/M³</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- Timeline -->
+        <div class="timeline">
+            <div class="timeline-controls">
+                <button class="timeline-btn" title="Roll Back" data-action="rollback">|◀</button>
+                <button class="timeline-btn" title="Previous Feature" data-action="prev">◀</button>
+            </div>
+            <div class="timeline-track">
+                <div class="timeline-progress"></div>
+                <div class="timeline-handle" style="left: 100%"></div>
+            </div>
+            <div class="timeline-controls">
+                <button class="timeline-btn" title="Next Feature" data-action="next">▶</button>
+            </div>
+            <div class="timeline-info">
+                <span>FEATURE:</span>
+                <span class="timeline-counter">0 / 0</span>
+                <span class="badge">HISTORY</span>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <footer class="status-bar">
+            <div class="status-left">
+                <div class="status-item">
+                    <span class="status-indicator"></span>
+                    <span>SYSTEM READY</span>
+                </div>
+                <div class="status-item">
+                    <span>MODE:</span>
+                    <span class="status-value" id="tool-mode">SELECT</span>
+                </div>
+            </div>
+            <div class="status-center">
+                <div class="status-item">
+                    <span>X:</span>
+                    <span class="status-coords" id="cursor-x">0.000</span>
+                    <span>Y:</span>
+                    <span class="status-coords" id="cursor-y">0.000</span>
+                    <span>Z:</span>
+                    <span class="status-coords" id="cursor-z">0.000</span>
+                </div>
+            </div>
+            <div class="status-right">
+                <button class="status-btn active" id="snap-toggle">SNAP: ON</button>
+                <button class="status-btn active" id="grid-toggle">GRID: ON</button>
+                <div class="status-item">
+                    <span>FPS:</span>
+                    <span class="status-fps" id="fps-counter">60</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Floating Tool Options -->
+    <div id="tool-options" class="tool-options hidden">
+        <div class="tool-options-header">TOOL OPTIONS</div>
+        <div class="tool-options-body" id="tool-options-content">
+            <!-- Dynamic content -->
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="context-menu hidden">
+        <div class="context-item" data-action="edit">
+            <span>EDIT</span>
+            <span class="shortcut">E</span>
+        </div>
+        <div class="context-item" data-action="duplicate">
+            <span>DUPLICATE</span>
+            <span class="shortcut">CTRL+D</span>
+        </div>
+        <div class="context-item" data-action="hide">
+            <span>HIDE</span>
+            <span class="shortcut">H</span>
+        </div>
+        <div class="context-divider"></div>
+        <div class="context-item" data-action="delete">
+            <span>DELETE</span>
+            <span class="shortcut">DEL</span>
+        </div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <!-- New Design Modal -->
+        <div id="new-design-modal" class="modal hidden">
+            <div class="modal-header">
+                <span class="modal-title">NEW DESIGN</span>
+                <button class="modal-close" data-action="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="template-grid">
+                    <div class="template-item selected" data-template="empty">
+                        <div class="template-preview">∅</div>
+                        <span>EMPTY</span>
+                    </div>
+                    <div class="template-item" data-template="box">
+                        <div class="template-preview">▮</div>
+                        <span>BOX</span>
+                    </div>
+                    <div class="template-item" data-template="cylinder">
+                        <div class="template-preview">▰</div>
+                        <span>CYLINDER</span>
+                    </div>
+                    <div class="template-item" data-template="sphere">
+                        <div class="template-preview">●</div>
+                        <span>SPHERE</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-action="cancel">CANCEL</button>
+                <button class="btn btn-primary" data-action="create">CREATE</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
