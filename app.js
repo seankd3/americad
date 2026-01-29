@@ -73,8 +73,7 @@ import { ModalTransformManager } from './src/ui/modal-transform.js';
 import { CameraPresetManager, CameraPresets, handleViewShortcut } from './src/ui/camera-presets.js';
 
 // Pie menu system (Blender-style radial menus)
-// Reserved for future radial menu integration
-// import { PieMenu, PieMenuContext } from './src/ui/pie-menu.js';
+import { PieMenu, PieMenuContext } from './src/ui/pie-menu.js';
 
 // ========================================
 // SYSTEM STATE
@@ -145,7 +144,7 @@ let propertyPanel; // Property panel UI component
 let viewportModes; // Viewport display mode manager
 let modalTransformManager; // Blender-style G/R/S modal transforms
 let cameraPresetManager; // Orthographic view presets
-// let pieMenu; // Radial pie menu for quick actions (reserved)
+let pieMenu; // Radial pie menu for quick actions
 let commandPalette; // Command palette (Ctrl+Shift+P / F3)
 
 // ========================================

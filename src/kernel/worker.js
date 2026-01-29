@@ -1649,6 +1649,170 @@ function shellSolid(shape, faceIds, thickness, faceSelection = 'largest') {
 }
 
 /**
+ * Offset a wire (2D sketch offset)
+ * Creates parallel curves at specified distance from input wire
+ * @param {TopoDS_Wire} wire - The wire to offset
+ * @param {number} distance - Offset distance (positive = outward, negative = inward)
+ * @param {string} mode - 'single' (one direction) or 'both' (both directions)
+ * @returns {{shape: TopoDS_Wire|TopoDS_Compound, id: string, type: string}}
+ */
+function offsetWire(wire, distance, mode = 'single') {
+  if (distance === 0) {
+    throw new Error('Offset distance cannot be zero');
+  }
+
+  // BRepOffsetAPI_MakeOffset_1 takes a wire and join type
+  const offsetMaker = new oc.BRepOffsetAPI_MakeOffset_1(
+    wire,
+    oc.GeomAbs_JoinType.GeomAbs_Arc, // Arc join for smooth corners
+    false // Not open result
+  );
+
+  if (mode === 'both') {
+    // Create both inward and outward offsets
+    offsetMaker.Perform(Math.abs(distance), 0);
+
+    if (!offsetMaker.IsDone()) {
+      throw new Error('Offset operation failed - distance may cause self-intersection');
+    }
+
+    const outerShape = offsetMaker.Shape();
+
+    // Create second offset in opposite direction
+    const offsetMaker2 = new oc.BRepOffsetAPI_MakeOffset_1(
+      wire,
+      oc.GeomAbs_JoinType.GeomAbs_Arc,
+      false
+    );
+    offsetMaker2.Perform(-Math.abs(distance), 0);
+
+    if (!offsetMaker2.IsDone()) {
+      throw new Error('Offset operation failed - inward distance may cause self-intersection');
+    }
+
+    const innerShape = offsetMaker2.Shape();
+
+    // Combine into a compound
+    const builder = new oc.BRep_Builder();
+    const compound = new oc.TopoDS_Compound();
+    builder.MakeCompound(compound);
+    builder.Add(compound, wire); // Original
+    builder.Add(compound, outerShape);
+    builder.Add(compound, innerShape);
+
+    return {
+      shape: compound,
+      id: getTopoId(compound),
+      type: 'offsetWireBoth',
+    };
+  } else {
+    // Single direction offset
+    offsetMaker.Perform(distance, 0);
+
+    if (!offsetMaker.IsDone()) {
+      throw new Error('Offset operation failed - distance may cause self-intersection');
+    }
+
+    const result = offsetMaker.Shape();
+
+    return {
+      shape: result,
+      id: getTopoId(result),
+      type: 'offsetWire',
+    };
+  }
+}
+
+/**
+ * Offset faces of a solid (3D face offset / thicken)
+ * Moves selected faces by a distance while maintaining solid integrity
+ * @param {TopoDS_Shape} shape - The solid shape
+ * @param {string[]} faceIds - Array of face IDs to offset (empty = all faces)
+ * @param {number} distance - Offset distance (positive = outward, negative = inward)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string, facesModified: number}}
+ */
+function offsetFaces(shape, faceIds, distance) {
+  if (distance === 0) {
+    throw new Error('Offset distance cannot be zero');
+  }
+
+  // Use BRepOffsetAPI_MakeOffsetShape for offsetting the entire shape
+  // or BRepOffsetAPI_MakeThickSolid for selective face offset
+  const offsetMaker = new oc.BRepOffsetAPI_MakeOffsetShape();
+
+  // Collect faces to offset
+  const facesToOffset = new oc.TopTools_ListOfShape_1();
+  let faceCount = 0;
+
+  if (faceIds && faceIds.length > 0) {
+    // Offset specific faces
+    const explorer = new oc.TopExp_Explorer_2(
+      shape,
+      oc.TopAbs_ShapeEnum.TopAbs_FACE,
+      oc.TopAbs_ShapeEnum.TopAbs_SHAPE
+    );
+
+    while (explorer.More()) {
+      const face = oc.TopoDS.Face_1(explorer.Current());
+      const faceId = getTopoId(face);
+
+      if (faceIds.includes(faceId)) {
+        facesToOffset.Append_1(face);
+        faceCount++;
+      }
+
+      explorer.Next();
+    }
+
+    if (faceCount === 0) {
+      throw new Error('None of the specified face IDs were found');
+    }
+  } else {
+    // Offset all faces (equivalent to shell/thicken)
+    const explorer = new oc.TopExp_Explorer_2(
+      shape,
+      oc.TopAbs_ShapeEnum.TopAbs_FACE,
+      oc.TopAbs_ShapeEnum.TopAbs_SHAPE
+    );
+
+    while (explorer.More()) {
+      const face = oc.TopoDS.Face_1(explorer.Current());
+      facesToOffset.Append_1(face);
+      faceCount++;
+      explorer.Next();
+    }
+  }
+
+  // PerformByJoin: offset shape using join algorithm
+  // Parameters: shape, offset, tolerance, mode, intersection, selfInter, join
+  offsetMaker.PerformByJoin(
+    shape,
+    distance,
+    1e-6, // Tolerance
+    oc.BRepOffset_Mode.BRepOffset_Skin,
+    false, // No intersection check
+    false, // No self-intersection check
+    oc.GeomAbs_JoinType.GeomAbs_Arc,
+    false // Remove internal edges
+  );
+
+  if (!offsetMaker.IsDone()) {
+    throw new Error(
+      'Face offset operation failed - distance may be too large or cause self-intersection'
+    );
+  }
+
+  const result = offsetMaker.Shape();
+
+  return {
+    shape: result,
+    id: getTopoId(result),
+    type: 'offsetFaces',
+    facesModified: faceCount,
+  };
+}
+
+/**
  * Get face IDs for a shape (for selection/analysis)
  * @param {TopoDS_Shape} shape - The shape to analyze
  * @returns {{faceIds: string[], faces: Array<{id: string, area: number, centroid: Object, normal: Object}>}}
@@ -2832,6 +2996,30 @@ self.onmessage = async function (e) {
         const shellMesh = tessellate(shelled.shape);
         result = { id: shelled.id, mesh: shellMesh };
         break;
+
+      case 'offsetWire': {
+        const wireToOffset = shapes.get(params.wireId);
+        if (!wireToOffset) throw new Error(`Wire not found: ${params.wireId}`);
+        const offsetResult = offsetWire(wireToOffset, params.distance, params.mode || 'single');
+        shapes.set(offsetResult.id, offsetResult.shape);
+        // Wires don't have mesh, but return id
+        result = { id: offsetResult.id, type: offsetResult.type };
+        break;
+      }
+
+      case 'offsetFaces': {
+        const shapeToOffset = shapes.get(params.shapeId);
+        if (!shapeToOffset) throw new Error(`Shape not found: ${params.shapeId}`);
+        const offsetFaceResult = offsetFaces(shapeToOffset, params.faceIds || [], params.distance);
+        shapes.set(offsetFaceResult.id, offsetFaceResult.shape);
+        const offsetFaceMesh = tessellate(offsetFaceResult.shape);
+        result = {
+          id: offsetFaceResult.id,
+          mesh: offsetFaceMesh,
+          facesModified: offsetFaceResult.facesModified,
+        };
+        break;
+      }
 
       case 'getFaces':
         const shapeFaces = shapes.get(params.shapeId);
