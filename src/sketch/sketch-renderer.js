@@ -674,7 +674,8 @@ export class SketchRenderer {
   }
 
   /**
-   * Render constraint indicators (H for horizontal, V for vertical)
+   * Render constraint indicators for all constraint types
+   * Supports: H/V, tangent, perpendicular, parallel, equal, concentric, midpoint, symmetric, fix, colinear
    */
   renderConstraintIndicators(sketch) {
     if (!sketch || !sketch.constraints) return;
@@ -756,8 +757,243 @@ export class SketchRenderer {
           dimensionObj.userData.entityId = circleId;
           this.constraintGroup.add(dimensionObj);
         }
+      } else if (constraint.type === ConstraintType.COINCIDENT) {
+        // Coincident: dot at the shared point location
+        const entity1 = sketch.getEntity(constraint.entities[0]);
+        if (!entity1) continue;
+
+        const pos = entity1.x !== undefined ? entity1 : entity1.center || entity1.start;
+        if (!pos) continue;
+
+        const symbolPos = sketch.sketchToWorld({ x: pos.x, y: pos.y });
+        const symbol = this.createAdvancedConstraintSymbol('•', symbolPos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.TANGENT) {
+        // Tangent: T symbol between the two entities
+        const entity1 = sketch.getEntity(constraint.entities[0]);
+        const entity2 = sketch.getEntity(constraint.entities[1]);
+        if (!entity1 || !entity2) continue;
+
+        // Find connection point (approximate center between entities)
+        const pos = this.getConstraintMidpoint(entity1, entity2, sketch);
+        if (!pos) continue;
+
+        const symbol = this.createAdvancedConstraintSymbol('T', pos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.PERPENDICULAR) {
+        // Perpendicular: ⊥ symbol
+        const entity1 = sketch.getEntity(constraint.entities[0]);
+        const entity2 = sketch.getEntity(constraint.entities[1]);
+        if (!entity1 || !entity2) continue;
+
+        const pos = this.getConstraintMidpoint(entity1, entity2, sketch);
+        if (!pos) continue;
+
+        const symbol = this.createAdvancedConstraintSymbol('⊥', pos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.PARALLEL) {
+        // Parallel: ∥ symbol
+        const entity1 = sketch.getEntity(constraint.entities[0]);
+        const entity2 = sketch.getEntity(constraint.entities[1]);
+        if (!entity1 || !entity2) continue;
+
+        const pos = this.getConstraintMidpoint(entity1, entity2, sketch);
+        if (!pos) continue;
+
+        const symbol = this.createAdvancedConstraintSymbol('∥', pos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.EQUAL) {
+        // Equal: = symbol on each entity
+        for (const entityId of constraint.entities) {
+          const entity = sketch.getEntity(entityId);
+          if (!entity) continue;
+
+          const pos = this.getEntityCenter(entity, sketch);
+          if (!pos) continue;
+
+          const symbol = this.createAdvancedConstraintSymbol('=', pos, constraintColor, sketch.plane);
+          symbol.name = `constraint-${constraint.id}-${entityId}`;
+          symbol.userData.constraintId = constraint.id;
+          this.constraintGroup.add(symbol);
+        }
+      } else if (constraint.type === ConstraintType.CONCENTRIC) {
+        // Concentric: ◎ symbol at shared center
+        const circle1 = sketch.getEntity(constraint.entities[0]);
+        if (!circle1 || !circle1.center) continue;
+
+        const symbolPos = sketch.sketchToWorld({ x: circle1.center.x, y: circle1.center.y });
+        const symbol = this.createAdvancedConstraintSymbol('◎', symbolPos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.MIDPOINT) {
+        // Midpoint: M symbol at the point
+        const point = sketch.getEntity(constraint.entities[0]);
+        if (!point || point.x === undefined) continue;
+
+        const symbolPos = sketch.sketchToWorld({ x: point.x, y: point.y });
+        const symbol = this.createAdvancedConstraintSymbol('M', symbolPos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.SYMMETRIC) {
+        // Symmetric: ⧫ symbol between symmetric entities
+        const entity1 = sketch.getEntity(constraint.entities[0]);
+        const entity2 = sketch.getEntity(constraint.entities[1]);
+        if (!entity1 || !entity2) continue;
+
+        const pos = this.getConstraintMidpoint(entity1, entity2, sketch);
+        if (!pos) continue;
+
+        const symbol = this.createAdvancedConstraintSymbol('⧫', pos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.FIXED || constraint.type === 'fix') {
+        // Fix: pin/anchor icon at entity location
+        const entity = sketch.getEntity(constraint.entities[0]);
+        if (!entity) continue;
+
+        const pos = this.getEntityCenter(entity, sketch);
+        if (!pos) continue;
+
+        const symbol = this.createAdvancedConstraintSymbol('⚓', pos, 0xff6600, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
+      } else if (constraint.type === ConstraintType.COLINEAR) {
+        // Colinear: dash symbol between lines
+        const line1 = sketch.getEntity(constraint.entities[0]);
+        const line2 = sketch.getEntity(constraint.entities[1]);
+        if (!line1 || !line2) continue;
+
+        const pos = this.getConstraintMidpoint(line1, line2, sketch);
+        if (!pos) continue;
+
+        const symbol = this.createAdvancedConstraintSymbol('—', pos, constraintColor, sketch.plane);
+        symbol.name = `constraint-${constraint.id}`;
+        symbol.userData.constraintId = constraint.id;
+        this.constraintGroup.add(symbol);
       }
     }
+  }
+
+  /**
+   * Get the center position of an entity for symbol placement
+   */
+  getEntityCenter(entity, sketch) {
+    if (!entity) return null;
+
+    if (entity.x !== undefined && entity.y !== undefined) {
+      // It's a point
+      return sketch.sketchToWorld({ x: entity.x, y: entity.y });
+    }
+
+    if (entity.start && entity.end) {
+      // It's a line
+      const midX = (entity.start.x + entity.end.x) / 2;
+      const midY = (entity.start.y + entity.end.y) / 2;
+      return sketch.sketchToWorld({ x: midX, y: midY + 3 }); // Offset slightly
+    }
+
+    if (entity.center) {
+      // It's a circle or arc
+      return sketch.sketchToWorld({ x: entity.center.x, y: entity.center.y + entity.radius + 3 });
+    }
+
+    return null;
+  }
+
+  /**
+   * Get a midpoint between two entities for constraint symbol placement
+   */
+  getConstraintMidpoint(entity1, entity2, sketch) {
+    const center1 = this.getEntityCenterCoords(entity1);
+    const center2 = this.getEntityCenterCoords(entity2);
+
+    if (!center1 || !center2) return null;
+
+    const midX = (center1.x + center2.x) / 2;
+    const midY = (center1.y + center2.y) / 2;
+
+    return sketch.sketchToWorld({ x: midX, y: midY });
+  }
+
+  /**
+   * Get center coordinates of an entity (2D, not world)
+   */
+  getEntityCenterCoords(entity) {
+    if (!entity) return null;
+
+    if (entity.x !== undefined && entity.y !== undefined) {
+      return { x: entity.x, y: entity.y };
+    }
+
+    if (entity.start && entity.end) {
+      return {
+        x: (entity.start.x + entity.end.x) / 2,
+        y: (entity.start.y + entity.end.y) / 2,
+      };
+    }
+
+    if (entity.center) {
+      return { x: entity.center.x, y: entity.center.y };
+    }
+
+    return null;
+  }
+
+  /**
+   * Create an advanced constraint symbol using canvas text
+   */
+  createAdvancedConstraintSymbol(symbol, position, color, _plane) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = 64;
+    canvas.height = 64;
+
+    // Background circle
+    ctx.fillStyle = 'rgba(26, 26, 62, 0.85)';
+    ctx.beginPath();
+    ctx.arc(32, 32, 28, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Border
+    const hexColor = '#' + color.toString(16).padStart(6, '0');
+    ctx.strokeStyle = hexColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Symbol text
+    ctx.fillStyle = hexColor;
+    ctx.font = 'bold 32px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(symbol, 32, 32);
+
+    // Create sprite
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMaterial = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+    });
+
+    const sprite = new THREE.Sprite(spriteMaterial);
+    sprite.position.copy(position);
+    sprite.position.z += 0.3;
+    sprite.scale.set(4, 4, 1);
+
+    return sprite;
   }
 
   /**

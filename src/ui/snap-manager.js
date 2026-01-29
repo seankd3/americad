@@ -1,8 +1,8 @@
 /**
  * Ameri-CAD Snap Manager
  *
- * Intelligent snapping system for precise geometry alignment.
- * Supports multiple snap types with visual feedback.
+ * Professional AutoCAD/Fusion-style snapping system with visual indicators.
+ * Supports multiple snap types with distinctive markers and keyboard modifiers.
  */
 
 import { SketchPoint } from '../sketch/sketch-manager.js';
@@ -11,12 +11,19 @@ import { SketchPoint } from '../sketch/sketch-manager.js';
 export const SnapType = {
   ENDPOINT: { name: 'Endpoint', color: 0x00ff00, priority: 1, shape: 'square' },
   MIDPOINT: { name: 'Midpoint', color: 0x00ffff, priority: 2, shape: 'triangle' },
-  CENTER: { name: 'Center', color: 0xff00ff, priority: 3, shape: 'circle' },
+  CENTER: { name: 'Center', color: 0xff00ff, priority: 3, shape: 'circle-cross' },
   INTERSECTION: { name: 'Intersection', color: 0xffff00, priority: 4, shape: 'cross' },
-  PERPENDICULAR: { name: 'Perpendicular', color: 0xff8800, priority: 5, shape: 'square' },
-  TANGENT: { name: 'Tangent', color: 0x88ff00, priority: 6, shape: 'circle' },
-  NEAREST: { name: 'Nearest', color: 0x8888ff, priority: 7, shape: 'diamond' },
+  PERPENDICULAR: {
+    name: 'Perpendicular',
+    color: 0xff8800,
+    priority: 5,
+    shape: 'perpendicular',
+  },
+  TANGENT: { name: 'Tangent', color: 0x88ff00, priority: 6, shape: 'tangent' },
+  QUADRANT: { name: 'Quadrant', color: 0xff0088, priority: 7, shape: 'diamond' },
+  NEAREST: { name: 'Nearest', color: 0x8888ff, priority: 8, shape: 'x-mark' },
   GRID: { name: 'Grid', color: 0x666666, priority: 10, shape: 'dot' },
+  ANGLE: { name: 'Angle', color: 0xffaa00, priority: 9, shape: 'arc' },
 };
 
 /**
@@ -32,7 +39,7 @@ export class SnapResult {
 }
 
 /**
- * Snap Manager - handles all snapping logic
+ * Snap Manager - Professional AutoCAD/Fusion-style snapping
  */
 export class SnapManager {
   constructor() {
@@ -45,13 +52,23 @@ export class SnapManager {
       intersection: true,
       perpendicular: false, // Can be slow, disabled by default
       tangent: false, // Can be slow, disabled by default
+      quadrant: true, // Circle quadrants (0°, 90°, 180°, 270°)
       nearest: true,
+      angle: true, // Angle increment snapping
     };
 
     // Settings
     this.gridSize = 5;
     this.tolerance = 10; // Snap tolerance in screen pixels
     this.active = true; // Master toggle
+    this.angleIncrement = 15; // Degrees for angle snap
+    this.snapDistance = 10; // Alias for tolerance
+
+    // Keyboard modifier states
+    this.modifiers = {
+      shift: false, // Temporarily disable snaps
+      ctrl: false, // Grid only mode
+    };
 
     // Current snap state (for rendering)
     this.currentSnap = null;
@@ -61,7 +78,17 @@ export class SnapManager {
   }
 
   /**
-   * Toggle all snapping on/off
+   * Toggle all snapping on/off (F3 style)
+   */
+  toggleActive() {
+    this.active = !this.active;
+    this.currentSnap = null;
+    this._notifyChange();
+    return this.active;
+  }
+
+  /**
+   * Set master toggle state
    */
   setActive(active) {
     this.active = active;
@@ -80,6 +107,18 @@ export class SnapManager {
   }
 
   /**
+   * Toggle a specific snap type on/off
+   */
+  toggleEnabled(type) {
+    if (type in this.enabled) {
+      this.enabled[type] = !this.enabled[type];
+      this._notifyChange();
+      return this.enabled[type];
+    }
+    return false;
+  }
+
+  /**
    * Set grid size
    */
   setGridSize(size) {
@@ -92,6 +131,37 @@ export class SnapManager {
    */
   setTolerance(tolerance) {
     this.tolerance = Math.max(1, tolerance);
+    this.snapDistance = this.tolerance;
+  }
+
+  /**
+   * Set angle increment for angle snap
+   */
+  setAngleIncrement(degrees) {
+    this.angleIncrement = Math.max(1, Math.min(90, degrees));
+  }
+
+  /**
+   * Update keyboard modifier state
+   */
+  setModifier(modifier, pressed) {
+    if (modifier in this.modifiers) {
+      this.modifiers[modifier] = pressed;
+    }
+  }
+
+  /**
+   * Check if snapping is effectively disabled (via modifiers)
+   */
+  isEffectivelyDisabled() {
+    return !this.active || this.modifiers.shift;
+  }
+
+  /**
+   * Check if grid-only mode is active
+   */
+  isGridOnlyMode() {
+    return this.modifiers.ctrl;
   }
 
   /**
@@ -102,13 +172,25 @@ export class SnapManager {
    * @returns {SnapResult|null} Best snap result or null
    */
   findSnapPoint(mousePos, sketch, screenTolerance = null) {
-    if (!this.active || !sketch) {
+    // Check if snapping is disabled via modifiers
+    if (this.isEffectivelyDisabled() || !sketch) {
       this.currentSnap = null;
       return null;
     }
 
     const tolerance = screenTolerance || this.tolerance;
     const candidates = [];
+
+    // Grid-only mode (Ctrl held)
+    if (this.isGridOnlyMode()) {
+      const gridSnap = this._findGridSnap(mousePos);
+      if (gridSnap) {
+        this.currentSnap = gridSnap;
+        return gridSnap;
+      }
+      this.currentSnap = null;
+      return null;
+    }
 
     // Collect all snap candidates
     if (this.enabled.endpoint) {
@@ -129,6 +211,14 @@ export class SnapManager {
 
     if (this.enabled.perpendicular) {
       candidates.push(...this._findPerpendiculars(mousePos, sketch, tolerance));
+    }
+
+    if (this.enabled.tangent) {
+      candidates.push(...this._findTangents(mousePos, sketch, tolerance));
+    }
+
+    if (this.enabled.quadrant) {
+      candidates.push(...this._findQuadrants(mousePos, sketch, tolerance));
     }
 
     if (this.enabled.nearest) {
@@ -157,6 +247,26 @@ export class SnapManager {
   }
 
   /**
+   * Snap an angle to the configured increment
+   * @param {number} angle - Angle in degrees
+   * @param {number} threshold - Snap threshold in degrees (default: 5)
+   * @returns {{ angle: number, snapped: boolean }} Result with snapped flag
+   */
+  snapAngle(angle, threshold = 5) {
+    if (!this.enabled.angle || this.isEffectivelyDisabled()) {
+      return { angle, snapped: false };
+    }
+
+    const snappedAngle =
+      Math.round(angle / this.angleIncrement) * this.angleIncrement;
+    if (Math.abs(angle - snappedAngle) < threshold) {
+      return { angle: snappedAngle, snapped: true };
+    }
+
+    return { angle, snapped: false };
+  }
+
+  /**
    * Find endpoint snaps (vertices of lines, arcs, etc.)
    */
   _findEndpoints(mousePos, sketch, tolerance) {
@@ -167,7 +277,12 @@ export class SnapManager {
       const dist = this._distance(mousePos, point);
       if (dist <= tolerance) {
         results.push(
-          new SnapResult(new SketchPoint(point.x, point.y), SnapType.ENDPOINT, point, dist)
+          new SnapResult(
+            new SketchPoint(point.x, point.y),
+            SnapType.ENDPOINT,
+            point,
+            dist
+          )
         );
       }
     }
@@ -241,7 +356,12 @@ export class SnapManager {
         const dist = this._distance(mousePos, arc.center);
         if (dist <= tolerance) {
           results.push(
-            new SnapResult(new SketchPoint(arc.center.x, arc.center.y), SnapType.CENTER, arc, dist)
+            new SnapResult(
+              new SketchPoint(arc.center.x, arc.center.y),
+              SnapType.CENTER,
+              arc,
+              dist
+            )
           );
         }
       }
@@ -263,6 +383,83 @@ export class SnapManager {
   }
 
   /**
+   * Find quadrant snaps (circle/arc at 0°, 90°, 180°, 270°)
+   */
+  _findQuadrants(mousePos, sketch, tolerance) {
+    const results = [];
+    const quadrantAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
+
+    // Circle quadrants
+    for (const circle of sketch.circles.values()) {
+      for (const angle of quadrantAngles) {
+        const qx = circle.center.x + circle.radius * Math.cos(angle);
+        const qy = circle.center.y + circle.radius * Math.sin(angle);
+        const quadPoint = new SketchPoint(qx, qy);
+
+        const dist = this._distance(mousePos, quadPoint);
+        if (dist <= tolerance) {
+          results.push(
+            new SnapResult(quadPoint, SnapType.QUADRANT, circle, dist)
+          );
+        }
+      }
+    }
+
+    // Arc quadrants (only if quadrant falls within arc sweep)
+    for (const arc of sketch.arcs.values()) {
+      if (arc.center && arc.radius) {
+        for (const angle of quadrantAngles) {
+          // Check if this quadrant angle is within the arc
+          if (this._isAngleInArc(angle, arc)) {
+            const qx = arc.center.x + arc.radius * Math.cos(angle);
+            const qy = arc.center.y + arc.radius * Math.sin(angle);
+            const quadPoint = new SketchPoint(qx, qy);
+
+            const dist = this._distance(mousePos, quadPoint);
+            if (dist <= tolerance) {
+              results.push(
+                new SnapResult(quadPoint, SnapType.QUADRANT, arc, dist)
+              );
+            }
+          }
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Check if an angle falls within an arc's sweep
+   */
+  _isAngleInArc(angle, arc) {
+    // Normalize angles to [0, 2π]
+    const normalize = (a) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+
+    const startAngle = normalize(arc.startAngle);
+    const testAngle = normalize(angle);
+
+    let endAngle;
+    if (arc._clockwise) {
+      endAngle = normalize(startAngle - arc.sweepAngle);
+      // For clockwise, angle should be between end and start
+      if (endAngle < startAngle) {
+        return testAngle >= endAngle && testAngle <= startAngle;
+      } else {
+        return testAngle >= endAngle || testAngle <= startAngle;
+      }
+    } else {
+      endAngle = normalize(startAngle + arc.sweepAngle);
+      // For counter-clockwise, angle should be between start and end
+      if (startAngle < endAngle) {
+        return testAngle >= startAngle && testAngle <= endAngle;
+      } else {
+        return testAngle >= startAngle || testAngle <= endAngle;
+      }
+    }
+  }
+
+  /**
    * Find intersection snaps (where lines/edges cross)
    */
   _findIntersections(mousePos, sketch, tolerance) {
@@ -277,7 +474,12 @@ export class SnapManager {
           const dist = this._distance(mousePos, intersection);
           if (dist <= tolerance) {
             results.push(
-              new SnapResult(intersection, SnapType.INTERSECTION, [lines[i], lines[j]], dist)
+              new SnapResult(
+                intersection,
+                SnapType.INTERSECTION,
+                [lines[i], lines[j]],
+                dist
+              )
             );
           }
         }
@@ -291,7 +493,33 @@ export class SnapManager {
         for (const pt of intersections) {
           const dist = this._distance(mousePos, pt);
           if (dist <= tolerance) {
-            results.push(new SnapResult(pt, SnapType.INTERSECTION, [line, circle], dist));
+            results.push(
+              new SnapResult(pt, SnapType.INTERSECTION, [line, circle], dist)
+            );
+          }
+        }
+      }
+    }
+
+    // Circle-circle intersections
+    const circles = Array.from(sketch.circles.values());
+    for (let i = 0; i < circles.length; i++) {
+      for (let j = i + 1; j < circles.length; j++) {
+        const intersections = this._circleCircleIntersection(
+          circles[i],
+          circles[j]
+        );
+        for (const pt of intersections) {
+          const dist = this._distance(mousePos, pt);
+          if (dist <= tolerance) {
+            results.push(
+              new SnapResult(
+                pt,
+                SnapType.INTERSECTION,
+                [circles[i], circles[j]],
+                dist
+              )
+            );
           }
         }
       }
@@ -317,6 +545,92 @@ export class SnapManager {
     }
 
     return results;
+  }
+
+  /**
+   * Find tangent snaps (tangent point on circle from external point)
+   */
+  _findTangents(mousePos, sketch, tolerance) {
+    const results = [];
+
+    for (const circle of sketch.circles.values()) {
+      const tangents = this._tangentPoints(mousePos, circle);
+      for (const pt of tangents) {
+        const dist = this._distance(mousePos, pt);
+        if (dist <= tolerance) {
+          results.push(new SnapResult(pt, SnapType.TANGENT, circle, dist));
+        }
+      }
+    }
+
+    for (const arc of sketch.arcs.values()) {
+      if (arc.center && arc.radius) {
+        const tangents = this._tangentPoints(mousePos, {
+          center: arc.center,
+          radius: arc.radius,
+        });
+        for (const pt of tangents) {
+          // Only include if tangent point is on the arc
+          if (this._isPointOnArc(pt, arc)) {
+            const dist = this._distance(mousePos, pt);
+            if (dist <= tolerance) {
+              results.push(new SnapResult(pt, SnapType.TANGENT, arc, dist));
+            }
+          }
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Calculate tangent points from external point to circle
+   */
+  _tangentPoints(point, circle) {
+    const results = [];
+    const dx = point.x - circle.center.x;
+    const dy = point.y - circle.center.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    // Point must be outside the circle
+    if (d <= circle.radius) {
+      return results;
+    }
+
+    // Calculate tangent points using geometry
+    const a = Math.asin(circle.radius / d);
+    const b = Math.atan2(dy, dx);
+
+    // Two tangent points
+    const t1 = b - a;
+    const t2 = b + a;
+
+    results.push(
+      new SketchPoint(
+        circle.center.x + circle.radius * Math.sin(t1),
+        circle.center.y - circle.radius * Math.cos(t1)
+      )
+    );
+
+    results.push(
+      new SketchPoint(
+        circle.center.x - circle.radius * Math.sin(t2),
+        circle.center.y + circle.radius * Math.cos(t2)
+      )
+    );
+
+    return results;
+  }
+
+  /**
+   * Check if a point lies on an arc
+   */
+  _isPointOnArc(point, arc) {
+    const dx = point.x - arc.center.x;
+    const dy = point.y - arc.center.y;
+    const angle = Math.atan2(dy, dx);
+    return this._isAngleInArc(angle, arc);
   }
 
   /**
@@ -353,7 +667,20 @@ export class SnapManager {
       const nearest = this._nearestPointOnCircle(mousePos, circle);
       const dist = this._distance(mousePos, nearest);
       if (dist <= tolerance) {
-        results.push(new SnapResult(nearest, SnapType.NEAREST, circle, dist));
+        // Avoid duplicating quadrant points
+        const isNearQuadrant = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].some(
+          (angle) => {
+            const qx = circle.center.x + circle.radius * Math.cos(angle);
+            const qy = circle.center.y + circle.radius * Math.sin(angle);
+            return this._distance(nearest, { x: qx, y: qy }) < tolerance * 0.5;
+          }
+        );
+
+        if (!isNearQuadrant) {
+          results.push(
+            new SnapResult(nearest, SnapType.NEAREST, circle, dist)
+          );
+        }
       }
     }
 
@@ -441,12 +768,54 @@ export class SnapManager {
       const t2 = (-b + sqrtD) / (2 * a);
 
       if (t1 >= 0 && t1 <= 1) {
-        results.push(new SketchPoint(line.start.x + t1 * dx, line.start.y + t1 * dy));
+        results.push(
+          new SketchPoint(line.start.x + t1 * dx, line.start.y + t1 * dy)
+        );
       }
 
       if (t2 >= 0 && t2 <= 1 && Math.abs(t2 - t1) > 1e-10) {
-        results.push(new SketchPoint(line.start.x + t2 * dx, line.start.y + t2 * dy));
+        results.push(
+          new SketchPoint(line.start.x + t2 * dx, line.start.y + t2 * dy)
+        );
       }
+    }
+
+    return results;
+  }
+
+  /**
+   * Circle-circle intersection
+   */
+  _circleCircleIntersection(circle1, circle2) {
+    const results = [];
+
+    const dx = circle2.center.x - circle1.center.x;
+    const dy = circle2.center.y - circle1.center.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    // Check if circles intersect
+    if (
+      d > circle1.radius + circle2.radius ||
+      d < Math.abs(circle1.radius - circle2.radius) ||
+      d < 1e-10
+    ) {
+      return results;
+    }
+
+    const a =
+      (circle1.radius * circle1.radius -
+        circle2.radius * circle2.radius +
+        d * d) /
+      (2 * d);
+    const h = Math.sqrt(circle1.radius * circle1.radius - a * a);
+
+    const px = circle1.center.x + (a * dx) / d;
+    const py = circle1.center.y + (a * dy) / d;
+
+    results.push(new SketchPoint(px + (h * dy) / d, py - (h * dx) / d));
+
+    if (h > 1e-10) {
+      results.push(new SketchPoint(px - (h * dy) / d, py + (h * dx) / d));
     }
 
     return results;
@@ -499,13 +868,174 @@ export class SnapManager {
 
     if (dist < 1e-10) {
       // Point is at center, return arbitrary point on circle
-      return new SketchPoint(circle.center.x + circle.radius, circle.center.y);
+      return new SketchPoint(
+        circle.center.x + circle.radius,
+        circle.center.y
+      );
     }
 
     return new SketchPoint(
       circle.center.x + (dx / dist) * circle.radius,
       circle.center.y + (dy / dist) * circle.radius
     );
+  }
+
+  // ========== Visual Indicators ==========
+
+  /**
+   * Draw snap indicator on a 2D canvas context
+   * @param {CanvasRenderingContext2D} ctx - Canvas 2D context
+   * @param {SnapResult} snap - Snap result to draw
+   * @param {number} scale - Optional scale factor (default: 1)
+   */
+  drawSnapIndicator(ctx, snap, scale = 1) {
+    if (!snap) return;
+
+    const { type, point } = snap;
+    const size = 6 * scale;
+
+    ctx.save();
+    ctx.translate(point.x, point.y);
+
+    // Set style
+    ctx.strokeStyle = `#${type.color.toString(16).padStart(6, '0')}`;
+    ctx.fillStyle = `#${type.color.toString(16).padStart(6, '0')}`;
+    ctx.lineWidth = 2 * scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    switch (type.shape) {
+      case 'square':
+        // Endpoint: □
+        ctx.strokeRect(-size, -size, size * 2, size * 2);
+        break;
+
+      case 'triangle':
+        // Midpoint: △
+        ctx.beginPath();
+        ctx.moveTo(0, -size);
+        ctx.lineTo(size, size);
+        ctx.lineTo(-size, size);
+        ctx.closePath();
+        ctx.stroke();
+        break;
+
+      case 'circle-cross':
+        // Center: ⊕
+        ctx.beginPath();
+        ctx.arc(0, 0, size, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-size, 0);
+        ctx.lineTo(size, 0);
+        ctx.moveTo(0, -size);
+        ctx.lineTo(0, size);
+        ctx.stroke();
+        break;
+
+      case 'cross':
+        // Intersection: X
+        ctx.beginPath();
+        ctx.moveTo(-size, -size);
+        ctx.lineTo(size, size);
+        ctx.moveTo(-size, size);
+        ctx.lineTo(size, -size);
+        ctx.stroke();
+        break;
+
+      case 'perpendicular':
+        // Perpendicular: ⊥
+        ctx.beginPath();
+        ctx.moveTo(-size, size);
+        ctx.lineTo(size, size);
+        ctx.moveTo(0, -size);
+        ctx.lineTo(0, size);
+        ctx.stroke();
+        // Small square to indicate right angle
+        ctx.strokeRect(-size * 0.4, size * 0.2, size * 0.8, size * 0.8);
+        break;
+
+      case 'tangent':
+        // Tangent: ○─
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(size * 0.5, 0);
+        ctx.lineTo(size * 1.5, 0);
+        ctx.stroke();
+        break;
+
+      case 'diamond':
+        // Quadrant: ◇
+        ctx.beginPath();
+        ctx.moveTo(0, -size);
+        ctx.lineTo(size, 0);
+        ctx.lineTo(0, size);
+        ctx.lineTo(-size, 0);
+        ctx.closePath();
+        ctx.stroke();
+        break;
+
+      case 'x-mark':
+        // Nearest: ×
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.7, -size * 0.7);
+        ctx.lineTo(size * 0.7, size * 0.7);
+        ctx.moveTo(-size * 0.7, size * 0.7);
+        ctx.lineTo(size * 0.7, -size * 0.7);
+        ctx.stroke();
+        break;
+
+      case 'dot':
+        // Grid: •
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+
+      case 'arc':
+        // Angle: ⌒
+        ctx.beginPath();
+        ctx.arc(0, 0, size, -Math.PI / 4, Math.PI / 4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(size * 0.7, -size * 0.7);
+        ctx.moveTo(0, 0);
+        ctx.lineTo(size * 0.7, size * 0.7);
+        ctx.stroke();
+        break;
+
+      default:
+        // Fallback: small filled circle
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw snap indicator using THREE.js (for 3D viewport overlay)
+   * Returns geometry data for rendering
+   * @param {SnapResult} snap - Snap result
+   * @returns {Object} Geometry data for THREE.js rendering
+   */
+  getIndicatorGeometry(snap) {
+    if (!snap) return null;
+
+    const { type, point } = snap;
+    const colorHex = `#${type.color.toString(16).padStart(6, '0')}`;
+
+    return {
+      position: { x: point.x, y: point.y },
+      type: type.name,
+      shape: type.shape,
+      color: colorHex,
+      colorValue: type.color,
+    };
   }
 
   /**
@@ -526,6 +1056,7 @@ export class SnapManager {
       enabled: { ...this.enabled },
       gridSize: this.gridSize,
       tolerance: this.tolerance,
+      angleIncrement: this.angleIncrement,
     };
   }
 
@@ -537,6 +1068,7 @@ export class SnapManager {
     if (settings.enabled) Object.assign(this.enabled, settings.enabled);
     if (settings.gridSize) this.gridSize = settings.gridSize;
     if (settings.tolerance) this.tolerance = settings.tolerance;
+    if (settings.angleIncrement) this.angleIncrement = settings.angleIncrement;
     this._notifyChange();
   }
 
@@ -552,9 +1084,41 @@ export class SnapManager {
     if (this.enabled.midpoint) active.push('Mid');
     if (this.enabled.center) active.push('Cen');
     if (this.enabled.intersection) active.push('Int');
+    if (this.enabled.quadrant) active.push('Quad');
+    if (this.enabled.perpendicular) active.push('Perp');
+    if (this.enabled.tangent) active.push('Tan');
     if (this.enabled.nearest) active.push('Near');
+    if (this.enabled.angle) active.push(`Ang${this.angleIncrement}°`);
 
     return `Snap: ${active.join(', ')} | Grid: ${this.gridSize}`;
+  }
+
+  /**
+   * Get snap type by name
+   */
+  getSnapTypeByName(name) {
+    const upperName = name.toUpperCase();
+    return SnapType[upperName] || null;
+  }
+
+  /**
+   * Enable all snap types
+   */
+  enableAll() {
+    Object.keys(this.enabled).forEach((key) => {
+      this.enabled[key] = true;
+    });
+    this._notifyChange();
+  }
+
+  /**
+   * Disable all snap types
+   */
+  disableAll() {
+    Object.keys(this.enabled).forEach((key) => {
+      this.enabled[key] = false;
+    });
+    this._notifyChange();
   }
 }
 

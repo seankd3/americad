@@ -23,20 +23,31 @@ export const SketchMode = {
   CONSTRAINT: 'constraint',
 };
 
-// Constraint types
+// Constraint types - Complete professional constraint set
 export const ConstraintType = {
-  HORIZONTAL: 'horizontal',
-  VERTICAL: 'vertical',
-  COINCIDENT: 'coincident',
-  PERPENDICULAR: 'perpendicular',
-  PARALLEL: 'parallel',
-  TANGENT: 'tangent',
-  EQUAL: 'equal',
-  FIXED: 'fixed',
-  DISTANCE: 'distance',
+  // Geometric Constraints
+  HORIZONTAL: 'horizontal', // Line is horizontal
+  VERTICAL: 'vertical', // Line is vertical
+  COINCIDENT: 'coincident', // Points/endpoints share location
+  PERPENDICULAR: 'perpendicular', // Lines are 90° to each other
+  PARALLEL: 'parallel', // Lines are parallel
+  TANGENT: 'tangent', // Curves are tangent at connection
+  EQUAL: 'equal', // Lines/circles have equal length/radius
+  CONCENTRIC: 'concentric', // Circles/arcs share center
+  COLINEAR: 'colinear', // Lines on same infinite line
+
+  // Positional Constraints
+  FIXED: 'fixed', // Lock entity in place
+  FIX: 'fix', // Alias for FIXED
+  MIDPOINT: 'midpoint', // Point at midpoint of line
+  SYMMETRIC: 'symmetric', // Entities symmetric about line
+
+  // Dimensional Constraints
+  DISTANCE: 'distance', // Distance between points
   LENGTH: 'length', // Line length constraint (dimension)
-  ANGLE: 'angle',
-  RADIUS: 'radius',
+  ANGLE: 'angle', // Angle between lines
+  RADIUS: 'radius', // Circle/arc radius
+  DIAMETER: 'diameter', // Circle diameter (2 * radius)
 };
 
 /**

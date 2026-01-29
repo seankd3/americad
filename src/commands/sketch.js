@@ -11,9 +11,12 @@ import {
   ConstraintType,
   SketchLine,
   SketchCircle,
+  SketchArc,
 } from '../sketch/sketch-manager.js';
 import { solveSketch } from '../sketch/constraint-solver.js';
 import { snapManager } from '../ui/snap-manager.js';
+import { trimEntity } from '../sketch/trim.js';
+import { extendEntity } from '../sketch/extend.js';
 
 /**
  * Register all sketch-related commands
@@ -952,6 +955,275 @@ export function registerSketchCommands(_context) {
           toRemove.length > 0
             ? `Removed ${toRemove.length} FIXED constraint(s). ${result.degreesOfFreedom} DOF remaining.`
             : 'No FIXED constraints to remove.',
+      };
+    },
+  });
+
+  // TRIM - Trim entities at intersections
+  registerCommand('trim', {
+    aliases: ['tr', 'cut'],
+    description:
+      'Trim entity at intersections (removes clicked segment). Enter trim mode or specify entity ID.',
+    category: 'sketch',
+    params: [
+      {
+        name: 'entity_id',
+        type: 'string',
+        required: false,
+        description: 'Entity ID to trim (optional - click to trim in interactive mode)',
+      },
+    ],
+    async execute(params, ctx) {
+      if (!ctx.inSketchMode) {
+        return { success: false, error: 'Enter sketch mode first' };
+      }
+
+      const sketch = sketchManager.activeSketch;
+      if (!sketch) {
+        return { success: false, error: 'No active sketch' };
+      }
+
+      // If entity_id provided, trim selected entities or the specified one
+      if (params.entity_id) {
+        const entity = sketch.getEntity(params.entity_id);
+        if (!entity) {
+          return { success: false, error: `Entity ${params.entity_id} not found` };
+        }
+
+        if (!(entity instanceof SketchLine) && !(entity instanceof SketchArc)) {
+          return { success: false, error: 'Can only trim lines and arcs' };
+        }
+
+        // Use entity midpoint as click point
+        let clickPoint;
+        if (entity instanceof SketchLine) {
+          clickPoint = {
+            x: (entity.start.x + entity.end.x) / 2,
+            y: (entity.start.y + entity.end.y) / 2,
+          };
+        } else {
+          // Arc - use midpoint of arc
+          const midAngle = entity.startAngle + entity.sweepAngle / 2;
+          clickPoint = {
+            x: entity.center.x + entity.radius * Math.cos(midAngle),
+            y: entity.center.y + entity.radius * Math.sin(midAngle),
+          };
+        }
+
+        const result = trimEntity(entity, clickPoint, sketch);
+
+        if (ctx.updateSketchView) {
+          ctx.updateSketchView();
+        } else if (sketchManager.onSketchUpdate) {
+          sketchManager.onSketchUpdate(sketch);
+        }
+
+        if (result.success) {
+          return {
+            success: true,
+            message: `Trimmed entity, kept ${result.kept.length} segment(s)`,
+            intersections: result.intersectionCount,
+            keptSegments: result.kept.map(e => e.id),
+          };
+        }
+        return result;
+      }
+
+      // No entity ID - check if entities are selected
+      if (sketchManager.selectedEntities.size > 0) {
+        let trimmedCount = 0;
+        const errors = [];
+
+        for (const id of sketchManager.selectedEntities) {
+          const entity = sketch.getEntity(id);
+          if (!entity) continue;
+
+          if (!(entity instanceof SketchLine) && !(entity instanceof SketchArc)) {
+            continue;
+          }
+
+          let clickPoint;
+          if (entity instanceof SketchLine) {
+            clickPoint = {
+              x: (entity.start.x + entity.end.x) / 2,
+              y: (entity.start.y + entity.end.y) / 2,
+            };
+          } else {
+            const midAngle = entity.startAngle + entity.sweepAngle / 2;
+            clickPoint = {
+              x: entity.center.x + entity.radius * Math.cos(midAngle),
+              y: entity.center.y + entity.radius * Math.sin(midAngle),
+            };
+          }
+
+          const result = trimEntity(entity, clickPoint, sketch);
+          if (result.success) {
+            trimmedCount++;
+          } else {
+            errors.push(result.error);
+          }
+        }
+
+        sketchManager.selectedEntities.clear();
+
+        if (ctx.updateSketchView) {
+          ctx.updateSketchView();
+        } else if (sketchManager.onSketchUpdate) {
+          sketchManager.onSketchUpdate(sketch);
+        }
+
+        if (trimmedCount > 0) {
+          return {
+            success: true,
+            message: `Trimmed ${trimmedCount} entity/entities`,
+            errors: errors.length > 0 ? errors : undefined,
+          };
+        }
+        return {
+          success: false,
+          error: errors.length > 0 ? errors.join('; ') : 'No entities could be trimmed',
+        };
+      }
+
+      // Enter trim mode (interactive) - set a mode flag in context
+      if (ctx.setTrimMode) {
+        ctx.setTrimMode(true);
+        return { success: true, mode: 'trim', message: 'Click on segments to trim them' };
+      }
+
+      return {
+        success: true,
+        mode: 'trim',
+        message:
+          'Trim mode: click on the portion of an entity to remove. Select an entity first or provide entity_id.',
+      };
+    },
+  });
+
+  // EXTEND - Extend entities to nearest boundary
+  registerCommand('extend', {
+    aliases: ['ext', 'ex'],
+    description:
+      'Extend entity to nearest boundary. Enter extend mode or specify entity ID.',
+    category: 'sketch',
+    params: [
+      {
+        name: 'entity_id',
+        type: 'string',
+        required: false,
+        description: 'Entity ID to extend (optional - click to extend in interactive mode)',
+      },
+    ],
+    async execute(params, ctx) {
+      if (!ctx.inSketchMode) {
+        return { success: false, error: 'Enter sketch mode first' };
+      }
+
+      const sketch = sketchManager.activeSketch;
+      if (!sketch) {
+        return { success: false, error: 'No active sketch' };
+      }
+
+      // If entity_id provided, extend the specified entity
+      if (params.entity_id) {
+        const entity = sketch.getEntity(params.entity_id);
+        if (!entity) {
+          return { success: false, error: `Entity ${params.entity_id} not found` };
+        }
+
+        if (!(entity instanceof SketchLine) && !(entity instanceof SketchArc)) {
+          return { success: false, error: 'Can only extend lines and arcs' };
+        }
+
+        // Use end point as click point (extend from end by default)
+        let clickPoint;
+        if (entity instanceof SketchLine) {
+          clickPoint = { x: entity.end.x, y: entity.end.y };
+        } else {
+          clickPoint = { x: entity.end.x, y: entity.end.y };
+        }
+
+        const result = extendEntity(entity, clickPoint, sketch);
+
+        if (ctx.updateSketchView) {
+          ctx.updateSketchView();
+        } else if (sketchManager.onSketchUpdate) {
+          sketchManager.onSketchUpdate(sketch);
+        }
+
+        if (result.success) {
+          return {
+            success: true,
+            message: `Extended entity ${result.direction} to (${result.newEndpoint.x.toFixed(2)}, ${result.newEndpoint.y.toFixed(2)})`,
+            direction: result.direction,
+            newEndpoint: result.newEndpoint,
+            boundaryEntity: result.boundaryEntity?.id,
+          };
+        }
+        return result;
+      }
+
+      // No entity ID - check if entities are selected
+      if (sketchManager.selectedEntities.size > 0) {
+        let extendedCount = 0;
+        const errors = [];
+
+        for (const id of sketchManager.selectedEntities) {
+          const entity = sketch.getEntity(id);
+          if (!entity) continue;
+
+          if (!(entity instanceof SketchLine) && !(entity instanceof SketchArc)) {
+            continue;
+          }
+
+          // Extend from end by default
+          let clickPoint;
+          if (entity instanceof SketchLine) {
+            clickPoint = { x: entity.end.x, y: entity.end.y };
+          } else {
+            clickPoint = { x: entity.end.x, y: entity.end.y };
+          }
+
+          const result = extendEntity(entity, clickPoint, sketch);
+          if (result.success) {
+            extendedCount++;
+          } else {
+            errors.push(result.error);
+          }
+        }
+
+        sketchManager.selectedEntities.clear();
+
+        if (ctx.updateSketchView) {
+          ctx.updateSketchView();
+        } else if (sketchManager.onSketchUpdate) {
+          sketchManager.onSketchUpdate(sketch);
+        }
+
+        if (extendedCount > 0) {
+          return {
+            success: true,
+            message: `Extended ${extendedCount} entity/entities`,
+            errors: errors.length > 0 ? errors : undefined,
+          };
+        }
+        return {
+          success: false,
+          error: errors.length > 0 ? errors.join('; ') : 'No entities could be extended',
+        };
+      }
+
+      // Enter extend mode (interactive)
+      if (ctx.setExtendMode) {
+        ctx.setExtendMode(true);
+        return { success: true, mode: 'extend', message: 'Click near endpoint to extend' };
+      }
+
+      return {
+        success: true,
+        mode: 'extend',
+        message:
+          'Extend mode: click near the endpoint of an entity to extend it to the nearest boundary. Select an entity first or provide entity_id.',
       };
     },
   });

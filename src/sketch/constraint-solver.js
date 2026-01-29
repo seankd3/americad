@@ -143,34 +143,58 @@ export const getEntityDOF = entity => {
  */
 export const getConstraintDOF = constraint => {
   switch (constraint.type) {
+    // Positional constraints that fully lock position
     case ConstraintType.FIXED:
+    case 'fix': // Alias for FIXED
       // Fixed removes 2 DOF (both coordinates)
       return 2;
+
+    // Single-DOF orientation constraints
     case ConstraintType.HORIZONTAL:
     case ConstraintType.VERTICAL:
       // Removes 1 DOF (one coordinate relationship)
       return 1;
+
+    // Positional constraints that lock both coordinates
     case ConstraintType.COINCIDENT:
-      // Makes two points the same - removes 2 DOF
+    case ConstraintType.CONCENTRIC:
+      // Makes two points/centers the same - removes 2 DOF
       return 2;
+
+    // Dimensional constraints
     case ConstraintType.LENGTH:
     case ConstraintType.DISTANCE:
     case ConstraintType.RADIUS:
+    case ConstraintType.DIAMETER:
       // Distance/length removes 1 DOF
       return 1;
+
+    // Angular relationship constraints
     case ConstraintType.PARALLEL:
     case ConstraintType.PERPENDICULAR:
+    case ConstraintType.ANGLE:
       // Angle relationship removes 1 DOF
       return 1;
-    case ConstraintType.ANGLE:
-      // Specific angle removes 1 DOF
-      return 1;
+
+    // Length equality constraint
     case ConstraintType.EQUAL:
-      // Equal length/radius removes 1 DOF
-      return 1;
     case ConstraintType.TANGENT:
-      // Tangent removes 1 DOF
+      // Equal length/radius or tangent removes 1 DOF
       return 1;
+
+    // Complex positional constraints
+    case ConstraintType.MIDPOINT:
+      // Midpoint locks point to line's midpoint - removes 2 DOF
+      return 2;
+
+    case ConstraintType.SYMMETRIC:
+      // Symmetric about an axis - removes 2 DOF (position relative to axis)
+      return 2;
+
+    case ConstraintType.COLINEAR:
+      // Colinear: parallel (1) + on same line (1) = 2 DOF
+      return 2;
+
     default:
       return 0;
   }
@@ -680,6 +704,340 @@ const applyLength = (entity, target, fixedMap, relax) => {
   return 0;
 };
 
+/**
+ * Apply tangent constraint between a line and a circle
+ * Makes the line tangent to the circle
+ */
+const applyTangent = (entity1, entity2, fixedMap, relax) => {
+  if (!entity1 || !entity2) return 0;
+
+  // Determine which is line and which is circle
+  let line, circle;
+  if (isLine(entity1) && isCircle(entity2)) {
+    line = entity1;
+    circle = entity2;
+  } else if (isCircle(entity1) && isLine(entity2)) {
+    line = entity2;
+    circle = entity1;
+  } else if (isCircle(entity1) && isCircle(entity2)) {
+    // Circle-circle tangent: make them touch at one point
+    const c1 = entity1;
+    const c2 = entity2;
+    const dx = c2.center.x - c1.center.x;
+    const dy = c2.center.y - c1.center.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < EPS) return c1.radius + c2.radius;
+
+    // Target distance for external tangent
+    const targetDist = c1.radius + c2.radius;
+    const error = dist - targetDist;
+    const ux = dx / dist;
+    const uy = dy / dist;
+
+    const c1Fixed = isFixedPoint(c1.center, fixedMap);
+    const c2Fixed = isFixedPoint(c2.center, fixedMap);
+
+    if (c1Fixed && c2Fixed) return Math.abs(error);
+
+    if (c1Fixed) {
+      movePoint(c2.center, -ux * error * relax, -uy * error * relax, fixedMap);
+    } else if (c2Fixed) {
+      movePoint(c1.center, ux * error * relax, uy * error * relax, fixedMap);
+    } else {
+      const correction = error * 0.5 * relax;
+      movePoint(c1.center, ux * correction, uy * correction, fixedMap);
+      movePoint(c2.center, -ux * correction, -uy * correction, fixedMap);
+    }
+    return Math.abs(error);
+  } else {
+    return 0;
+  }
+
+  // Line-circle tangent: adjust line to be tangent to circle
+  // Calculate distance from circle center to infinite line
+  const A = line.end.y - line.start.y;
+  const B = line.start.x - line.end.x;
+  const C = line.end.x * line.start.y - line.start.x * line.end.y;
+  const lineLen = Math.sqrt(A * A + B * B);
+  if (lineLen < EPS) return circle.radius;
+
+  const dist = (A * circle.center.x + B * circle.center.y + C) / lineLen;
+  const error = Math.abs(dist) - circle.radius;
+
+  if (Math.abs(error) < EPS) return 0;
+
+  // Move line perpendicular to itself to achieve tangency
+  const perpX = A / lineLen;
+  const perpY = B / lineLen;
+  const sign = dist >= 0 ? 1 : -1;
+
+  const startFixed = isFixedPoint(line.start, fixedMap);
+  const endFixed = isFixedPoint(line.end, fixedMap);
+  const centerFixed = isFixedPoint(circle.center, fixedMap);
+
+  if (startFixed && endFixed && centerFixed) return Math.abs(error);
+
+  if (!startFixed && !endFixed) {
+    // Move line toward/away from circle
+    movePoint(line.start, sign * perpX * error * relax, sign * perpY * error * relax, fixedMap);
+    movePoint(line.end, sign * perpX * error * relax, sign * perpY * error * relax, fixedMap);
+  } else if (!centerFixed) {
+    // Move circle center
+    movePoint(
+      circle.center,
+      -sign * perpX * error * relax,
+      -sign * perpY * error * relax,
+      fixedMap
+    );
+  }
+
+  return Math.abs(error);
+};
+
+/**
+ * Apply concentric constraint between two circles/arcs
+ * Makes them share the same center point
+ */
+const applyConcentric = (entity1, entity2, fixedMap, relax) => {
+  if (!entity1 || !entity2) return 0;
+  if (!isCircle(entity1) || !isCircle(entity2)) return 0;
+
+  const c1 = entity1.center;
+  const c2 = entity2.center;
+
+  return applyCoincident(c1, c2, fixedMap, relax);
+};
+
+/**
+ * Apply midpoint constraint
+ * Makes a point sit at the midpoint of a line
+ */
+const applyMidpoint = (point, line, fixedMap, relax) => {
+  if (!point || !line) return 0;
+  if (!isPoint(point) || !isLine(line)) return 0;
+
+  const midX = (line.start.x + line.end.x) / 2;
+  const midY = (line.start.y + line.end.y) / 2;
+
+  const dx = midX - point.x;
+  const dy = midY - point.y;
+  const error = Math.sqrt(dx * dx + dy * dy);
+
+  if (error < EPS) return 0;
+
+  const pointFixed = isFixedPoint(point, fixedMap);
+  const startFixed = isFixedPoint(line.start, fixedMap);
+  const endFixed = isFixedPoint(line.end, fixedMap);
+
+  if (pointFixed && startFixed && endFixed) return error;
+
+  if (!pointFixed) {
+    // Move point to midpoint
+    movePoint(point, dx * relax, dy * relax, fixedMap);
+  } else {
+    // Point is fixed, adjust line endpoints symmetrically around point
+    if (!startFixed && !endFixed) {
+      // Move both endpoints to make point the new midpoint
+      const newMidX = point.x;
+      const newMidY = point.y;
+      const halfDx = (line.end.x - line.start.x) / 2;
+      const halfDy = (line.end.y - line.start.y) / 2;
+
+      const targetStartX = newMidX - halfDx;
+      const targetStartY = newMidY - halfDy;
+      const targetEndX = newMidX + halfDx;
+      const targetEndY = newMidY + halfDy;
+
+      movePoint(
+        line.start,
+        (targetStartX - line.start.x) * relax,
+        (targetStartY - line.start.y) * relax,
+        fixedMap
+      );
+      movePoint(
+        line.end,
+        (targetEndX - line.end.x) * relax,
+        (targetEndY - line.end.y) * relax,
+        fixedMap
+      );
+    } else if (!startFixed) {
+      // Only start can move
+      const targetStartX = 2 * point.x - line.end.x;
+      const targetStartY = 2 * point.y - line.end.y;
+      movePoint(
+        line.start,
+        (targetStartX - line.start.x) * relax,
+        (targetStartY - line.start.y) * relax,
+        fixedMap
+      );
+    } else if (!endFixed) {
+      // Only end can move
+      const targetEndX = 2 * point.x - line.start.x;
+      const targetEndY = 2 * point.y - line.start.y;
+      movePoint(
+        line.end,
+        (targetEndX - line.end.x) * relax,
+        (targetEndY - line.end.y) * relax,
+        fixedMap
+      );
+    }
+  }
+
+  return error;
+};
+
+/**
+ * Apply symmetric constraint
+ * Makes entities symmetric about a line (mirror axis)
+ */
+const applySymmetric = (entity1, entity2, axisLine, fixedMap, relax) => {
+  if (!entity1 || !entity2 || !axisLine) return 0;
+  if (!isLine(axisLine)) return 0;
+
+  // Get the axis line parameters
+  const ax = axisLine.end.x - axisLine.start.x;
+  const ay = axisLine.end.y - axisLine.start.y;
+  const axisLen = Math.sqrt(ax * ax + ay * ay);
+  if (axisLen < EPS) return 0;
+
+  // Normalized axis direction
+  const ux = ax / axisLen;
+  const uy = ay / axisLen;
+
+  // Helper to reflect a point across the axis
+  const reflectPoint = p => {
+    // Vector from axis start to point
+    const vx = p.x - axisLine.start.x;
+    const vy = p.y - axisLine.start.y;
+
+    // Project onto axis
+    const dot = vx * ux + vy * uy;
+    const projX = axisLine.start.x + dot * ux;
+    const projY = axisLine.start.y + dot * uy;
+
+    // Reflect
+    return {
+      x: 2 * projX - p.x,
+      y: 2 * projY - p.y,
+    };
+  };
+
+  let totalError = 0;
+
+  if (isPoint(entity1) && isPoint(entity2)) {
+    // Two points symmetric about axis
+    const reflected1 = reflectPoint(entity1);
+    const dx = reflected1.x - entity2.x;
+    const dy = reflected1.y - entity2.y;
+    const error = Math.sqrt(dx * dx + dy * dy);
+    totalError = error;
+
+    if (error < EPS) return 0;
+
+    const fixed1 = isFixedPoint(entity1, fixedMap);
+    const fixed2 = isFixedPoint(entity2, fixedMap);
+
+    if (fixed1 && fixed2) return error;
+
+    if (fixed1) {
+      movePoint(entity2, dx * relax, dy * relax, fixedMap);
+    } else if (fixed2) {
+      const reflected2 = reflectPoint(entity2);
+      const dx2 = reflected2.x - entity1.x;
+      const dy2 = reflected2.y - entity1.y;
+      movePoint(entity1, dx2 * relax, dy2 * relax, fixedMap);
+    } else {
+      movePoint(entity1, -dx * 0.5 * relax, -dy * 0.5 * relax, fixedMap);
+      movePoint(entity2, dx * 0.5 * relax, dy * 0.5 * relax, fixedMap);
+    }
+  } else if (isLine(entity1) && isLine(entity2)) {
+    // Two lines symmetric about axis - check both endpoints
+    const errStart = applySymmetric(entity1.start, entity2.start, axisLine, fixedMap, relax);
+    const errEnd = applySymmetric(entity1.end, entity2.end, axisLine, fixedMap, relax);
+    totalError = Math.max(errStart, errEnd);
+  }
+
+  return totalError;
+};
+
+/**
+ * Apply colinear constraint
+ * Makes two lines lie on the same infinite line
+ */
+const applyColinear = (line1, line2, fixedMap, relax) => {
+  if (!line1 || !line2) return 0;
+  if (!isLine(line1) || !isLine(line2)) return 0;
+
+  // First, make lines parallel
+  const parallelError = applyParallel(line1, line2, fixedMap, relax);
+
+  // Then move line2 to be on the same infinite line as line1
+  // Calculate distance from line2's midpoint to line1's infinite extension
+  const A = line1.end.y - line1.start.y;
+  const B = line1.start.x - line1.end.x;
+  const C = line1.end.x * line1.start.y - line1.start.x * line1.end.y;
+  const lineLen = Math.sqrt(A * A + B * B);
+
+  if (lineLen < EPS) return parallelError;
+
+  const mid2X = (line2.start.x + line2.end.x) / 2;
+  const mid2Y = (line2.start.y + line2.end.y) / 2;
+  const dist = (A * mid2X + B * mid2Y + C) / lineLen;
+
+  if (Math.abs(dist) < EPS) return parallelError;
+
+  // Move line2 perpendicular to itself to lie on line1
+  const perpX = A / lineLen;
+  const perpY = B / lineLen;
+
+  const start2Fixed = isFixedPoint(line2.start, fixedMap);
+  const end2Fixed = isFixedPoint(line2.end, fixedMap);
+
+  if (!start2Fixed) {
+    movePoint(line2.start, -perpX * dist * relax, -perpY * dist * relax, fixedMap);
+  }
+  if (!end2Fixed) {
+    movePoint(line2.end, -perpX * dist * relax, -perpY * dist * relax, fixedMap);
+  }
+
+  return Math.max(parallelError, Math.abs(dist));
+};
+
+/**
+ * Apply fix constraint
+ * Locks an entity in place (same as FIXED)
+ */
+const applyFix = (entity, fixedMap) => {
+  if (!entity) return 0;
+
+  if (isPoint(entity)) {
+    const pos = fixedMap.get(entity.id);
+    if (pos) {
+      entity.x = pos.x;
+      entity.y = pos.y;
+    } else {
+      // Add to fixed map if not already there
+      fixedMap.set(entity.id, { x: entity.x, y: entity.y });
+    }
+    return 0;
+  }
+
+  if (isLine(entity)) {
+    // Fix both endpoints
+    applyFix(entity.start, fixedMap);
+    applyFix(entity.end, fixedMap);
+    return 0;
+  }
+
+  if (isCircle(entity)) {
+    // Fix center
+    applyFix(entity.center, fixedMap);
+    return 0;
+  }
+
+  return 0;
+};
+
 const applyConstraint = (sketch, constraint, fixedMap, options) => {
   const entities = constraint.entities.map(id => sketch.getEntity(id));
   switch (constraint.type) {
@@ -723,6 +1081,19 @@ const applyConstraint = (sketch, constraint, fixedMap, options) => {
         return applyLength(entities[0], constraint.value || 0, fixedMap, options.relax);
       }
       return 0;
+    case ConstraintType.TANGENT:
+      return applyTangent(entities[0], entities[1], fixedMap, options.relax);
+    case ConstraintType.CONCENTRIC:
+      return applyConcentric(entities[0], entities[1], fixedMap, options.relax);
+    case ConstraintType.MIDPOINT:
+      return applyMidpoint(entities[0], entities[1], fixedMap, options.relax);
+    case ConstraintType.SYMMETRIC:
+      // Symmetric requires 3 entities: two to be symmetric and the axis line
+      return applySymmetric(entities[0], entities[1], entities[2], fixedMap, options.relax);
+    case ConstraintType.COLINEAR:
+      return applyColinear(entities[0], entities[1], fixedMap, options.relax);
+    case 'fix': // Alias for FIXED
+      return applyFix(entities[0], fixedMap);
     default:
       return 0;
   }
