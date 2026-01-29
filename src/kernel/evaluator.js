@@ -296,13 +296,55 @@ export class Evaluator {
     }
     
     /**
-     * Export feature to STEP
+     * Export feature to STEP (ISO 10303-21, AP214)
+     * @param {string} featureId - Feature to export
      */
     async exportSTEP(featureId) {
         const kernelId = this.kernelIds.get(featureId);
         if (!kernelId) throw new Error('Feature not evaluated');
         
         return kernel.exportSTEP(kernelId);
+    }
+    
+    /**
+     * Export multiple features to STEP as a compound
+     * @param {string[]} featureIds - Features to export
+     */
+    async exportSTEPMultiple(featureIds) {
+        const kernelIds = [];
+        for (const featureId of featureIds) {
+            const kernelId = this.kernelIds.get(featureId);
+            if (kernelId) {
+                kernelIds.push(kernelId);
+            }
+        }
+        
+        if (kernelIds.length === 0) {
+            throw new Error('No features to export');
+        }
+        
+        return kernel.exportSTEPMultiple(kernelIds);
+    }
+    
+    /**
+     * Export all visible features to STEP
+     */
+    async exportSTEPAll() {
+        const kernelIds = [];
+        
+        for (const [featureId, kernelId] of this.kernelIds) {
+            const feature = this.document.getFeature(featureId);
+            // Only export visible, valid features
+            if (feature && feature.visible && feature.valid !== false) {
+                kernelIds.push(kernelId);
+            }
+        }
+        
+        if (kernelIds.length === 0) {
+            throw new Error('No features to export');
+        }
+        
+        return kernel.exportSTEPMultiple(kernelIds);
     }
     
     /**

@@ -282,12 +282,32 @@ export class KernelBridge {
     // ==================== Export ====================
     
     /**
-     * Export shape to STEP format
+     * Export shape to STEP format (ISO 10303-21, AP214)
+     * @param {string} id - Shape ID to export
      * @returns {Promise<{content: string, format: string}>}
      */
     async exportSTEP(id) {
         await this.init();
         return this._call('exportSTEP', { id });
+    }
+    
+    /**
+     * Export multiple shapes to STEP format as a compound
+     * @param {string[]} ids - Array of shape IDs to export
+     * @returns {Promise<{content: string, format: string, count: number}>}
+     */
+    async exportSTEPMultiple(ids) {
+        await this.init();
+        return this._call('exportSTEPMultiple', { ids });
+    }
+    
+    /**
+     * Export all shapes in kernel memory to STEP format
+     * @returns {Promise<{content: string, format: string, count: number}>}
+     */
+    async exportSTEPAll() {
+        await this.init();
+        return this._call('exportSTEPAll', {});
     }
     
     /**

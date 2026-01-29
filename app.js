@@ -25,6 +25,9 @@ import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
 // Modular AmericaD class - the unified CAD architecture
 import { AmericaD, app as americadApp } from './src/main.js';
 
+// Feature tree UI
+import { FeatureTreeUI, addFeatureTreeStyles } from './src/ui/feature-tree.js';
+
 // Sketch system
 import { sketchManager, SketchMode } from './src/sketch/sketch-manager.js';
 import { SketchRenderer } from './src/sketch/sketch-renderer.js';
@@ -87,6 +90,7 @@ const System = {
 let scene, camera, renderer, controls, transformControl;
 let gridHelper, axesHelper;
 let sketchRenderer; // For 2D sketch visualization
+let featureTreeUI; // Feature tree UI component
 
 // ========================================
 // DOM REFERENCES
@@ -221,6 +225,9 @@ async function initKernelSystem() {
             // Non-fatal - system still works without DocumentModel
         }
         
+        // Initialize the feature tree UI
+        initFeatureTreeUI();
+        
         // Update status indicator
         const statusIndicator = document.querySelector('.status-indicator');
         if (statusIndicator) {
@@ -230,16 +237,157 @@ async function initKernelSystem() {
     } catch (error) {
         console.error('[Ameri-CAD] Kernel init failed:', error);
         log('KERNEL FALLBACK MODE (THREE.JS)', 'warn');
+        
+        // Still try to init feature tree with fallback
+        initFeatureTreeUI();
     }
+}
+
+/**
+ * Initialize the Feature Tree UI and wire callbacks
+ */
+function initFeatureTreeUI() {
+    // Add feature tree styles
+    addFeatureTreeStyles();
+    
+    // Get the document model
+    const docModel = System.americad?.document;
+    if (!docModel) {
+        console.warn('[Ameri-CAD] DocumentModel not available for feature tree');
+        return;
+    }
+    
+    // Create the feature tree UI
+    featureTreeUI = new FeatureTreeUI('#feature-tree', docModel);
+    
+    // Wire selection: clicking tree item selects object in 3D viewport
+    featureTreeUI.onFeatureSelect = (featureId) => {
+        const feature = docModel.getFeature(featureId);
+        if (!feature) return;
+        
+        // Find the mesh in System.objects by matching IDs
+        const mesh = System.objects.find(obj => 
+            obj.userData?.id === featureId || 
+            obj.userData?.kernelId === feature.kernelId ||
+            obj.uuid === feature.meshId
+        );
+        
+        if (mesh) {
+            selectObject(mesh);
+            log(`SELECTED: ${feature.name}`, 'info');
+        }
+    };
+    
+    // Wire double-click to edit parameters (placeholder for future)
+    featureTreeUI.onFeatureDoubleClick = (featureId) => {
+        const feature = docModel.getFeature(featureId);
+        if (feature) {
+            log(`EDIT: ${feature.name} (params: ${JSON.stringify(feature.params)})`, 'info');
+            // TODO: Show parameter edit dialog
+        }
+    };
+    
+    // Wire visibility toggle
+    featureTreeUI.onVisibilityToggle = (featureId, visible) => {
+        const feature = docModel.getFeature(featureId);
+        if (!feature) return;
+        
+        // Update feature visibility
+        feature.visible = visible;
+        
+        // Find and update the mesh
+        const mesh = System.objects.find(obj => 
+            obj.userData?.id === featureId || 
+            obj.userData?.kernelId === feature.kernelId ||
+            obj.uuid === feature.meshId
+        );
+        
+        if (mesh) {
+            mesh.visible = visible;
+        }
+        
+        // Also update in evaluator if using unified architecture
+        if (System.americad?.evaluator) {
+            System.americad.evaluator.setVisibility(featureId, visible);
+        }
+        
+        log(`${feature.name}: ${visible ? 'SHOWN' : 'HIDDEN'}`, 'info');
+        featureTreeUI.render();
+    };
+    
+    // Wire delete from tree
+    featureTreeUI.onFeatureDelete = (featureId) => {
+        const feature = docModel.getFeature(featureId);
+        if (!feature) return;
+        
+        const name = feature.name;
+        
+        // Find the mesh
+        const mesh = System.objects.find(obj => 
+            obj.userData?.id === featureId || 
+            obj.userData?.kernelId === feature.kernelId ||
+            obj.uuid === feature.meshId
+        );
+        
+        // Remove from scene and objects array
+        if (mesh) {
+            scene.remove(mesh);
+            System.objects = System.objects.filter(o => o !== mesh);
+            
+            // Dispose geometry and material
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) mesh.material.dispose();
+            
+            // Deselect if selected
+            if (selectionManager.getSelected() === mesh) {
+                selectionManager.deselect(transformControl);
+            }
+        }
+        
+        // Clean up kernel shape
+        if (feature.kernelId && kernel) {
+            kernel.deleteShape(feature.kernelId).catch(() => {});
+        }
+        
+        // Remove from document model (will trigger tree update via callback)
+        docModel.untrackExternalFeature(featureId, true);
+        
+        log(`DELETED: ${name}`, 'warn');
+    };
+    
+    // Wire rename
+    featureTreeUI.onFeatureRename = (featureId, newName) => {
+        const feature = docModel.getFeature(featureId);
+        if (!feature) return;
+        
+        const oldName = feature.name;
+        feature.name = newName;
+        
+        // Also update the mesh userData
+        const mesh = System.objects.find(obj => 
+            obj.userData?.id === featureId || 
+            obj.userData?.kernelId === feature.kernelId ||
+            obj.uuid === feature.meshId
+        );
+        
+        if (mesh) {
+            mesh.userData.name = newName;
+            mesh.name = newName;
+        }
+        
+        log(`RENAMED: ${oldName} → ${newName}`, 'info');
+    };
+    
+    console.log('[Ameri-CAD] Feature tree UI initialized');
 }
 
 /**
  * Update feature tree UI
  */
 function updateFeatureTree() {
-    // Future: sync feature tree with document state
-    const bodiesNode = document.querySelector('.tree-node .tree-label');
-    // Could update tree here
+    if (featureTreeUI) {
+        featureTreeUI.render();
+    }
 }
 
 function cacheDOM() {
@@ -689,6 +837,7 @@ function createFallbackPrimitive(type, options = {}) {
         type: 'body',
         name: options.name ?? `BODY_${String(System.objects.length + 1).padStart(3, '0')}`,
         id: generateId(),
+        bodyType: type,
         material: 'AL-6061-T6',
         created: Date.now(),
         isKernelGeometry: false
@@ -700,6 +849,20 @@ function createFallbackPrimitive(type, options = {}) {
     // Record in history
     const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh);
     commandManager.push(cmd);
+    
+    // Track in DocumentModel for feature tree (unified architecture)
+    if (System.americad?.document) {
+        try {
+            System.americad.document.trackExternalFeature({
+                id: mesh.userData.id,
+                type: type,
+                name: mesh.userData.name,
+                mesh: mesh
+            });
+        } catch (err) {
+            console.debug('[Ameri-CAD] Document tracking skipped:', err.message);
+        }
+    }
     
     selectObject(mesh);
     log(`CREATED: ${mesh.userData.name} (FALLBACK)`, 'info');
@@ -713,10 +876,21 @@ function createFallbackPrimitive(type, options = {}) {
 function selectObject(object) {
     selectionManager.select(object, transformControl, System.transformMode);
     updateProperties();
+    
+    // Sync selection with feature tree
+    if (featureTreeUI && object?.userData?.id) {
+        featureTreeUI.selectFeature(object.userData.id);
+    }
 }
 
 function deselectObject() {
     selectionManager.deselect(transformControl);
+    
+    // Clear feature tree selection
+    if (featureTreeUI) {
+        featureTreeUI.selectedFeatureId = null;
+        featureTreeUI.render();
+    }
 }
 
 function deleteSelected() {
@@ -1366,10 +1540,10 @@ function handleMenuAction(action) {
             showModal('new-design-modal');
             break;
         case 'open':
-            log('OPEN FILE...', 'info');
+            openDocument();
             break;
         case 'save':
-            log('SAVED', 'success');
+            saveDocument();
             break;
         case 'import':
             log('IMPORT...', 'info');
@@ -1710,7 +1884,11 @@ function onKeyDown(e) {
                 return;
             case 's':
                 e.preventDefault();
-                log('SAVED', 'success');
+                saveDocument();
+                return;
+            case 'o':
+                e.preventDefault();
+                openDocument();
                 return;
         }
     }
@@ -1942,6 +2120,21 @@ async function executeCommand(cmd) {
         case 'status':
             log(`OBJECTS: ${System.objects.length} | KERNEL: ${isKernelReady() ? 'ON' : 'OFF'} | FPS: ${System.fps}`, 'info');
             break;
+        case 'save':
+            saveDocument();
+            break;
+        case 'open':
+        case 'load':
+            openDocument();
+            break;
+        case 'info':
+            if (System.americad) {
+                const info = System.americad.getDocumentInfo();
+                log(`DOC: ${info.name} | FEATURES: ${info.featureCount}`, 'info');
+            } else {
+                log(`OBJECTS: ${System.objects.length}`, 'info');
+            }
+            break;
         default:
             // Try the advanced command system
             try {
@@ -1959,6 +2152,11 @@ function showHelp() {
     const help = `
 ╔═══════════════════════════════════════════════════════════╗
 ║                    Ameri-CAD COMMANDS                     ║
+╠═══════════════════════════════════════════════════════════╣
+║ FILE OPERATIONS:                                          ║
+║   save                 Save document (Ctrl+S)             ║
+║   open / load          Open document (Ctrl+O)             ║
+║   info                 Show document info                 ║
 ╠═══════════════════════════════════════════════════════════╣
 ║ SKETCH MODE:                                              ║
 ║   sketch [plane]       Enter sketch (xy/xz/yz)            ║
@@ -1985,6 +2183,8 @@ function showHelp() {
 ║   kernel               Show kernel status                 ║
 ╠═══════════════════════════════════════════════════════════╣
 ║ KEYBOARD SHORTCUTS:                                       ║
+║   Ctrl+S    Save document (.americad)                     ║
+║   Ctrl+O    Open document                                 ║
 ║   C         Enter sketch mode                             ║
 ║   L         Line tool (in sketch)                         ║
 ║   R         Rectangle tool (in sketch)                    ║
@@ -2011,10 +2211,144 @@ function clearScene() {
 }
 
 // ========================================
-// EXPORT
+// EXPORT / SAVE / LOAD
 // ========================================
-function exportScene() {
-    log('EXPORT: STL FORMAT', 'info');
+
+/**
+ * Save the current document to a .americad file
+ */
+function saveDocument() {
+    if (System.americad) {
+        try {
+            // Get document name from UI
+            const titleEl = document.querySelector('.doc-title span[contenteditable]');
+            let docName = titleEl?.textContent?.replace('.AD', '') || 'design';
+            
+            System.americad.saveDocument(docName);
+            log(`SAVED: ${docName}.americad`, 'success');
+            
+            // Update modified indicator
+            const badge = document.querySelector('.doc-title .badge');
+            if (badge) badge.style.display = 'none';
+        } catch (error) {
+            console.error('[Ameri-CAD] Save failed:', error);
+            log(`SAVE FAILED: ${error.message}`, 'error');
+        }
+    } else if (System.objects.length > 0) {
+        // Fallback: export as JSON scene snapshot
+        saveSceneSnapshot();
+    } else {
+        log('NOTHING TO SAVE', 'warn');
+    }
+}
+
+/**
+ * Open a document from a .americad file
+ */
+async function openDocument() {
+    if (System.americad) {
+        try {
+            log('OPENING FILE...', 'info');
+            const success = await System.americad.openDocument();
+            
+            if (success) {
+                const info = System.americad.getDocumentInfo();
+                log(`LOADED: ${info.name} (${info.featureCount} features)`, 'success');
+                
+                // Sync loaded features with System.objects
+                syncObjectsFromDocument();
+                
+                // Update UI
+                const titleEl = document.querySelector('.doc-title span[contenteditable]');
+                if (titleEl) titleEl.textContent = info.name + '.AD';
+                
+                // Hide modified indicator
+                const badge = document.querySelector('.doc-title .badge');
+                if (badge) badge.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('[Ameri-CAD] Open failed:', error);
+            log(`OPEN FAILED: ${error.message}`, 'error');
+        }
+    } else {
+        log('DOCUMENT MODEL NOT READY', 'error');
+    }
+}
+
+/**
+ * Sync System.objects with the document model after loading
+ */
+function syncObjectsFromDocument() {
+    if (!System.americad?.evaluator) return;
+    
+    // Clear current objects array
+    System.objects = [];
+    
+    // Collect all meshes from the evaluator
+    const evaluator = System.americad.evaluator;
+    for (const [featureId, mesh] of evaluator.meshes) {
+        if (mesh) {
+            System.objects.push(mesh);
+        }
+    }
+    
+    console.log(`[Ameri-CAD] Synced ${System.objects.length} objects from document`);
+}
+
+/**
+ * Fallback: Save scene as JSON snapshot (when DocumentModel not available)
+ */
+function saveSceneSnapshot() {
+    const snapshot = {
+        version: '1.0',
+        name: 'Scene Snapshot',
+        created: new Date().toISOString(),
+        objects: System.objects.map(obj => ({
+            name: obj.userData.name,
+            type: obj.userData.bodyType || 'unknown',
+            position: obj.position.toArray(),
+            rotation: obj.rotation.toArray(),
+            scale: obj.scale.toArray()
+        }))
+    };
+    
+    const json = JSON.stringify(snapshot, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'scene-snapshot.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    log('SAVED: scene-snapshot.json (fallback)', 'success');
+}
+
+async function exportScene() {
+    // Try STEP export first (B-Rep, best for CAD interoperability)
+    if (isKernelReady()) {
+        try {
+            log('EXPORT: STEP FORMAT (ISO 10303-21, AP214)', 'info');
+            const result = await kernel.exportSTEPAll();
+            
+            const blob = new Blob([result.content], { type: 'application/step' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'export.step';
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            log(`EXPORTED: export.step (${result.count} shape${result.count > 1 ? 's' : ''})`, 'success');
+            return;
+        } catch (error) {
+            console.warn('[Ameri-CAD] STEP export failed, falling back to STL:', error);
+            log('STEP EXPORT FAILED - USING STL FALLBACK', 'warn');
+        }
+    }
+    
+    // Fallback to STL export (tessellated mesh)
+    log('EXPORT: STL FORMAT (FALLBACK)', 'info');
     
     const selected = selectionManager.getSelected();
     const objects = selected ? [selected] : System.objects;
@@ -2196,5 +2530,6 @@ window.AmericaD = {
     get app() { return System.americad; },
     get document() { return System.americad?.document; },
     get evaluator() { return System.americad?.evaluator; },
+    get featureTree() { return featureTreeUI; },
     kernel
 };

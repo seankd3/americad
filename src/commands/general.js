@@ -259,27 +259,52 @@ export function registerGeneralCommands(app) {
     // EXPORT - Export model
     registerCommand('export', {
         aliases: ['save'],
-        description: 'Export model to file',
+        description: 'Export model to file format (STEP, STL)',
         category: 'general',
         params: [
-            { name: 'format', type: 'string', required: false, default: 'step', description: 'Format: step, stl, obj, gltf' },
+            { name: 'format', type: 'string', required: false, default: 'step', description: 'Format: step, stl' },
             { name: 'filename', type: 'string', required: false, description: 'Output filename' }
         ],
         async execute(params, context) {
-            if (!context.kernel) return 'No kernel available';
+            // Import kernel bridge for direct export
+            const { kernel, downloadFile } = await import('../kernel/bridge.js');
             
-            const result = await context.kernel.export(params.format);
+            if (!kernel.isReady()) {
+                return 'Kernel not ready - cannot export';
+            }
             
-            // Trigger download
-            const blob = new Blob([result.data], { type: result.mimeType });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = params.filename || `model.${params.format}`;
-            a.click();
-            URL.revokeObjectURL(url);
+            const format = params.format.toLowerCase();
+            const filename = params.filename || `model.${format === 'stp' ? 'step' : format}`;
             
-            return `Exported to ${a.download}`;
+            try {
+                let result;
+                
+                switch (format) {
+                    case 'step':
+                    case 'stp':
+                        // Export all shapes in kernel memory
+                        result = await kernel.exportSTEPAll();
+                        downloadFile(result.content, filename, 'application/step');
+                        const count = result.count ? ` (${result.count} shape${result.count > 1 ? 's' : ''})` : '';
+                        return `Exported STEP to ${filename}${count}`;
+                        
+                    case 'stl':
+                        // STL requires a specific shape ID
+                        if (!context.selection?.length) {
+                            return 'Select a shape to export to STL';
+                        }
+                        // Get kernel ID from selection
+                        const selectedId = context.selection[0];
+                        result = await kernel.exportSTL(selectedId);
+                        downloadFile(result.content, filename, 'application/sla');
+                        return `Exported STL to ${filename}`;
+                        
+                    default:
+                        return `Unsupported format: ${format}. Use: step, stl`;
+                }
+            } catch (error) {
+                return `Export failed: ${error.message}`;
+            }
         }
     });
     

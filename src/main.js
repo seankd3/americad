@@ -9,6 +9,8 @@ import { Evaluator } from './kernel/evaluator.js';
 import { FeatureTreeUI, addFeatureTreeStyles } from './ui/feature-tree.js';
 import { commandManager } from './state/history.js';
 import { CrashGuard } from './crash-guard.js';
+import { meshToSTL, meshToSTLBinary, mergeMeshesToSTL, geometryToMeshData, downloadSTL, getSTLStats } from './io/stl-export.js';
+import { serialize, deserialize, downloadFile as downloadAmericadFile, openFilePicker, validate, FILE_EXTENSION } from './io/file-format.js';
 
 /**
  * Ameri-CAD Application
@@ -353,72 +355,331 @@ export class AmericaD {
     // ==================== File Operations ====================
     
     /**
-     * Save document to JSON file
+     * Save document to .americad file
+     * 
+     * @param {string} filename - Filename (without extension)
+     * @returns {string} The serialized JSON content
      */
-    saveDocument(filename = 'design.americad') {
-        const json = JSON.stringify(this.document.toJSON(), null, 2);
-        downloadFile(json, filename, 'application/json');
+    saveDocument(filename = 'design') {
+        // Ensure filename has proper extension
+        const fullFilename = filename.endsWith(FILE_EXTENSION) 
+            ? filename 
+            : filename + FILE_EXTENSION;
+        
+        // Serialize using the new file format
+        const json = serialize(this.document, {
+            pretty: true,
+            name: this.document.name || filename.replace(FILE_EXTENSION, '')
+        });
+        
+        // Trigger download
+        downloadAmericadFile(json, fullFilename);
+        
+        console.log(`[Ameri-CAD] Document saved: ${fullFilename}`);
+        
+        // Clear modified state
+        this.document.modifiedAt = Date.now();
+        
+        return json;
+    }
+    
+    /**
+     * Open file picker and load document
+     * 
+     * @returns {Promise<boolean>} Whether load was successful
+     */
+    async openDocument() {
+        try {
+            const { content, filename } = await openFilePicker();
+            await this.loadDocument(content, filename);
+            return true;
+        } catch (error) {
+            if (error.message !== 'File selection cancelled') {
+                console.error('[Ameri-CAD] Failed to open document:', error);
+            }
+            return false;
+        }
     }
     
     /**
      * Load document from JSON
+     * 
+     * @param {string|Object} json - JSON string or parsed object
+     * @param {string} filename - Optional filename for document name
      */
-    async loadDocument(json) {
+    async loadDocument(json, filename = null) {
+        // Validate the file format
         const data = typeof json === 'string' ? JSON.parse(json) : json;
+        const validation = validate(data);
         
-        // Clear current
+        if (!validation.valid) {
+            throw new Error(`Invalid document: ${validation.error}`);
+        }
+        
+        console.log(`[Ameri-CAD] Loading document: ${data.name || filename || 'Untitled'}`);
+        
+        // Clear current document and scene
         this.document.clear();
         this.evaluator.clear();
+        this.selectFeature(null);
         
-        // Load new document
-        this.document = DocumentModel.fromJSON(data);
+        // Deserialize the document using the file format module
+        this.document = deserialize(data);
+        
+        // Update document name from filename if not set
+        if (filename && !this.document.name) {
+            this.document.name = filename.replace(FILE_EXTENSION, '').replace('.json', '');
+        }
+        
+        // Update references in evaluator and UI
         this.evaluator.document = this.document;
         this.treeUI.document = this.document;
         
-        // Evaluate all features
+        // Evaluate all features to rebuild geometry
+        // Features are already in topological order from deserialization
         if (this.kernelReady) {
+            console.log(`[Ameri-CAD] Regenerating ${this.document.features.size} features...`);
             await this.evaluator.evaluateAll();
+            console.log('[Ameri-CAD] Regeneration complete');
+        } else {
+            console.warn('[Ameri-CAD] Kernel not ready - geometry not regenerated');
         }
         
+        // Update the feature tree UI
         this.treeUI.render();
+        
+        // Update document title in UI
+        this.updateDocumentTitle(this.document.name);
+        
+        console.log(`[Ameri-CAD] Loaded document with ${this.document.features.size} features`);
     }
     
     /**
-     * Export selected feature to STEP
+     * Update document title in the UI
+     * 
+     * @param {string} name - Document name
      */
-    async exportSTEP(featureId = null) {
-        const id = featureId || this.selectedFeatureId;
-        if (!id) {
-            console.warn('[Ameri-CAD] No feature selected for export');
-            return;
+    updateDocumentTitle(name) {
+        const titleEl = document.querySelector('.doc-title span[contenteditable]');
+        if (titleEl) {
+            titleEl.textContent = (name || 'UNTITLED') + '.AD';
         }
-        
+    }
+    
+    /**
+     * Check if document has unsaved changes
+     * 
+     * @returns {boolean}
+     */
+    hasUnsavedChanges() {
+        // Simple check - could be enhanced with actual change tracking
+        return this.document.features.size > 0;
+    }
+    
+    /**
+     * Get document info for display
+     * 
+     * @returns {Object}
+     */
+    getDocumentInfo() {
+        return {
+            name: this.document.name,
+            featureCount: this.document.features.size,
+            created: new Date(this.document.createdAt).toLocaleString(),
+            modified: new Date(this.document.modifiedAt).toLocaleString()
+        };
+    }
+    
+    /**
+     * Export feature(s) to STEP format (ISO 10303-21, AP214)
+     * @param {string|string[]|null} featureIds - Feature ID(s) to export, or null for selected/all
+     * @param {string} filename - Output filename
+     */
+    async exportSTEP(featureIds = null, filename = 'export.step') {
         if (!this.kernelReady) {
             console.warn('[Ameri-CAD] Kernel not ready for STEP export');
-            return;
+            return { success: false, error: 'Kernel not ready' };
         }
         
-        const result = await this.evaluator.exportSTEP(id);
-        downloadFile(result.content, 'export.step', 'application/step');
+        try {
+            let result;
+            
+            if (Array.isArray(featureIds)) {
+                // Export specific features
+                result = await this.evaluator.exportSTEPMultiple(featureIds);
+            } else if (featureIds) {
+                // Export single feature
+                result = await this.evaluator.exportSTEP(featureIds);
+            } else if (this.selectedFeatureId) {
+                // Export selected feature
+                result = await this.evaluator.exportSTEP(this.selectedFeatureId);
+            } else {
+                // Export all visible features
+                result = await this.evaluator.exportSTEPAll();
+            }
+            
+            downloadFile(result.content, filename, 'application/step');
+            console.log(`[Ameri-CAD] Exported ${result.count || 1} shape(s) to STEP`);
+            return { success: true, count: result.count || 1 };
+            
+        } catch (error) {
+            console.error('[Ameri-CAD] STEP export failed:', error);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    /**
+     * Export all visible features to STEP
+     * @param {string} filename - Output filename
+     */
+    async exportSTEPAll(filename = 'model.step') {
+        if (!this.kernelReady) {
+            console.warn('[Ameri-CAD] Kernel not ready for STEP export');
+            return { success: false, error: 'Kernel not ready' };
+        }
+        
+        try {
+            const result = await this.evaluator.exportSTEPAll();
+            downloadFile(result.content, filename, 'application/step');
+            console.log(`[Ameri-CAD] Exported ${result.count} shape(s) to STEP`);
+            return { success: true, count: result.count };
+        } catch (error) {
+            console.error('[Ameri-CAD] STEP export failed:', error);
+            return { success: false, error: error.message };
+        }
     }
     
     /**
      * Export selected feature to STL
+     * @param {string} featureId - Feature ID to export (or null for selected)
+     * @param {Object} options - Export options
+     * @param {boolean} options.binary - Use binary format (default: true, smaller files)
+     * @param {string} options.filename - Output filename (default: 'export')
+     * @param {boolean} options.useKernel - Try kernel export first (default: true)
      */
-    async exportSTL(featureId = null) {
+    async exportSTL(featureId = null, options = {}) {
+        const {
+            binary = true,
+            filename = 'export',
+            useKernel = true
+        } = typeof options === 'string' ? { filename: options } : options;
+        
         const id = featureId || this.selectedFeatureId;
         if (!id) {
             console.warn('[Ameri-CAD] No feature selected for export');
-            return;
+            return { success: false, error: 'No feature selected' };
         }
         
-        if (!this.kernelReady) {
-            console.warn('[Ameri-CAD] Kernel not ready for STL export');
-            return;
+        const finalFilename = filename.endsWith('.stl') ? filename : `${filename}.stl`;
+        
+        // Try kernel-based export first (produces cleaner B-rep geometry)
+        if (useKernel && this.kernelReady) {
+            try {
+                const result = await this.evaluator.exportSTL(id);
+                downloadFile(result.content, finalFilename, 'application/sla');
+                console.log('[Ameri-CAD] Exported STL via kernel');
+                return { success: true, method: 'kernel' };
+            } catch (error) {
+                console.warn('[Ameri-CAD] Kernel STL export failed, trying mesh export:', error.message);
+            }
         }
         
-        const result = await this.evaluator.exportSTL(id);
-        downloadFile(result.content, 'export.stl', 'application/sla');
+        // Fallback to mesh-based export (always available if mesh exists)
+        const mesh = this.evaluator.getMesh(id);
+        if (!mesh?.geometry) {
+            console.warn('[Ameri-CAD] No mesh data available for export');
+            return { success: false, error: 'No mesh data available' };
+        }
+        
+        try {
+            const meshData = geometryToMeshData(mesh.geometry);
+            const feature = this.document.getFeature(id);
+            const name = feature?.name || 'americad';
+            
+            let content;
+            if (binary) {
+                content = meshToSTLBinary(meshData, `AmericaD: ${name}`);
+            } else {
+                content = meshToSTL(meshData, name);
+            }
+            
+            downloadSTL(content, finalFilename, binary);
+            
+            const stats = getSTLStats(meshData);
+            console.log(`[Ameri-CAD] Exported ${binary ? 'binary' : 'ASCII'} STL via mesh: ${stats.triangleCount} triangles`);
+            
+            return { success: true, method: 'mesh', stats };
+        } catch (error) {
+            console.error('[Ameri-CAD] Mesh STL export failed:', error);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    /**
+     * Export multiple features to a single STL file
+     * @param {string[]} featureIds - Feature IDs to export (null = all visible)
+     * @param {Object} options - Export options
+     * @param {boolean} options.binary - Use binary format (default: true)
+     * @param {string} options.filename - Output filename (default: 'export')
+     */
+    async exportMultipleSTL(featureIds = null, options = {}) {
+        const {
+            binary = true,
+            filename = 'export'
+        } = options;
+        
+        // Default to all visible features
+        const ids = featureIds || Array.from(this.document.features.values())
+            .filter(f => f.visible)
+            .map(f => f.id);
+        
+        if (ids.length === 0) {
+            console.warn('[Ameri-CAD] No features to export');
+            return { success: false, error: 'No features to export' };
+        }
+        
+        // Collect mesh data from all features
+        const meshes = [];
+        for (const id of ids) {
+            const mesh = this.evaluator.getMesh(id);
+            if (mesh?.geometry) {
+                meshes.push(geometryToMeshData(mesh.geometry));
+            }
+        }
+        
+        if (meshes.length === 0) {
+            console.warn('[Ameri-CAD] No mesh data available for export');
+            return { success: false, error: 'No mesh data available' };
+        }
+        
+        try {
+            const content = mergeMeshesToSTL(meshes, filename, binary);
+            const finalFilename = filename.endsWith('.stl') ? filename : `${filename}.stl`;
+            downloadSTL(content, finalFilename, binary);
+            
+            const totalTriangles = meshes.reduce((sum, m) => sum + m.indices.length / 3, 0);
+            console.log(`[Ameri-CAD] Exported merged ${binary ? 'binary' : 'ASCII'} STL: ${totalTriangles} triangles from ${meshes.length} bodies`);
+            
+            return { success: true, bodies: meshes.length, triangles: totalTriangles };
+        } catch (error) {
+            console.error('[Ameri-CAD] Multi-body STL export failed:', error);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    /**
+     * Get STL export statistics without downloading
+     * @param {string} featureId - Feature ID (null = selected)
+     * @returns {Object|null} Statistics about the mesh for STL export
+     */
+    getSTLExportStats(featureId = null) {
+        const id = featureId || this.selectedFeatureId;
+        if (!id) return null;
+        
+        const mesh = this.evaluator.getMesh(id);
+        if (!mesh?.geometry) return null;
+        
+        return getSTLStats(geometryToMeshData(mesh.geometry));
     }
     
     // ==================== Recovery ====================

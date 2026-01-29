@@ -568,18 +568,37 @@ function sweepProfile(profile, path) {
 }
 
 /**
- * Export to STEP format
+ * Export to STEP format (ISO 10303-21)
+ * Uses AP214 (Automotive Design) schema for maximum compatibility
  */
 function exportSTEP(shape) {
+    // Set schema to AP214 for best compatibility with other CAD software
+    oc.Interface_Static.SetCVal("write.step.schema", "AP214");
+    
+    // Set other STEP export options for quality
+    oc.Interface_Static.SetIVal("write.step.assembly", 0);  // Single part
+    oc.Interface_Static.SetCVal("write.step.product.name", "AmeriCAD Export");
+    
     const writer = new oc.STEPControl_Writer_1();
-    writer.Transfer(shape, oc.STEPControl_StepModelType.STEPControl_AsIs, true, new oc.Message_ProgressRange_1());
+    
+    // Transfer shape - use ManifoldSolidBrep for solid geometry
+    const status = writer.Transfer(
+        shape, 
+        oc.STEPControl_StepModelType.STEPControl_AsIs, 
+        true, 
+        new oc.Message_ProgressRange_1()
+    );
+    
+    if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
+        throw new Error('STEP transfer failed');
+    }
     
     // Write to virtual file system
     const filename = '/output.step';
-    const status = writer.Write(filename);
+    const writeStatus = writer.Write(filename);
     
-    if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
-        throw new Error('STEP export failed');
+    if (writeStatus !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
+        throw new Error('STEP write failed');
     }
     
     // Read file content
@@ -587,6 +606,31 @@ function exportSTEP(shape) {
     oc.FS.unlink(filename);
     
     return content;
+}
+
+/**
+ * Export multiple shapes to STEP format
+ * Creates a compound of all shapes before export
+ */
+function exportSTEPMultiple(shapeList) {
+    if (shapeList.length === 0) {
+        throw new Error('No shapes to export');
+    }
+    
+    if (shapeList.length === 1) {
+        return exportSTEP(shapeList[0]);
+    }
+    
+    // Build a compound from all shapes
+    const builder = new oc.BRep_Builder();
+    const compound = new oc.TopoDS_Compound();
+    builder.MakeCompound(compound);
+    
+    for (const shape of shapeList) {
+        builder.Add(compound, shape);
+    }
+    
+    return exportSTEP(compound);
 }
 
 /**
@@ -791,7 +835,32 @@ self.onmessage = async function(e) {
                 
             case 'exportSTEP':
                 const stepShape = shapes.get(params.id);
+                if (!stepShape) throw new Error(`Shape not found: ${params.id}`);
                 result = { content: exportSTEP(stepShape), format: 'step' };
+                break;
+                
+            case 'exportSTEPMultiple':
+                // Export multiple shapes as a compound
+                const shapeList = [];
+                for (const id of params.ids) {
+                    const shape = shapes.get(id);
+                    if (shape) {
+                        shapeList.push(shape);
+                    }
+                }
+                if (shapeList.length === 0) {
+                    throw new Error('No valid shapes to export');
+                }
+                result = { content: exportSTEPMultiple(shapeList), format: 'step', count: shapeList.length };
+                break;
+                
+            case 'exportSTEPAll':
+                // Export all shapes in the store
+                const allShapes = Array.from(shapes.values());
+                if (allShapes.length === 0) {
+                    throw new Error('No shapes to export');
+                }
+                result = { content: exportSTEPMultiple(allShapes), format: 'step', count: allShapes.length };
                 break;
                 
             case 'exportSTL':
