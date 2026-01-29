@@ -384,11 +384,13 @@ export class KernelBridge {
     
     /**
      * Export shape to STL format
-     * @returns {Promise<{content: string, format: string}>}
+     * @param {string} id - Shape ID to export
+     * @param {boolean} ascii - Whether to export ASCII format (default: true)
+     * @returns {Promise<{content: string|Uint8Array, format: string, binary: boolean}>}
      */
-    async exportSTL(id) {
+    async exportSTL(id, ascii = true) {
         await this.init();
-        return this._call('exportSTL', { id });
+        return this._call('exportSTL', { id, ascii });
     }
     
     // ==================== Analysis ====================
