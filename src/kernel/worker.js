@@ -577,6 +577,133 @@ function createWireFromPolygon(points) {
 }
 
 /**
+ * Create a B-spline wire from control points
+ * Uses Catmull-Rom interpolation converted to B-spline for smooth curves
+ * @param {Array<{x,y,z}>} controlPoints - Array of 3D control points
+ * @param {boolean} closed - Whether the spline is closed
+ * @returns {{shape: TopoDS_Wire, id: string}}
+ */
+function createBSplineWire(controlPoints, closed = false) {
+    if (controlPoints.length < 2) {
+        throw new Error('Need at least 2 control points for B-spline');
+    }
+    
+    const n = controlPoints.length;
+    
+    // For 2 points, create a simple line
+    if (n === 2) {
+        const p1 = controlPoints[0];
+        const p2 = controlPoints[1];
+        const gp1 = new oc.gp_Pnt_3(p1.x, p1.y, p1.z);
+        const gp2 = new oc.gp_Pnt_3(p2.x, p2.y, p2.z);
+        
+        const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_3(gp1, gp2);
+        if (!edgeMaker.IsDone()) {
+            throw new Error('Failed to create line edge');
+        }
+        
+        const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+        return {
+            shape: wireMaker.Wire(),
+            id: getTopoId(wireMaker.Wire()),
+            type: 'wire'
+        };
+    }
+    
+    // Create array of gp_Pnt for the control points
+    const pointArray = new oc.TColgp_Array1OfPnt_2(1, n);
+    for (let i = 0; i < n; i++) {
+        const pt = controlPoints[i];
+        pointArray.SetValue(i + 1, new oc.gp_Pnt_3(pt.x, pt.y, pt.z));
+    }
+    
+    // Create interpolating B-spline through the points
+    // Use GeomAPI_PointsToBSpline for smooth interpolation
+    const interpolator = new oc.GeomAPI_PointsToBSpline_2(
+        pointArray,
+        3,  // DegMin - minimum degree (3 = cubic)
+        3,  // DegMax - maximum degree
+        oc.GeomAbs_Shape.GeomAbs_C2,  // Continuity (C2 = curvature continuous)
+        1e-6  // Tolerance
+    );
+    
+    if (!interpolator.IsDone()) {
+        // Fallback: create piecewise line segments
+        console.warn('[Kernel] B-spline interpolation failed, using line segments');
+        const wireBuilder = new oc.BRepBuilderAPI_MakeWire_1();
+        
+        const numPoints = closed ? n : n - 1;
+        for (let i = 0; i < numPoints; i++) {
+            const p1 = controlPoints[i];
+            const p2 = controlPoints[(i + 1) % n];
+            
+            const gp1 = new oc.gp_Pnt_3(p1.x, p1.y, p1.z);
+            const gp2 = new oc.gp_Pnt_3(p2.x, p2.y, p2.z);
+            
+            const edge = new oc.BRepBuilderAPI_MakeEdge_3(gp1, gp2);
+            if (edge.IsDone()) {
+                wireBuilder.Add_1(edge.Edge());
+            }
+        }
+        
+        if (!wireBuilder.IsDone()) {
+            throw new Error('Failed to create fallback wire');
+        }
+        
+        const wire = wireBuilder.Wire();
+        return {
+            shape: wire,
+            id: getTopoId(wire),
+            type: 'wire'
+        };
+    }
+    
+    // Get the B-spline curve
+    const bsplineCurve = interpolator.Curve();
+    
+    // Create edge from B-spline
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_24(bsplineCurve);
+    if (!edgeMaker.IsDone()) {
+        throw new Error('Failed to create B-spline edge');
+    }
+    
+    // Create wire from edge
+    const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+    if (!wireMaker.IsDone()) {
+        throw new Error('Failed to create B-spline wire');
+    }
+    
+    // If closed, add closing edge
+    if (closed && n >= 3) {
+        // Get first and last points from the curve
+        const firstPt = bsplineCurve.get().Value(bsplineCurve.get().FirstParameter());
+        const lastPt = bsplineCurve.get().Value(bsplineCurve.get().LastParameter());
+        
+        // Only add closing edge if points don't match
+        const dist = Math.sqrt(
+            Math.pow(lastPt.X() - firstPt.X(), 2) +
+            Math.pow(lastPt.Y() - firstPt.Y(), 2) +
+            Math.pow(lastPt.Z() - firstPt.Z(), 2)
+        );
+        
+        if (dist > 1e-6) {
+            const closingEdge = new oc.BRepBuilderAPI_MakeEdge_3(lastPt, firstPt);
+            if (closingEdge.IsDone()) {
+                wireMaker.Add_1(closingEdge.Edge());
+            }
+        }
+    }
+    
+    const wire = wireMaker.Wire();
+    
+    return {
+        shape: wire,
+        id: getTopoId(wire),
+        type: 'wire'
+    };
+}
+
+/**
  * Create a face from a wire
  * @param {TopoDS_Wire} wire - The boundary wire
  * @param {boolean} planar - Whether to create a planar face (default: true)
@@ -870,6 +997,18 @@ function extrudeSketchProfile(profile, height, plane = 'xy') {
         });
         const wire = createWireFromPolygon(points3d);
         face = createFaceFromWire(wire.shape);
+    } else if (profile.type === 'spline' && profile.controlPoints) {
+        // Convert 2D spline control points to 3D based on plane
+        const points3d = profile.controlPoints.map(p => {
+            switch (plane) {
+                case 'xy': return { x: p.x, y: p.y, z: 0 };
+                case 'xz': return { x: p.x, y: 0, z: p.y };
+                case 'yz': return { x: 0, y: p.y, z: p.x };
+                default: return { x: p.x, y: p.y, z: 0 };
+            }
+        });
+        const wire = createBSplineWire(points3d, profile.closed);
+        face = createFaceFromWire(wire.shape);
     } else {
         throw new Error(`Unsupported profile type: ${profile.type}`);
     }
@@ -914,6 +1053,18 @@ function revolveSketchProfile(profile, axis, angleDegrees = 360, plane = 'xy') {
             }
         });
         const wire = createWireFromPolygon(points3d);
+        face = createFaceFromWire(wire.shape);
+    } else if (profile.type === 'spline' && profile.controlPoints) {
+        // Convert 2D spline control points to 3D based on plane
+        const points3d = profile.controlPoints.map(p => {
+            switch (plane) {
+                case 'xy': return { x: p.x, y: p.y, z: 0 };
+                case 'xz': return { x: p.x, y: 0, z: p.y };
+                case 'yz': return { x: 0, y: p.y, z: p.x };
+                default: return { x: p.x, y: p.y, z: 0 };
+            }
+        });
+        const wire = createBSplineWire(points3d, profile.closed);
         face = createFaceFromWire(wire.shape);
     } else {
         throw new Error(`Unsupported profile type: ${profile.type}`);
@@ -1532,6 +1683,12 @@ self.onmessage = async function(e) {
                 const helixWire = createHelixWire(params.radius, params.pitch, params.height, params.center);
                 shapes.set(helixWire.id, helixWire.shape);
                 result = { id: helixWire.id };
+                break;
+                
+            case 'createBSplineWire':
+                const bsplineWire = createBSplineWire(params.controlPoints, params.closed);
+                shapes.set(bsplineWire.id, bsplineWire.shape);
+                result = { id: bsplineWire.id };
                 break;
                 
             case 'createFaceFromWire':

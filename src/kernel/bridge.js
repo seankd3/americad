@@ -322,6 +322,17 @@ export class KernelBridge {
     }
     
     /**
+     * Create a B-spline wire from control points
+     * @param {Array<{x,y,z}>} controlPoints - Array of 3D control points
+     * @param {boolean} closed - Whether the spline is closed
+     * @returns {Promise<{id: string}>}
+     */
+    async createBSplineWire(controlPoints, closed = false) {
+        await this.init();
+        return this._call('createBSplineWire', { controlPoints, closed });
+    }
+    
+    /**
      * Create a face from a wire
      * @param {string} wireId - Wire ID
      * @param {boolean} planar - Whether to make planar face (default: true)

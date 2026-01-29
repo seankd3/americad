@@ -784,6 +784,19 @@ export class Sketch {
             });
         }
         
+        // 4. Closed splines are profiles
+        for (const spline of this.splines.values()) {
+            if (spline.construction) continue;
+            if (spline.closed && spline.controlPoints.length >= 3) {
+                profiles.push({
+                    type: 'spline',
+                    entity: spline,
+                    controlPoints: spline.controlPoints.map(p => ({ x: p.x, y: p.y })),
+                    closed: true
+                });
+            }
+        }
+        
         return profiles;
     }
     
