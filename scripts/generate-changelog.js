@@ -13,7 +13,7 @@ const commits = execSync('git log --format="%H|%s|%ad" --date=short', { encoding
       type: match?.[1] || 'other',
       scope: match?.[2]?.slice(1, -1) || '',
       message: match?.[3] || subject,
-      date
+      date,
     };
   });
 
@@ -24,7 +24,7 @@ const groups = {
   refactor: { title: 'Refactoring', items: [] },
   test: { title: 'Tests', items: [] },
   chore: { title: 'Chores', items: [] },
-  other: { title: 'Other', items: [] }
+  other: { title: 'Other', items: [] },
 };
 
 commits.forEach(c => {
@@ -33,7 +33,7 @@ commits.forEach(c => {
 });
 
 let changelog = '# Changelog\n\n## [Unreleased]\n\n';
-for (const [type, group] of Object.entries(groups)) {
+for (const [_type, group] of Object.entries(groups)) {
   if (group.items.length > 0) {
     changelog += `### ${group.title}\n${group.items.join('\n')}\n\n`;
   }
