@@ -138,22 +138,20 @@ function tessellate(shape, linearDeflection = 0.1, angularDeflection = 0.5) {
  * Create a box primitive
  */
 function createBox(width, height, depth, center = { x: 0, y: 0, z: 0 }) {
-    // Create box at origin then translate
-    // BRepPrimAPI_MakeBox_2 takes (dx, dy, dz)
-    const boxMaker = new oc.BRepPrimAPI_MakeBox_2(width, height, depth);
-    let box = boxMaker.Shape();
+    // BRepPrimAPI_MakeBox_3 takes two gp_Pnt (opposite corners)
+    const p1 = new oc.gp_Pnt_3(
+        center.x - width/2,
+        center.y - height/2,
+        center.z - depth/2
+    );
+    const p2 = new oc.gp_Pnt_3(
+        center.x + width/2,
+        center.y + height/2,
+        center.z + depth/2
+    );
     
-    // Translate to center if not at origin
-    if (center.x !== 0 || center.y !== 0 || center.z !== 0) {
-        const trsf = new oc.gp_Trsf_1();
-        trsf.SetTranslation_1(new oc.gp_Vec_4(
-            center.x - width/2,
-            center.y - height/2,
-            center.z - depth/2
-        ));
-        const transform = new oc.BRepBuilderAPI_Transform_2(box, trsf, true);
-        box = transform.Shape();
-    }
+    const boxMaker = new oc.BRepPrimAPI_MakeBox_3(p1, p2);
+    const box = boxMaker.Shape();
     
     return {
         shape: box,
