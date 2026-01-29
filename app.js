@@ -2130,6 +2130,7 @@ function setupEvents() {
         DOM.canvas.addEventListener('mousedown', onMouseDown);
         DOM.canvas.addEventListener('mousemove', onMouseMove);
         DOM.canvas.addEventListener('mouseup', onMouseUp);
+        DOM.canvas.addEventListener('dblclick', onDblClick);
         DOM.canvas.addEventListener('contextmenu', onContextMenu);
         DOM.canvas.addEventListener('wheel', onWheel, { passive: false });
     }
@@ -2372,6 +2373,19 @@ function onMouseUp() {
     System.isDragging = false;
 }
 
+function onDblClick(e) {
+    if (!System.ready) return;
+    
+    // Handle sketch mode double-click (finish spline, etc.)
+    if (System.inSketchMode) {
+        System.mouse = updateMouseCoords(e, DOM.canvas);
+        const worldPoint = getSketchPlaneIntersection(System.mouse);
+        if (worldPoint) {
+            sketchManager.handleDoubleClick(worldPoint);
+        }
+    }
+}
+
 function onContextMenu(e) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY);
@@ -2429,7 +2443,12 @@ function onKeyDown(e) {
     if (!e.ctrlKey && !e.altKey && !e.metaKey) {
         switch(e.key.toLowerCase()) {
             case 's':
-                setTool('select');
+                // In sketch mode, 'S' activates spline tool
+                if (System.inSketchMode) {
+                    setTool('spline');
+                } else {
+                    setTool('select');
+                }
                 break;
             case 'c':
                 setTool('sketch');
