@@ -15,12 +15,16 @@ const topoIdMap = new Map(); // OCCT shape hash -> stable ID
  * Initialize OpenCASCADE.js
  */
 async function initKernel() {
-    if (initialized) return { success: true };
+    if (initialized) return { success: true, version: 'cached' };
     
     try {
-        // Import OpenCASCADE.js from local lib folder
-        // This is a ~63MB WASM file, loaded once at startup
-        importScripts('/lib/opencascade/opencascade.wasm.js');
+        console.log('[Kernel] Loading OpenCASCADE.js...');
+        
+        // Dynamic import for ES module
+        const opencascadeModule = await import('/lib/opencascade/opencascade.wasm.js');
+        const opencascade = opencascadeModule.default;
+        
+        console.log('[Kernel] Initializing WASM module...');
         
         // Initialize the WASM module
         oc = await opencascade({
@@ -28,9 +32,15 @@ async function initKernel() {
         });
         
         initialized = true;
+        
+        // Get version if available
+        const versionMajor = oc.OSD_VERSION_MAJOR ?? 7;
+        const versionMinor = oc.OSD_VERSION_MINOR ?? 0;
+        const version = `${versionMajor}.${versionMinor}`;
+        
         console.log('[Kernel] OpenCASCADE initialized successfully');
-        console.log('[Kernel] OCCT Version:', oc.OSD_VERSION_MAJOR, oc.OSD_VERSION_MINOR);
-        return { success: true, version: `${oc.OSD_VERSION_MAJOR}.${oc.OSD_VERSION_MINOR}` };
+        console.log('[Kernel] OCCT Version:', version);
+        return { success: true, version };
     } catch (error) {
         console.error('[Kernel] Failed to initialize:', error);
         return { success: false, error: error.message };

@@ -24,8 +24,8 @@ export class KernelBridge {
         
         this.initPromise = new Promise((resolve, reject) => {
             try {
-                // Create worker
-                this.worker = new Worker('./src/kernel/worker.js');
+                // Create worker with ES module support
+                this.worker = new Worker('./src/kernel/worker.js', { type: 'module' });
                 
                 // Handle messages from worker
                 this.worker.onmessage = (e) => {
