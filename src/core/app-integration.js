@@ -160,6 +160,7 @@ function registerAllCommands() {
     registerGeneralCommands(appContext);
     registerExportCommands(appContext);
     registerSweepCommands(wrappedKernel);
+    registerTransformCommands(wrappedKernel);
     
     // Register custom app commands
     registerAppCommands();
