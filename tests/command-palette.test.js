@@ -121,11 +121,11 @@ function setupMockDOM() {
         querySelectorAll(_selector) {
           return [];
         },
-        addEventListener(_event, _handler) {
+        addEventListener(event, handler) {
           if (!el._listeners[event]) el._listeners[event] = [];
           el._listeners[event].push(handler);
         },
-        removeEventListener(_event, _handler) {
+        removeEventListener(event, handler) {
           if (el._listeners[event]) {
             const idx = el._listeners[event].indexOf(handler);
             if (idx >= 0) el._listeners[event].splice(idx, 1);
