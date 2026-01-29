@@ -956,6 +956,7 @@ function setTool(tool) {
             'line': SketchMode.LINE,
             'rectangle': SketchMode.RECTANGLE,
             'circle': SketchMode.CIRCLE,
+            'arc': SketchMode.ARC,
             'select': SketchMode.SELECT
         };
         
@@ -1268,8 +1269,15 @@ async function extrudeSketch(height) {
 
 /**
  * Find closed profiles in a sketch
+ * Uses the sketch's built-in profile detection
  */
 function findClosedProfiles(sketch) {
+    // Use the sketch's improved profile detection
+    if (sketch.getClosedProfiles) {
+        return sketch.getClosedProfiles();
+    }
+    
+    // Fallback for older sketches
     const profiles = [];
     
     // Rectangles are always closed profiles
@@ -1277,7 +1285,13 @@ function findClosedProfiles(sketch) {
         profiles.push({
             type: 'rectangle',
             entity: rect,
-            points: rect.points.map(p => ({ x: p.x, y: p.y }))
+            points: rect.points.map(p => ({ x: p.x, y: p.y })),
+            width: Math.abs(rect.p2.x - rect.p1.x),
+            height: Math.abs(rect.p4.y - rect.p1.y),
+            center: {
+                x: (rect.p1.x + rect.p3.x) / 2,
+                y: (rect.p1.y + rect.p3.y) / 2
+            }
         });
     }
     
@@ -1290,8 +1304,6 @@ function findClosedProfiles(sketch) {
             radius: circle.radius
         });
     }
-    
-    // TODO: Find closed chains of lines
     
     return profiles;
 }
@@ -1922,6 +1934,9 @@ function onKeyDown(e) {
                 break;
             case 'o':
                 setTool('circle');
+                break;
+            case 'a':
+                setTool('arc');
                 break;
             case 'm':
                 setTool('move');

@@ -149,6 +149,66 @@ export class TransformFeature extends Feature {
 }
 
 /**
+ * Sketch feature - 2D sketch on a plane
+ */
+export class SketchFeature extends Feature {
+    constructor(params = {}) {
+        super('sketch', {
+            plane: params.plane ?? 'xy',
+            origin: params.origin ?? { x: 0, y: 0, z: 0 },
+            normal: params.normal ?? { x: 0, y: 0, z: 1 },
+            elements: params.elements ?? [],
+            ...params
+        });
+        // Sketches can reference a face for "sketch on face"
+        if (params.faceRef) {
+            this.dependencies = [params.faceRef];
+        }
+    }
+    
+    /**
+     * Add a sketch element
+     */
+    addElement(element) {
+        this.params.elements.push(element);
+        this.modifiedAt = Date.now();
+    }
+    
+    /**
+     * Get all elements of a specific type
+     */
+    getElementsByType(type) {
+        return this.params.elements.filter(el => el.type === type);
+    }
+    
+    /**
+     * Check if sketch has any closed profiles
+     */
+    hasClosedProfiles() {
+        // Rectangles and circles are always closed
+        const hasRect = this.params.elements.some(el => el.type === 'rectangle');
+        const hasCircle = this.params.elements.some(el => el.type === 'circle');
+        return hasRect || hasCircle;
+    }
+}
+
+/**
+ * Extrude feature - extrudes a sketch profile
+ */
+export class ExtrudeFeature extends Feature {
+    constructor(sketchId, params = {}) {
+        super('extrude', {
+            height: params.height ?? 10,
+            direction: params.direction ?? 'normal', // 'normal', 'both', 'reverse'
+            taper: params.taper ?? 0, // taper angle in degrees
+            profileIndex: params.profileIndex ?? 0, // which profile to extrude
+            ...params
+        });
+        this.dependencies = [sketchId];
+    }
+}
+
+/**
  * Document Model - manages the feature tree
  */
 export class DocumentModel {
@@ -397,6 +457,12 @@ export class DocumentModel {
                 break;
             case 'transform':
                 feature = new TransformFeature(data.dependencies[0], data.params.transform, data.params);
+                break;
+            case 'sketch':
+                feature = new SketchFeature(data.params);
+                break;
+            case 'extrude':
+                feature = new ExtrudeFeature(data.dependencies[0], data.params);
                 break;
             default:
                 feature = new Feature(data.type, data.params);

@@ -132,41 +132,122 @@ export class SketchCircle {
 }
 
 /**
- * An arc in sketch space
+ * An arc in sketch space (three-point arc)
  */
 export class SketchArc {
-    constructor(center, radius, startAngle, endAngle) {
+    constructor(start, mid, end) {
         this.id = generateSketchId('ar');
-        this.center = center; // SketchPoint
-        this.radius = radius;
-        this.startAngle = startAngle; // radians
-        this.endAngle = endAngle;     // radians
+        // Store the three defining points
+        this.start = start;  // SketchPoint - start of arc
+        this.mid = mid;      // SketchPoint - point on arc
+        this.end = end;      // SketchPoint - end of arc
         this.construction = false;
         this.constraints = [];
+        
+        // Compute center and radius from three points
+        this._computeCircle();
+    }
+    
+    /**
+     * Compute the circle (center, radius) from three points
+     */
+    _computeCircle() {
+        const p1 = this.start;
+        const p2 = this.mid;
+        const p3 = this.end;
+        
+        // Calculate the center using perpendicular bisectors
+        const ax = (p1.x + p2.x) / 2;
+        const ay = (p1.y + p2.y) / 2;
+        const bx = (p2.x + p3.x) / 2;
+        const by = (p2.y + p3.y) / 2;
+        
+        // Direction vectors of chords
+        const d1x = p2.x - p1.x;
+        const d1y = p2.y - p1.y;
+        const d2x = p3.x - p2.x;
+        const d2y = p3.y - p2.y;
+        
+        // Perpendicular directions
+        const n1x = -d1y;
+        const n1y = d1x;
+        const n2x = -d2y;
+        const n2y = d2x;
+        
+        // Find intersection of perpendicular bisectors
+        const det = n1x * n2y - n1y * n2x;
+        
+        if (Math.abs(det) < 1e-10) {
+            // Points are collinear - use midpoint as center (degenerate)
+            this._center = new SketchPoint((p1.x + p3.x) / 2, (p1.y + p3.y) / 2);
+            this._radius = p1.distanceTo(this._center);
+        } else {
+            const t = ((bx - ax) * n2y - (by - ay) * n2x) / det;
+            const cx = ax + t * n1x;
+            const cy = ay + t * n1y;
+            
+            this._center = new SketchPoint(cx, cy);
+            this._radius = p1.distanceTo(this._center);
+        }
+        
+        // Compute start and end angles
+        this._startAngle = Math.atan2(p1.y - this._center.y, p1.x - this._center.x);
+        this._endAngle = Math.atan2(p3.y - this._center.y, p3.x - this._center.x);
+        
+        // Determine arc direction (ensure mid point is on the arc)
+        const midAngle = Math.atan2(p2.y - this._center.y, p2.x - this._center.x);
+        
+        // Check if we need to go the other way around
+        let sweep = this._endAngle - this._startAngle;
+        if (sweep < 0) sweep += 2 * Math.PI;
+        
+        let midSweep = midAngle - this._startAngle;
+        if (midSweep < 0) midSweep += 2 * Math.PI;
+        
+        if (midSweep > sweep) {
+            // Mid point is not on the short arc, need to go the long way
+            this._clockwise = true;
+        } else {
+            this._clockwise = false;
+        }
+    }
+    
+    get center() {
+        return this._center;
+    }
+    
+    get radius() {
+        return this._radius;
+    }
+    
+    get startAngle() {
+        return this._startAngle;
+    }
+    
+    get endAngle() {
+        return this._endAngle;
     }
     
     get sweepAngle() {
-        let sweep = this.endAngle - this.startAngle;
-        if (sweep < 0) sweep += 2 * Math.PI;
-        return sweep;
+        let sweep = this._endAngle - this._startAngle;
+        if (this._clockwise) {
+            if (sweep > 0) sweep -= 2 * Math.PI;
+        } else {
+            if (sweep < 0) sweep += 2 * Math.PI;
+        }
+        return Math.abs(sweep);
     }
     
     get arcLength() {
-        return this.radius * this.sweepAngle;
+        return this._radius * this.sweepAngle;
     }
     
     get startPoint() {
-        return new SketchPoint(
-            this.center.x + this.radius * Math.cos(this.startAngle),
-            this.center.y + this.radius * Math.sin(this.startAngle)
-        );
+        return this.start;
     }
     
     get endPoint() {
-        return new SketchPoint(
-            this.center.x + this.radius * Math.cos(this.endAngle),
-            this.center.y + this.radius * Math.sin(this.endAngle)
-        );
+        return this.end;
     }
 }
 
@@ -353,6 +434,18 @@ export class Sketch {
     }
     
     /**
+     * Add a three-point arc to the sketch
+     */
+    addArc(startX, startY, midX, midY, endX, endY) {
+        const start = this.addPoint(startX, startY);
+        const mid = this.addPoint(midX, midY);
+        const end = this.addPoint(endX, endY);
+        const arc = new SketchArc(start, mid, end);
+        this.arcs.set(arc.id, arc);
+        return arc;
+    }
+    
+    /**
      * Add a constraint to the sketch
      */
     addConstraint(type, entityIds, value = null) {
@@ -435,10 +528,171 @@ export class Sketch {
             circles: Array.from(this.circles.values()).map(c => ({
                 id: c.id, centerId: c.center.id, radius: c.radius, construction: c.construction
             })),
+            arcs: Array.from(this.arcs.values()).map(a => ({
+                id: a.id,
+                startId: a.start.id,
+                midId: a.mid.id,
+                endId: a.end.id,
+                construction: a.construction
+            })),
+            rectangles: Array.from(this.rectangles.values()).map(r => ({
+                id: r.id,
+                p1Id: r.p1.id,
+                p2Id: r.p2.id,
+                p3Id: r.p3.id,
+                p4Id: r.p4.id,
+                construction: r.construction
+            })),
             constraints: Array.from(this.constraints.values()).map(c => ({
                 id: c.id, type: c.type, entities: c.entities, value: c.value
             }))
         };
+    }
+    
+    /**
+     * Convert sketch elements to a format suitable for extrusion
+     * Returns array of closed profiles with their geometry
+     */
+    getClosedProfiles() {
+        const profiles = [];
+        
+        // 1. Rectangles are always closed profiles
+        for (const rect of this.rectangles.values()) {
+            if (rect.construction) continue;
+            profiles.push({
+                type: 'rectangle',
+                entity: rect,
+                points: [
+                    { x: rect.p1.x, y: rect.p1.y },
+                    { x: rect.p2.x, y: rect.p2.y },
+                    { x: rect.p3.x, y: rect.p3.y },
+                    { x: rect.p4.x, y: rect.p4.y }
+                ],
+                width: Math.abs(rect.p2.x - rect.p1.x),
+                height: Math.abs(rect.p4.y - rect.p1.y),
+                center: {
+                    x: (rect.p1.x + rect.p3.x) / 2,
+                    y: (rect.p1.y + rect.p3.y) / 2
+                }
+            });
+        }
+        
+        // 2. Circles are closed profiles
+        for (const circle of this.circles.values()) {
+            if (circle.construction) continue;
+            profiles.push({
+                type: 'circle',
+                entity: circle,
+                center: { x: circle.center.x, y: circle.center.y },
+                radius: circle.radius
+            });
+        }
+        
+        // 3. Find closed chains of lines
+        const closedChains = this._findClosedLineChains();
+        for (const chain of closedChains) {
+            profiles.push({
+                type: 'polygon',
+                points: chain.map(line => ({ x: line.start.x, y: line.start.y })),
+                lines: chain
+            });
+        }
+        
+        return profiles;
+    }
+    
+    /**
+     * Find closed chains of connected lines
+     */
+    _findClosedLineChains() {
+        const chains = [];
+        const usedLines = new Set();
+        const lines = Array.from(this.lines.values()).filter(l => !l.construction);
+        
+        // Build adjacency map (point ID -> lines that touch it)
+        const adjacency = new Map();
+        
+        for (const line of lines) {
+            const startId = line.start.id;
+            const endId = line.end.id;
+            
+            if (!adjacency.has(startId)) adjacency.set(startId, []);
+            if (!adjacency.has(endId)) adjacency.set(endId, []);
+            
+            adjacency.get(startId).push({ line, endpoint: 'start', otherPoint: line.end });
+            adjacency.get(endId).push({ line, endpoint: 'end', otherPoint: line.start });
+        }
+        
+        // Try to build closed chains starting from each line
+        for (const startLine of lines) {
+            if (usedLines.has(startLine.id)) continue;
+            
+            const chain = this._traceChain(startLine, adjacency, usedLines);
+            if (chain && chain.length >= 3) {
+                // Verify it's actually closed
+                const firstStart = chain[0].start;
+                const lastEnd = chain[chain.length - 1].end;
+                
+                if (this._pointsMatch(firstStart, lastEnd)) {
+                    chains.push(chain);
+                    chain.forEach(l => usedLines.add(l.id));
+                }
+            }
+        }
+        
+        return chains;
+    }
+    
+    /**
+     * Trace a chain of connected lines
+     */
+    _traceChain(startLine, adjacency, usedLines, maxDepth = 100) {
+        const chain = [startLine];
+        let currentPoint = startLine.end;
+        const startPoint = startLine.start;
+        
+        for (let i = 0; i < maxDepth; i++) {
+            // Find next connected line
+            const connections = adjacency.get(currentPoint.id) || [];
+            
+            let nextLine = null;
+            let nextPoint = null;
+            
+            for (const conn of connections) {
+                if (conn.line.id === chain[chain.length - 1].id) continue; // Skip current line
+                if (usedLines.has(conn.line.id)) continue; // Skip used lines
+                if (chain.some(l => l.id === conn.line.id)) continue; // Skip lines already in chain
+                
+                nextLine = conn.line;
+                nextPoint = conn.otherPoint;
+                break;
+            }
+            
+            if (!nextLine) {
+                // Dead end
+                return null;
+            }
+            
+            chain.push(nextLine);
+            
+            // Check if we closed the loop
+            if (this._pointsMatch(nextPoint, startPoint)) {
+                return chain;
+            }
+            
+            currentPoint = nextPoint;
+        }
+        
+        return null; // Max depth reached
+    }
+    
+    /**
+     * Check if two points are coincident (within tolerance)
+     */
+    _pointsMatch(p1, p2, tolerance = 0.001) {
+        const dx = p1.x - p2.x;
+        const dy = p1.y - p2.y;
+        return Math.sqrt(dx * dx + dy * dy) < tolerance;
     }
 }
 
@@ -541,6 +795,8 @@ export class SketchManager {
                 return this.handleRectangleClick(snapped);
             case SketchMode.CIRCLE:
                 return this.handleCircleClick(snapped);
+            case SketchMode.ARC:
+                return this.handleArcClick(snapped);
             case SketchMode.POINT:
                 return this.handlePointClick(snapped);
             case SketchMode.SELECT:
@@ -573,6 +829,24 @@ export class SketchManager {
                 if (this.tempPoints.length === 1) {
                     const radius = this.tempPoints[0].distanceTo(snapped);
                     this.previewEntity = new SketchCircle(this.tempPoints[0], radius);
+                }
+                break;
+            case SketchMode.ARC:
+                if (this.tempPoints.length === 1) {
+                    // Show line from start to current
+                    this.previewEntity = new SketchLine(this.tempPoints[0], snapped);
+                } else if (this.tempPoints.length === 2) {
+                    // Show arc preview through three points
+                    try {
+                        this.previewEntity = new SketchArc(
+                            this.tempPoints[0],
+                            this.tempPoints[1],
+                            snapped
+                        );
+                    } catch (e) {
+                        // Points might be collinear
+                        this.previewEntity = new SketchLine(this.tempPoints[0], snapped);
+                    }
                 }
                 break;
         }
@@ -661,6 +935,33 @@ export class SketchManager {
             
             return circle;
         }
+    }
+    
+    /**
+     * Handle arc mode click (three-point arc)
+     */
+    handleArcClick(point) {
+        this.tempPoints.push(point.clone());
+        
+        if (this.tempPoints.length === 3) {
+            // Create arc from three points
+            const arc = this.activeSketch.addArc(
+                this.tempPoints[0].x, this.tempPoints[0].y,
+                this.tempPoints[1].x, this.tempPoints[1].y,
+                this.tempPoints[2].x, this.tempPoints[2].y
+            );
+            
+            this.tempPoints = [];
+            this.previewEntity = null;
+            
+            if (this.onSketchUpdate) {
+                this.onSketchUpdate(this.activeSketch);
+            }
+            
+            return arc;
+        }
+        
+        return null;
     }
     
     /**

@@ -12,18 +12,22 @@
 import * as THREE from 'three';
 import { SketchMode } from './sketch-manager.js';
 
-// Sketch colors
+// Sketch colors - distinctive blue/cyan for sketch mode
 const Colors = {
-    GEOMETRY: 0x00ff00,        // Green - normal sketch geometry
-    CONSTRUCTION: 0x888888,    // Gray - construction geometry
-    SELECTED: 0xff9900,        // Orange - selected
-    PREVIEW: 0x66ccff,         // Light blue - preview while drawing
-    POINT: 0xffff00,           // Yellow - points
-    CONSTRAINED: 0x00ffff,     // Cyan - fully constrained
-    UNDER_CONSTRAINED: 0x00ff00, // Green - under constrained
-    ERROR: 0xff0000,           // Red - over constrained / error
-    GRID: 0x1a1a2e,            // Dark - sketch grid
-    PLANE: 0x2a2a4e            // Construction plane highlight
+    GEOMETRY: 0x00aaff,        // Bright blue - normal sketch geometry
+    CONSTRUCTION: 0x666688,    // Muted gray-blue - construction geometry
+    SELECTED: 0xff6600,        // Orange - selected
+    PREVIEW: 0x00ffff,         // Cyan - preview while drawing
+    POINT: 0xffff00,           // Yellow - points/vertices
+    POINT_SNAP: 0xff00ff,      // Magenta - snap indicator
+    CONSTRAINED: 0x00ff88,     // Green-cyan - fully constrained
+    UNDER_CONSTRAINED: 0x00aaff, // Blue - under constrained
+    ERROR: 0xff4444,           // Red - over constrained / error
+    GRID: 0x2a2a4e,            // Dark blue - sketch grid
+    GRID_MAJOR: 0x3a3a5e,      // Slightly lighter - major grid lines
+    PLANE: 0x1a1a3e,           // Very dark blue - construction plane
+    AXIS_X: 0xff4444,          // Red - X axis
+    AXIS_Y: 0x44ff44           // Green - Y axis
 };
 
 /**
@@ -320,12 +324,38 @@ export class SketchRenderer {
         const segments = 32;
         const points = [];
         
+        // Get center and radius (computed from three points)
+        const center = arc.center;
+        const radius = arc.radius;
+        
+        if (!center || !radius || radius <= 0) {
+            // Fallback: just draw a line if arc is degenerate
+            const start3d = sketch.sketchToWorld(arc.start);
+            const end3d = sketch.sketchToWorld(arc.end);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(
+                new Float32Array([start3d.x, start3d.y, start3d.z, end3d.x, end3d.y, end3d.z]),
+                3
+            ));
+            const line = new THREE.Line(geometry, this.materials.line);
+            this.geometryGroup.add(line);
+            return;
+        }
+        
+        const startAngle = arc.startAngle;
         const sweep = arc.sweepAngle;
+        const clockwise = arc._clockwise;
+        
         for (let i = 0; i <= segments; i++) {
             const t = i / segments;
-            const angle = arc.startAngle + t * sweep;
-            const x = arc.center.x + arc.radius * Math.cos(angle);
-            const y = arc.center.y + arc.radius * Math.sin(angle);
+            let angle;
+            if (clockwise) {
+                angle = startAngle - t * sweep;
+            } else {
+                angle = startAngle + t * sweep;
+            }
+            const x = center.x + radius * Math.cos(angle);
+            const y = center.y + radius * Math.sin(angle);
             const point3d = sketch.sketchToWorld({ x, y });
             points.push(point3d);
         }
@@ -376,8 +406,41 @@ export class SketchRenderer {
         
         if (!entity || !sketch) return;
         
-        if (entity.start && entity.end) {
-            // Line preview
+        // Check if it's a SketchArc (has start, mid, end points and _center)
+        if (entity._center && entity._radius && entity.start && entity.mid && entity.end) {
+            // Arc preview
+            const segments = 32;
+            const points = [];
+            
+            const center = entity._center;
+            const radius = entity._radius;
+            const startAngle = entity._startAngle;
+            const sweep = entity.sweepAngle;
+            const clockwise = entity._clockwise;
+            
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                let angle;
+                if (clockwise) {
+                    angle = startAngle - t * sweep;
+                } else {
+                    angle = startAngle + t * sweep;
+                }
+                const x = center.x + radius * Math.cos(angle);
+                const y = center.y + radius * Math.sin(angle);
+                const point3d = sketch.sketchToWorld({ x, y });
+                points.push(point3d);
+            }
+            
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const arc = new THREE.Line(geometry, this.materials.preview);
+            this.previewGroup.add(arc);
+            
+            // Also show the three points
+            this.showPreviewPoints([entity.start, entity.mid, entity.end], sketch);
+        }
+        else if (entity.start && entity.end && !entity.mid) {
+            // Line preview (has start and end but no mid - distinguishes from arc)
             const start3d = sketch.sketchToWorld(entity.start);
             const end3d = sketch.sketchToWorld(entity.end);
             
@@ -390,8 +453,8 @@ export class SketchRenderer {
             const line = new THREE.Line(geometry, this.materials.preview);
             this.previewGroup.add(line);
         }
-        else if (entity.center && entity.radius) {
-            // Circle preview
+        else if (entity.center && entity.radius && !entity._center) {
+            // Circle preview (has center.x/y directly, not _center)
             const segments = 64;
             const points = [];
             
@@ -421,6 +484,24 @@ export class SketchRenderer {
             const rect = new THREE.Line(geometry, this.materials.preview);
             this.previewGroup.add(rect);
         }
+    }
+    
+    /**
+     * Show preview points (for arc drawing)
+     */
+    showPreviewPoints(points, sketch) {
+        const positions = [];
+        for (const pt of points) {
+            const p3d = sketch.sketchToWorld(pt);
+            positions.push(p3d.x, p3d.y, p3d.z);
+        }
+        
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+        
+        const pointsMat = new THREE.PointsMaterial({ color: 0xff00ff, size: 10, sizeAttenuation: false });
+        const pointsObj = new THREE.Points(geometry, pointsMat);
+        this.previewGroup.add(pointsObj);
     }
     
     /**
