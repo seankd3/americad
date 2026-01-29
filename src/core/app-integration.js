@@ -17,6 +17,7 @@ import { registerExportCommands } from '../commands/export.js';
 import { registerSweepCommands } from '../commands/sweep.js';
 import { registerTransformCommands } from '../commands/transforms.js';
 import { registerSketchCommands } from '../commands/sketch.js';
+import { registerMeasureCommands } from '../commands/measure.js';
 
 // Application context - shared state between commands
 const appContext = {
@@ -28,6 +29,7 @@ const appContext = {
     camera: null,
     scene: null,
     THREE: null,
+    measureTool: null,
     
     // Sweep state tracking
     _lastProfile: null,
@@ -163,6 +165,7 @@ function registerAllCommands() {
     registerSweepCommands(wrappedKernel);
     registerTransformCommands(wrappedKernel);
     registerSketchCommands(appContext);
+    registerMeasureCommands(appContext);
     
     // Register custom app commands
     registerAppCommands();

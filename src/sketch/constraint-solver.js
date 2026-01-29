@@ -125,6 +125,15 @@ const countEquations = (constraints, sketch) => {
                 count += isPoint(entity) ? 2 : 1;
                 break;
             }
+            case ConstraintType.LENGTH:
+            case ConstraintType.RADIUS:
+            case ConstraintType.DISTANCE:
+            case ConstraintType.HORIZONTAL:
+            case ConstraintType.VERTICAL:
+            case ConstraintType.PARALLEL:
+            case ConstraintType.PERPENDICULAR:
+            case ConstraintType.ANGLE:
+            case ConstraintType.EQUAL:
             default:
                 count += 1;
                 break;
@@ -335,6 +344,19 @@ const applyEqual = (entity1, entity2, fixedMap, relax) => {
     return 0;
 };
 
+const applyLength = (entity, target, fixedMap, relax) => {
+    // LENGTH constraint: set line length or circle radius to specific value
+    if (isLine(entity)) {
+        return adjustLineLength(entity, target, fixedMap, relax);
+    }
+    if (isCircle(entity)) {
+        const error = entity.radius - target;
+        entity.radius = entity.radius - error * relax;
+        return Math.abs(error);
+    }
+    return 0;
+};
+
 const applyConstraint = (sketch, constraint, fixedMap, options) => {
     const entities = constraint.entities.map((id) => sketch.getEntity(id));
     switch (constraint.type) {
@@ -350,6 +372,8 @@ const applyConstraint = (sketch, constraint, fixedMap, options) => {
             return applyParallel(entities[0], entities[1], fixedMap, options.relax);
         case ConstraintType.DISTANCE:
             return applyDistance(entities[0], entities[1], constraint.value || 0, fixedMap, options.relax);
+        case ConstraintType.LENGTH:
+            return applyLength(entities[0], constraint.value || 0, fixedMap, options.relax);
         case ConstraintType.ANGLE:
             return applyAngle(entities[0], entities[1], constraint.value || 0, fixedMap, options.relax);
         case ConstraintType.FIXED:
@@ -365,6 +389,12 @@ const applyConstraint = (sketch, constraint, fixedMap, options) => {
             return 0;
         case ConstraintType.EQUAL:
             return applyEqual(entities[0], entities[1], fixedMap, options.relax);
+        case ConstraintType.RADIUS:
+            // RADIUS is same as LENGTH for circles
+            if (isCircle(entities[0])) {
+                return applyLength(entities[0], constraint.value || 0, fixedMap, options.relax);
+            }
+            return 0;
         default:
             return 0;
     }

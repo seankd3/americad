@@ -8,6 +8,8 @@ import { DocumentModel, BoxFeature, CylinderFeature, SphereFeature, ConeFeature,
 import { Evaluator } from './kernel/evaluator.js';
 import { FeatureTreeUI, addFeatureTreeStyles } from './ui/feature-tree.js';
 import { ParamEditor, editFeature, hasEditableParams } from './ui/param-editor.js';
+import { initPropertyPanel } from './ui/property-panel.js';
+import { MeasureTool, MeasureMode } from './ui/measure-tool.js';
 import { commandManager } from './state/history.js';
 import { CrashGuard } from './crash-guard.js';
 import { meshToSTL, meshToSTLBinary, mergeMeshesToSTL, geometryToMeshData, downloadSTL, getSTLStats } from './io/stl-export.js';
@@ -36,6 +38,8 @@ export class AmericaD {
         this.document = new DocumentModel();
         this.evaluator = null;
         this.treeUI = null;
+        this.propertyPanel = null;
+        this.measureTool = null;
         
         // State
         this.selectedFeatureId = null;
@@ -77,6 +81,12 @@ export class AmericaD {
         this.treeUI.onFeatureDelete = (id) => this.deleteFeature(id);
         this.treeUI.onFeatureRename = (id, name) => this.renameFeature(id, name);
         
+        // Create property panel UI
+        this.propertyPanel = initPropertyPanel({
+            document: this.document,
+            onPropertyChange: (featureId, type, value) => this.handlePropertyChange(featureId, type, value)
+        });
+        
         // Set up crash recovery
         CrashGuard.init();
         
@@ -106,6 +116,59 @@ export class AmericaD {
         if (this.evaluator) {
             this.evaluator.scene = scene;
         }
+        
+        // Initialize measure tool
+        this.measureTool = new MeasureTool({
+            scene: scene,
+            camera: camera,
+            renderer: renderer,
+            evaluator: this.evaluator,
+            onModeChange: (mode) => {
+                console.log(`[Ameri-CAD] Measure mode: ${mode}`);
+                // Update status bar if available
+                const statusEl = document.querySelector('.status-mode');
+                if (statusEl) {
+                    statusEl.textContent = mode === MeasureMode.NONE ? '' : `MEASURE: ${mode.toUpperCase()}`;
+                }
+            },
+            onMeasurementComplete: (result) => {
+                console.log(`[Ameri-CAD] Measurement: ${result.formatted}`);
+                // Show in console/status
+                const statusEl = document.querySelector('.status-message');
+                if (statusEl) {
+                    statusEl.textContent = `${result.type.toUpperCase()}: ${result.formatted}`;
+                }
+            },
+            onStatusUpdate: (status) => {
+                const statusEl = document.querySelector('.status-message');
+                if (statusEl && status) {
+                    statusEl.textContent = status;
+                }
+            }
+        });
+        this.measureTool.init(scene, camera, renderer);
+        
+        // Set up keyboard shortcut for measure tool
+        this._setupMeasureKeyboard();
+    }
+    
+    /**
+     * Set up keyboard shortcuts for measure tool
+     */
+    _setupMeasureKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            // Don't trigger if user is typing in an input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+                return;
+            }
+            
+            if (e.key === 'm' || e.key === 'M') {
+                e.preventDefault();
+                if (this.measureTool) {
+                    this.measureTool.toggle(MeasureMode.DISTANCE);
+                }
+            }
+        });
     }
     
     // ==================== Feature Operations ====================
@@ -279,9 +342,64 @@ export class AmericaD {
                 this.transformControl.attach(mesh);
                 this.transformControl.visible = true;
             }
-        } else if (this.transformControl) {
-            this.transformControl.detach();
-            this.transformControl.visible = false;
+            
+            // Update property panel
+            const feature = this.document.getFeature(featureId);
+            if (this.propertyPanel && feature) {
+                this.propertyPanel.bind(feature, mesh);
+            }
+        } else {
+            if (this.transformControl) {
+                this.transformControl.detach();
+                this.transformControl.visible = false;
+            }
+            
+            // Clear property panel
+            if (this.propertyPanel) {
+                this.propertyPanel.clear();
+            }
+        }
+    }
+    
+    /**
+     * Handle property change from property panel
+     */
+    async handlePropertyChange(featureId, type, value) {
+        if (!featureId) return;
+        
+        const feature = this.document.getFeature(featureId);
+        if (!feature) return;
+        
+        switch (type) {
+            case 'name':
+                this.renameFeature(featureId, value);
+                break;
+                
+            case 'param':
+                // Update geometry with new parameters
+                await this.updateFeature(featureId, value);
+                
+                // Refresh property panel geometry info
+                if (this.propertyPanel) {
+                    const mesh = this.evaluator.getMesh(featureId);
+                    const updatedFeature = this.document.getFeature(featureId);
+                    this.propertyPanel.bind(updatedFeature, mesh);
+                }
+                break;
+                
+            case 'transform':
+                // Apply transform to mesh
+                const mesh = this.evaluator.getMesh(featureId);
+                if (mesh) {
+                    mesh.position.set(value.position.x, value.position.y, value.position.z);
+                    mesh.rotation.set(
+                        value.rotation.x * Math.PI / 180,
+                        value.rotation.y * Math.PI / 180,
+                        value.rotation.z * Math.PI / 180
+                    );
+                    mesh.scale.set(value.scale.x, value.scale.y, value.scale.z);
+                }
+                break;
         }
     }
     

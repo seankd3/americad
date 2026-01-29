@@ -19,7 +19,7 @@ import { selectionManager } from './src/state/selection.js';
 import { commandManager, CreatePrimitiveCommand, DeleteCommand, TransformCommand } from './src/state/history.js';
 
 // Kernel and command system integration
-import { initializeSystem, executeCommand as execCmd, isKernelReady, getCommandSuggestions } from './src/core/app-integration.js';
+import { initializeSystem, executeCommand as execCmd, isKernelReady, getCommandSuggestions, getContext } from './src/core/app-integration.js';
 import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
 
 // Modular AmericaD class - the unified CAD architecture
@@ -27,10 +27,12 @@ import { AmericaD, app as americadApp } from './src/main.js';
 
 // Feature tree UI
 import { FeatureTreeUI, addFeatureTreeStyles } from './src/ui/feature-tree.js';
+import { initPropertyPanel } from './src/ui/property-panel.js';
 
 // Sketch system
-import { sketchManager, SketchMode } from './src/sketch/sketch-manager.js';
+import { sketchManager, SketchMode, ConstraintType, SketchLine, SketchCircle } from './src/sketch/sketch-manager.js';
 import { SketchRenderer } from './src/sketch/sketch-renderer.js';
+import { solveSketch } from './src/sketch/constraint-solver.js';
 
 // ========================================
 // SYSTEM STATE
@@ -91,6 +93,7 @@ let scene, camera, renderer, controls, transformControl;
 let gridHelper, axesHelper;
 let sketchRenderer; // For 2D sketch visualization
 let featureTreeUI; // Feature tree UI component
+let propertyPanel; // Property panel UI component
 
 // ========================================
 // DOM REFERENCES
@@ -219,6 +222,15 @@ async function initKernelSystem() {
             await americadApp.init(THREE);
             americadApp.setScene(scene, camera, renderer, controls, transformControl);
             System.americad = americadApp;
+            
+            // Connect measureTool to the command context
+            const context = getContext();
+            if (context && americadApp.measureTool) {
+                context.measureTool = americadApp.measureTool;
+                context.app = americadApp;
+                log('MEASURE TOOL READY', 'success');
+            }
+            
             log('DOCUMENT MODEL READY', 'success');
         } catch (err) {
             console.warn('[Ameri-CAD] AmericaD class init warning:', err);
@@ -379,6 +391,64 @@ function initFeatureTreeUI() {
     };
     
     console.log('[Ameri-CAD] Feature tree UI initialized');
+    
+    // Initialize property panel
+    propertyPanel = initPropertyPanel({
+        document: docModel,
+        onPropertyChange: async (featureId, type, value) => {
+            const feature = docModel.getFeature(featureId);
+            if (!feature) return;
+            
+            switch (type) {
+                case 'name':
+                    // Update feature name
+                    feature.name = value;
+                    docModel.modifiedAt = Date.now();
+                    
+                    // Update mesh userData
+                    const mesh = System.objects.find(obj => obj.userData?.id === featureId);
+                    if (mesh) mesh.userData.name = value;
+                    
+                    // Update feature tree
+                    if (featureTreeUI) featureTreeUI.render();
+                    log(`RENAMED: ${feature.name}`, 'info');
+                    break;
+                    
+                case 'param':
+                    // Update geometry with new parameters
+                    feature.updateParams(value);
+                    
+                    // Regenerate geometry using the unified architecture
+                    if (System.americad?.kernelReady && System.americad?.evaluator) {
+                        await System.americad.evaluator.reEvaluateFromFeature(featureId);
+                        
+                        // Refresh property panel with new geometry info
+                        const updatedMesh = System.americad.evaluator.getMesh(featureId);
+                        if (propertyPanel && updatedMesh) {
+                            propertyPanel.bind(feature, updatedMesh);
+                        }
+                    }
+                    log(`UPDATED: ${feature.name} params`, 'info');
+                    break;
+                    
+                case 'transform':
+                    // Apply transform to mesh
+                    const objMesh = System.objects.find(obj => obj.userData?.id === featureId);
+                    if (objMesh) {
+                        objMesh.position.set(value.position.x, value.position.y, value.position.z);
+                        objMesh.rotation.set(
+                            value.rotation.x * Math.PI / 180,
+                            value.rotation.y * Math.PI / 180,
+                            value.rotation.z * Math.PI / 180
+                        );
+                        objMesh.scale.set(value.scale.x, value.scale.y, value.scale.z);
+                    }
+                    break;
+            }
+        }
+    });
+    
+    console.log('[Ameri-CAD] Property panel initialized');
 }
 
 /**
@@ -421,7 +491,25 @@ function setupHistoryCallbacks() {
     selectionManager.onSelectionChange((selected) => {
         if (selected) {
             updateProperties();
+            
+            // Update property panel with selected feature
+            if (propertyPanel) {
+                const featureId = selected.userData?.id;
+                const docModel = System.americad?.document || americadApp?.document;
+                if (featureId && docModel) {
+                    const feature = docModel.getFeature(featureId);
+                    if (feature) {
+                        propertyPanel.bind(feature, selected);
+                    }
+                }
+            }
+            
             log(`SELECTED: ${selected.userData.name}`, 'info');
+        } else {
+            // Clear property panel when nothing is selected
+            if (propertyPanel) {
+                propertyPanel.clear();
+            }
         }
     });
 }
@@ -973,6 +1061,7 @@ function setTool(tool) {
             'rectangle': SketchMode.RECTANGLE,
             'circle': SketchMode.CIRCLE,
             'arc': SketchMode.ARC,
+            'spline': SketchMode.SPLINE,
             'select': SketchMode.SELECT
         };
         
@@ -1000,6 +1089,7 @@ function setTool(tool) {
             line: 'crosshair',
             rectangle: 'crosshair',
             circle: 'crosshair',
+            spline: 'crosshair',
             extrude: 'ns-resize',
             move: 'move'
         };
@@ -1167,6 +1257,129 @@ function exitSketchMode() {
     log('EXITED SKETCH MODE', 'info');
     
     return sketch;
+}
+
+/**
+ * Apply dimension (length) constraint to selected sketch entities
+ */
+async function applyDimensionConstraint(value) {
+    if (!System.inSketchMode || !System.activeSketch) {
+        return { success: false, error: 'No active sketch' };
+    }
+    
+    const sketch = System.activeSketch;
+    const selectedEntities = [];
+    
+    // Find selected lines and circles
+    for (const id of sketchManager.selectedEntities) {
+        const entity = sketch.getEntity(id);
+        if (entity) {
+            if (entity instanceof SketchLine) {
+                selectedEntities.push({ entity, type: 'line', id });
+            } else if (entity instanceof SketchCircle) {
+                selectedEntities.push({ entity, type: 'circle', id });
+            }
+        }
+    }
+    
+    if (selectedEntities.length === 0) {
+        return { success: false, error: 'Select a line or circle first' };
+    }
+    
+    let addedCount = 0;
+    
+    for (const { entity, type, id } of selectedEntities) {
+        // Check if already has a length/radius constraint
+        const constraintType = type === 'circle' ? ConstraintType.RADIUS : ConstraintType.LENGTH;
+        const existing = Array.from(sketch.constraints.values())
+            .filter(c => c.entities.includes(id) && 
+                        (c.type === ConstraintType.LENGTH || c.type === ConstraintType.RADIUS));
+        
+        if (existing.length > 0) {
+            // Update existing constraint value
+            existing[0].value = value;
+        } else {
+            // Add new constraint
+            sketch.addConstraint(constraintType, [id], value);
+            addedCount++;
+        }
+    }
+    
+    // Solve the sketch to apply constraints
+    const result = solveSketch(sketch);
+    
+    // Update the visual representation
+    updateSketchView();
+    
+    return { 
+        success: true, 
+        value: value,
+        count: addedCount || selectedEntities.length,
+        solverStatus: result.status,
+        converged: result.converged
+    };
+}
+
+/**
+ * Apply radius constraint to selected circles
+ */
+async function applyRadiusConstraint(value) {
+    if (!System.inSketchMode || !System.activeSketch) {
+        return { success: false, error: 'No active sketch' };
+    }
+    
+    const sketch = System.activeSketch;
+    const selectedCircles = [];
+    
+    // Find selected circles
+    for (const id of sketchManager.selectedEntities) {
+        const entity = sketch.getEntity(id);
+        if (entity instanceof SketchCircle) {
+            selectedCircles.push({ entity, id });
+        }
+    }
+    
+    if (selectedCircles.length === 0) {
+        return { success: false, error: 'Select a circle first' };
+    }
+    
+    let addedCount = 0;
+    
+    for (const { entity, id } of selectedCircles) {
+        // Check if already has a radius constraint
+        const existing = Array.from(sketch.constraints.values())
+            .filter(c => c.entities.includes(id) && c.type === ConstraintType.RADIUS);
+        
+        if (existing.length > 0) {
+            existing[0].value = value;
+        } else {
+            sketch.addConstraint(ConstraintType.RADIUS, [id], value);
+            addedCount++;
+        }
+    }
+    
+    // Solve the sketch
+    const result = solveSketch(sketch);
+    
+    // Update visuals
+    updateSketchView();
+    
+    return { 
+        success: true, 
+        value: value,
+        count: addedCount || selectedCircles.length,
+        solverStatus: result.status,
+        converged: result.converged
+    };
+}
+
+/**
+ * Update sketch view after constraints change
+ */
+function updateSketchView() {
+    if (!System.activeSketch || !sketchRenderer) return;
+    
+    sketchRenderer.renderSketch(System.activeSketch, sketchManager.selectedEntities);
 }
 
 /**
@@ -1885,6 +2098,10 @@ function handleMenuAction(action) {
         case 'help':
             showHelp();
             break;
+        case 'measure':
+            // Toggle measure mode via the command system
+            executeCommand('measure');
+            break;
         case 'close-modal':
         case 'cancel':
             closeModals();
@@ -2385,6 +2602,50 @@ async function executeCommand(cmd) {
         }
     }
     
+    // Dimension/length constraint commands
+    if (['dimension', 'dim', 'distance', 'd', 'length', 'len'].includes(action)) {
+        if (!System.inSketchMode) {
+            log('ERROR: Enter sketch mode first', 'error');
+            return;
+        }
+        
+        const value = parseFloat(args[0]);
+        if (!value || value <= 0) {
+            log('ERROR: Provide a positive dimension value', 'error');
+            return;
+        }
+        
+        const result = await applyDimensionConstraint(value);
+        if (result.success) {
+            log(`DIMENSION: ${value} applied (${result.count} constraint${result.count > 1 ? 's' : ''})`, 'success');
+        } else {
+            log(`ERROR: ${result.error}`, 'error');
+        }
+        return;
+    }
+    
+    // Radius constraint command
+    if (['radius', 'rad'].includes(action)) {
+        if (!System.inSketchMode) {
+            log('ERROR: Enter sketch mode first', 'error');
+            return;
+        }
+        
+        const value = parseFloat(args[0]);
+        if (!value || value <= 0) {
+            log('ERROR: Provide a positive radius value', 'error');
+            return;
+        }
+        
+        const result = await applyRadiusConstraint(value);
+        if (result.success) {
+            log(`RADIUS: ${value} applied`, 'success');
+        } else {
+            log(`ERROR: ${result.error}`, 'error');
+        }
+        return;
+    }
+    
     // Other commands
     switch(action) {
         case '?':
@@ -2491,7 +2752,15 @@ function showHelp() {
 ║   O         Circle tool - click center + radius           ║
 ║   A         Arc tool - click three points                 ║
 ║                                                           ║
-║ WORKFLOW: sketch → draw → exit → extrude 20              ║
+║ SKETCH CONSTRAINTS (in sketch mode):                      ║
+║   dim [value]          Set line length or circle radius   ║
+║   dimension [value]    Same as dim                        ║
+║   length [value]       Set line length (dim alias)        ║
+║   radius [value]       Set circle radius                  ║
+║   h                    Make line horizontal               ║
+║   v                    Make line vertical                 ║
+║                                                           ║
+║ WORKFLOW: sketch → draw → dim 100 → exit → extrude 20    ║
 ╠═══════════════════════════════════════════════════════════╣
 ║ PRIMITIVES (uses real B-Rep kernel when available):       ║
 ║   box [w] [h] [d]      Create box (e.g., "box 20 10 30")  ║
@@ -2854,11 +3123,15 @@ window.AmericaD = {
     exitSketchMode,
     extrudeSketch,
     revolveSketch,
+    applyDimensionConstraint,
+    applyRadiusConstraint,
+    updateSketchView,
     log,
     // Unified architecture access
     get app() { return System.americad; },
     get document() { return System.americad?.document; },
     get evaluator() { return System.americad?.evaluator; },
     get featureTree() { return featureTreeUI; },
+    get propertyPanel() { return propertyPanel; },
     kernel
 };

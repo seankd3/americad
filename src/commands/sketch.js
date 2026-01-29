@@ -7,6 +7,7 @@
 import { registerCommand } from '../core/commands.js';
 import { sketchManager, SketchMode, ConstraintType, SketchLine, SketchCircle } from '../sketch/sketch-manager.js';
 import { solveSketch } from '../sketch/constraint-solver.js';
+import { snapManager, SnapType } from '../ui/snap-manager.js';
 
 /**
  * Register all sketch-related commands
@@ -115,6 +116,33 @@ export function registerSketchCommands(context) {
         }
     });
     
+    // SPLINE - Set spline drawing mode
+    registerCommand('spline', {
+        aliases: ['sp', 'curve', 'bezier'],
+        description: 'Spline curve drawing tool (in sketch mode). Click to add points, Enter/double-click to finish.',
+        category: 'sketch',
+        params: [
+            { name: 'action', type: 'string', required: false, description: 'Optional action: "close" to close the spline' }
+        ],
+        async execute(params, ctx) {
+            if (!ctx.inSketchMode) {
+                return { success: false, error: 'Enter sketch mode first' };
+            }
+            
+            if (params.action === 'close') {
+                // Close the current spline
+                const spline = sketchManager.finishSpline(true);
+                if (spline) {
+                    return { success: true, action: 'closed', splineId: spline.id };
+                }
+                return { success: false, error: 'No spline to close' };
+            }
+            
+            sketchManager.setMode(SketchMode.SPLINE);
+            return { success: true, mode: 'spline' };
+        }
+    });
+    
     // EXTRUDE - Extrude sketch profiles
     registerCommand('extrude', {
         aliases: ['ext', 'push'],
@@ -181,21 +209,114 @@ export function registerSketchCommands(context) {
         }
     });
     
-    // SNAP - Toggle endpoint snapping
+    // SNAP - Comprehensive snap control
+    // Usage: snap [on|off|<type>] [value]
+    // Examples: snap on, snap off, snap grid 10, snap point on, snap endpoint off
     registerCommand('snap', {
-        description: 'Toggle endpoint snapping',
+        aliases: ['s'],
+        description: 'Control snapping (snap on/off, snap grid <size>, snap <type> on/off)',
         category: 'sketch',
         params: [
-            { name: 'tolerance', type: 'number', required: false, description: 'Snap tolerance' }
+            { name: 'type', type: 'string', required: false, description: 'on/off or snap type (grid, point, midpoint, center, intersection, nearest)' },
+            { name: 'value', type: 'string', required: false, description: 'on/off or grid size' }
         ],
         async execute(params, ctx) {
-            if (params.tolerance !== undefined) {
-                sketchManager.snapTolerance = params.tolerance;
-                return { success: true, tolerance: params.tolerance };
-            } else {
-                sketchManager.endpointSnap = !sketchManager.endpointSnap;
-                return { success: true, endpointSnap: sketchManager.endpointSnap };
+            const type = params.type?.toLowerCase();
+            const value = params.value?.toLowerCase();
+            
+            // No args - show status
+            if (!type) {
+                return {
+                    success: true,
+                    active: snapManager.active,
+                    settings: snapManager.getSettings(),
+                    status: snapManager.getStatusString()
+                };
             }
+            
+            // Master toggle: snap on/off
+            if (type === 'on') {
+                snapManager.setActive(true);
+                return { success: true, active: true, message: 'Snapping enabled' };
+            }
+            if (type === 'off') {
+                snapManager.setActive(false);
+                return { success: true, active: false, message: 'Snapping disabled' };
+            }
+            
+            // Grid size: snap grid <size>
+            if (type === 'grid') {
+                const size = parseFloat(value);
+                if (!isNaN(size) && size > 0) {
+                    snapManager.setGridSize(size);
+                    sketchManager.gridSize = size;
+                    return { success: true, gridSize: size, message: `Grid size set to ${size}` };
+                } else if (value === 'on' || value === 'off') {
+                    snapManager.setEnabled('grid', value === 'on');
+                    sketchManager.gridSnap = value === 'on';
+                    return { success: true, gridEnabled: value === 'on' };
+                } else {
+                    // Toggle grid snap
+                    const current = snapManager.enabled.grid;
+                    snapManager.setEnabled('grid', !current);
+                    sketchManager.gridSnap = !current;
+                    return { success: true, gridEnabled: !current };
+                }
+            }
+            
+            // Tolerance: snap tolerance <value>
+            if (type === 'tolerance' || type === 'tol') {
+                const tol = parseFloat(value);
+                if (!isNaN(tol) && tol > 0) {
+                    snapManager.setTolerance(tol);
+                    sketchManager.snapTolerance = tol;
+                    return { success: true, tolerance: tol };
+                }
+                return { success: false, error: 'Invalid tolerance value' };
+            }
+            
+            // Snap type toggles: snap point on/off, snap midpoint on/off, etc.
+            const snapTypes = {
+                'point': 'endpoint',
+                'endpoint': 'endpoint',
+                'end': 'endpoint',
+                'mid': 'midpoint',
+                'midpoint': 'midpoint',
+                'center': 'center',
+                'cen': 'center',
+                'int': 'intersection',
+                'intersection': 'intersection',
+                'perp': 'perpendicular',
+                'perpendicular': 'perpendicular',
+                'tan': 'tangent',
+                'tangent': 'tangent',
+                'near': 'nearest',
+                'nearest': 'nearest'
+            };
+            
+            const snapType = snapTypes[type];
+            if (snapType) {
+                if (value === 'on' || value === 'off') {
+                    snapManager.setEnabled(snapType, value === 'on');
+                    if (snapType === 'endpoint') {
+                        sketchManager.endpointSnap = value === 'on';
+                    }
+                    return { success: true, type: snapType, enabled: value === 'on' };
+                } else {
+                    // Toggle
+                    const current = snapManager.enabled[snapType];
+                    snapManager.setEnabled(snapType, !current);
+                    if (snapType === 'endpoint') {
+                        sketchManager.endpointSnap = !current;
+                    }
+                    return { success: true, type: snapType, enabled: !current };
+                }
+            }
+            
+            return { 
+                success: false, 
+                error: `Unknown snap type: ${type}. Valid types: grid, point, midpoint, center, intersection, nearest` 
+            };
         }
     });
     

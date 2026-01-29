@@ -336,6 +336,11 @@ export class SketchRenderer {
             this.renderArc(arc, sketch);
         }
         
+        // Render splines
+        for (const spline of sketch.splines.values()) {
+            this.renderSpline(spline, sketch);
+        }
+        
         // Render points
         for (const point of sketch.points.values()) {
             this.renderPoint(point, sketch);
@@ -457,6 +462,50 @@ export class SketchRenderer {
     }
     
     /**
+     * Render a spline curve
+     */
+    renderSpline(spline, sketch) {
+        if (!spline.controlPoints || spline.controlPoints.length < 2) return;
+        
+        // Get tessellated points from the spline
+        const tessellated = spline.tessellate(20);
+        const points = tessellated.map(p => sketch.sketchToWorld(p));
+        
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        
+        const isSelected = this.selectedIds.has(spline.id);
+        const material = isSelected ? this.materials.selected :
+                        spline.construction ? this.materials.construction :
+                        this.materials.line;
+        
+        const splineObj = new THREE.Line(geometry, material);
+        splineObj.userData.sketchEntity = spline;
+        splineObj.name = `sketch-spline-${spline.id}`;
+        
+        this.geometryGroup.add(splineObj);
+        
+        // Also render control points as smaller indicators
+        const ctrlPositions = [];
+        for (const cp of spline.controlPoints) {
+            const p3d = sketch.sketchToWorld(cp);
+            ctrlPositions.push(p3d.x, p3d.y, p3d.z);
+        }
+        
+        const ctrlGeom = new THREE.BufferGeometry();
+        ctrlGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ctrlPositions), 3));
+        
+        const ctrlMat = new THREE.PointsMaterial({ 
+            color: isSelected ? Colors.SELECTED : 0x00ff88, 
+            size: 6, 
+            sizeAttenuation: false 
+        });
+        const ctrlPoints = new THREE.Points(ctrlGeom, ctrlMat);
+        ctrlPoints.name = `spline-ctrl-${spline.id}`;
+        
+        this.geometryGroup.add(ctrlPoints);
+    }
+    
+    /**
      * Render a point
      */
     renderPoint(point, sketch) {
@@ -487,6 +536,7 @@ export class SketchRenderer {
         if (!sketch || !sketch.constraints) return;
         
         const constraintColor = Colors.CONSTRAINED;
+        const dimensionColor = 0x66ffcc; // Light teal for dimensions
         
         for (const constraint of sketch.constraints.values()) {
             if (constraint.type === ConstraintType.HORIZONTAL || 
@@ -522,7 +572,303 @@ export class SketchRenderer {
                 symbol.userData.constraintId = constraint.id;
                 this.constraintGroup.add(symbol);
             }
+            else if (constraint.type === ConstraintType.LENGTH) {
+                // Render dimension for line length
+                const lineId = constraint.entities[0];
+                const line = sketch.lines.get(lineId);
+                if (!line) continue;
+                
+                const dimensionObj = this.createLineDimension(
+                    line, 
+                    constraint.value, 
+                    sketch, 
+                    dimensionColor
+                );
+                
+                if (dimensionObj) {
+                    dimensionObj.name = `dimension-${constraint.id}`;
+                    dimensionObj.userData.constraintId = constraint.id;
+                    dimensionObj.userData.constraintType = 'length';
+                    dimensionObj.userData.entityId = lineId;
+                    this.constraintGroup.add(dimensionObj);
+                }
+            }
+            else if (constraint.type === ConstraintType.RADIUS) {
+                // Render dimension for circle radius
+                const circleId = constraint.entities[0];
+                const circle = sketch.circles.get(circleId);
+                if (!circle) continue;
+                
+                const dimensionObj = this.createRadiusDimension(
+                    circle,
+                    constraint.value,
+                    sketch,
+                    dimensionColor
+                );
+                
+                if (dimensionObj) {
+                    dimensionObj.name = `dimension-${constraint.id}`;
+                    dimensionObj.userData.constraintId = constraint.id;
+                    dimensionObj.userData.constraintType = 'radius';
+                    dimensionObj.userData.entityId = circleId;
+                    this.constraintGroup.add(dimensionObj);
+                }
+            }
         }
+    }
+    
+    /**
+     * Create a linear dimension display for a line
+     * Standard CAD dimension style: extension lines + dimension line + arrows + value
+     */
+    createLineDimension(line, value, sketch, color) {
+        const group = new THREE.Group();
+        
+        const start = line.start;
+        const end = line.end;
+        
+        // Calculate line properties
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const lineLength = Math.sqrt(dx * dx + dy * dy);
+        const midX = (start.x + end.x) / 2;
+        const midY = (start.y + end.y) / 2;
+        
+        // Calculate perpendicular offset direction
+        const perpX = -dy / lineLength;
+        const perpY = dx / lineLength;
+        const offset = 8; // Distance from line to dimension
+        
+        // Dimension line endpoints (offset from the actual line)
+        const dimStart = { x: start.x + perpX * offset, y: start.y + perpY * offset };
+        const dimEnd = { x: end.x + perpX * offset, y: end.y + perpY * offset };
+        const dimMid = { x: midX + perpX * offset, y: midY + perpY * offset };
+        
+        const material = new THREE.LineBasicMaterial({ 
+            color: color, 
+            linewidth: 1,
+            transparent: true,
+            opacity: 0.9
+        });
+        
+        // Extension lines (from geometry to dimension line)
+        const extOffset = 2; // Small gap from geometry
+        const extLength = offset + 2; // Extend slightly past dimension line
+        
+        // Start extension line
+        const ext1Start = sketch.sketchToWorld({ 
+            x: start.x + perpX * extOffset, 
+            y: start.y + perpY * extOffset 
+        });
+        const ext1End = sketch.sketchToWorld({ 
+            x: start.x + perpX * extLength, 
+            y: start.y + perpY * extLength 
+        });
+        const ext1Geom = new THREE.BufferGeometry();
+        ext1Geom.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([ext1Start.x, ext1Start.y, ext1Start.z, ext1End.x, ext1End.y, ext1End.z]), 3
+        ));
+        group.add(new THREE.Line(ext1Geom, material));
+        
+        // End extension line
+        const ext2Start = sketch.sketchToWorld({ 
+            x: end.x + perpX * extOffset, 
+            y: end.y + perpY * extOffset 
+        });
+        const ext2End = sketch.sketchToWorld({ 
+            x: end.x + perpX * extLength, 
+            y: end.y + perpY * extLength 
+        });
+        const ext2Geom = new THREE.BufferGeometry();
+        ext2Geom.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([ext2Start.x, ext2Start.y, ext2Start.z, ext2End.x, ext2End.y, ext2End.z]), 3
+        ));
+        group.add(new THREE.Line(ext2Geom, material));
+        
+        // Dimension line (with gap for text)
+        const dimStart3D = sketch.sketchToWorld(dimStart);
+        const dimEnd3D = sketch.sketchToWorld(dimEnd);
+        
+        // Draw dimension line in two parts with gap for text
+        const gapSize = Math.min(12, lineLength * 0.4);
+        const dirX = dx / lineLength;
+        const dirY = dy / lineLength;
+        
+        // Left part of dimension line
+        const dimLeftEnd = sketch.sketchToWorld({ 
+            x: dimMid.x - dirX * gapSize / 2, 
+            y: dimMid.y - dirY * gapSize / 2 
+        });
+        const dimLineLeft = new THREE.BufferGeometry();
+        dimLineLeft.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([dimStart3D.x, dimStart3D.y, dimStart3D.z, dimLeftEnd.x, dimLeftEnd.y, dimLeftEnd.z]), 3
+        ));
+        group.add(new THREE.Line(dimLineLeft, material));
+        
+        // Right part of dimension line
+        const dimRightStart = sketch.sketchToWorld({ 
+            x: dimMid.x + dirX * gapSize / 2, 
+            y: dimMid.y + dirY * gapSize / 2 
+        });
+        const dimLineRight = new THREE.BufferGeometry();
+        dimLineRight.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([dimRightStart.x, dimRightStart.y, dimRightStart.z, dimEnd3D.x, dimEnd3D.y, dimEnd3D.z]), 3
+        ));
+        group.add(new THREE.Line(dimLineRight, material));
+        
+        // Arrows at ends
+        const arrowSize = 2;
+        group.add(this.createArrow(dimStart3D, dirX, dirY, arrowSize, sketch.plane, color));
+        group.add(this.createArrow(dimEnd3D, -dirX, -dirY, arrowSize, sketch.plane, color));
+        
+        // Value text (using sprites for always-facing text)
+        const dimMid3D = sketch.sketchToWorld(dimMid);
+        const textSprite = this.createDimensionText(value.toFixed(1), dimMid3D, color);
+        group.add(textSprite);
+        
+        return group;
+    }
+    
+    /**
+     * Create a radius dimension display for a circle
+     */
+    createRadiusDimension(circle, value, sketch, color) {
+        const group = new THREE.Group();
+        
+        const center = circle.center;
+        const radius = value;
+        
+        // Draw radius line from center to edge at 45 degrees
+        const angle = Math.PI / 4; // 45 degrees
+        const edgeX = center.x + radius * Math.cos(angle);
+        const edgeY = center.y + radius * Math.sin(angle);
+        
+        const centerPos = sketch.sketchToWorld(center);
+        const edgePos = sketch.sketchToWorld({ x: edgeX, y: edgeY });
+        
+        const material = new THREE.LineBasicMaterial({ 
+            color: color, 
+            linewidth: 1,
+            transparent: true,
+            opacity: 0.9
+        });
+        
+        // Radius line
+        const lineGeom = new THREE.BufferGeometry();
+        lineGeom.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([centerPos.x, centerPos.y, centerPos.z, edgePos.x, edgePos.y, edgePos.z]), 3
+        ));
+        group.add(new THREE.Line(lineGeom, material));
+        
+        // Arrow at edge
+        const dirX = Math.cos(angle);
+        const dirY = Math.sin(angle);
+        group.add(this.createArrow(edgePos, -dirX, -dirY, 2, sketch.plane, color));
+        
+        // Text at midpoint of radius line
+        const midX = center.x + radius * 0.6 * Math.cos(angle);
+        const midY = center.y + radius * 0.6 * Math.sin(angle);
+        const textPos = sketch.sketchToWorld({ x: midX, y: midY });
+        const textSprite = this.createDimensionText('R' + value.toFixed(1), textPos, color);
+        group.add(textSprite);
+        
+        return group;
+    }
+    
+    /**
+     * Create an arrow for dimension lines
+     */
+    createArrow(position, dirX, dirY, size, plane, color) {
+        const group = new THREE.Group();
+        
+        const material = new THREE.LineBasicMaterial({ 
+            color: color, 
+            linewidth: 1 
+        });
+        
+        // Arrow head lines
+        const arrowAngle = Math.PI / 6; // 30 degrees
+        
+        // Calculate arrow head points
+        const cos = Math.cos(arrowAngle);
+        const sin = Math.sin(arrowAngle);
+        
+        // Rotate direction for arrow wings
+        const wing1X = dirX * cos - dirY * sin;
+        const wing1Y = dirX * sin + dirY * cos;
+        const wing2X = dirX * cos + dirY * sin;
+        const wing2Y = -dirX * sin + dirY * cos;
+        
+        // Create arrow geometry based on plane
+        const getOffset = (dx, dy) => {
+            switch (plane) {
+                case 'xy': return { x: dx, y: dy, z: 0.1 };
+                case 'xz': return { x: dx, y: 0.1, z: dy };
+                case 'yz': return { x: 0.1, y: dy, z: dx };
+                default: return { x: dx, y: dy, z: 0.1 };
+            }
+        };
+        
+        const tip = getOffset(0, 0);
+        const w1 = getOffset(wing1X * size, wing1Y * size);
+        const w2 = getOffset(wing2X * size, wing2Y * size);
+        
+        const arrowGeom = new THREE.BufferGeometry();
+        arrowGeom.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([
+                position.x + w1.x, position.y + w1.y, position.z + w1.z,
+                position.x + tip.x, position.y + tip.y, position.z + tip.z,
+                position.x + w2.x, position.y + w2.y, position.z + w2.z
+            ]), 3
+        ));
+        
+        const arrow = new THREE.Line(arrowGeom, material);
+        group.add(arrow);
+        
+        return group;
+    }
+    
+    /**
+     * Create dimension text using a sprite
+     */
+    createDimensionText(text, position, color) {
+        // Create canvas for text
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = 128;
+        canvas.height = 64;
+        
+        // Background
+        ctx.fillStyle = 'rgba(26, 26, 62, 0.85)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Border
+        ctx.strokeStyle = '#66ffcc';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+        
+        // Text
+        ctx.fillStyle = '#66ffcc';
+        ctx.font = 'bold 28px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+        
+        // Create sprite
+        const texture = new THREE.CanvasTexture(canvas);
+        const spriteMaterial = new THREE.SpriteMaterial({ 
+            map: texture,
+            transparent: true,
+            depthTest: false
+        });
+        
+        const sprite = new THREE.Sprite(spriteMaterial);
+        sprite.position.copy(position);
+        sprite.position.z += 0.5; // Slightly above plane
+        sprite.scale.set(8, 4, 1);
+        
+        return sprite;
     }
     
     /**
@@ -716,6 +1062,20 @@ export class SketchRenderer {
             const geometry = new THREE.BufferGeometry().setFromPoints(corners);
             const rect = new THREE.Line(geometry, this.materials.preview);
             this.previewGroup.add(rect);
+        }
+        else if (entity.controlPoints && entity._isPreview) {
+            // Spline preview
+            if (entity.controlPoints.length >= 2) {
+                const tessellated = entity.tessellate(20);
+                const points = tessellated.map(p => sketch.sketchToWorld(p));
+                
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const spline = new THREE.Line(geometry, this.materials.preview);
+                this.previewGroup.add(spline);
+                
+                // Show control points
+                this.showPreviewPoints(entity.controlPoints, sketch);
+            }
         }
     }
     

@@ -7,6 +7,7 @@
  */
 
 import * as THREE from 'three';
+import { snapManager } from '../ui/snap-manager.js';
 
 // Sketch modes
 export const SketchMode = {
@@ -17,6 +18,7 @@ export const SketchMode = {
     CIRCLE: 'circle',
     ARC: 'arc',
     POINT: 'point',
+    SPLINE: 'spline',
     DIMENSION: 'dimension',
     CONSTRAINT: 'constraint'
 };
@@ -32,6 +34,7 @@ export const ConstraintType = {
     EQUAL: 'equal',
     FIXED: 'fixed',
     DISTANCE: 'distance',
+    LENGTH: 'length',           // Line length constraint (dimension)
     ANGLE: 'angle',
     RADIUS: 'radius'
 };
@@ -252,6 +255,165 @@ export class SketchArc {
 }
 
 /**
+ * A spline/bezier curve in sketch space
+ * Uses Catmull-Rom interpolation for smooth curves through control points
+ */
+export class SketchSpline {
+    constructor(controlPoints = []) {
+        this.id = generateSketchId('sp');
+        this.controlPoints = controlPoints; // Array of SketchPoint
+        this.degree = 3;  // Cubic bezier/spline
+        this.closed = false;
+        this.construction = false;
+        this.constraints = [];
+    }
+    
+    /**
+     * Get points array as [[x,y], [x,y], ...]
+     */
+    get points() {
+        return this.controlPoints.map(p => [p.x, p.y]);
+    }
+    
+    /**
+     * Add a control point
+     */
+    addPoint(point) {
+        this.controlPoints.push(point);
+    }
+    
+    /**
+     * Remove last control point
+     */
+    removeLastPoint() {
+        if (this.controlPoints.length > 0) {
+            return this.controlPoints.pop();
+        }
+        return null;
+    }
+    
+    /**
+     * Close the spline into a loop
+     */
+    close() {
+        this.closed = true;
+    }
+    
+    /**
+     * Get the number of control points
+     */
+    get pointCount() {
+        return this.controlPoints.length;
+    }
+    
+    /**
+     * Evaluate point on curve at parameter t (0-1)
+     * Uses Catmull-Rom spline interpolation
+     */
+    evaluate(t) {
+        const points = this.controlPoints;
+        const n = points.length;
+        
+        if (n === 0) return null;
+        if (n === 1) return { x: points[0].x, y: points[0].y };
+        if (n === 2) {
+            // Linear interpolation for 2 points
+            return {
+                x: points[0].x + t * (points[1].x - points[0].x),
+                y: points[0].y + t * (points[1].y - points[0].y)
+            };
+        }
+        
+        // Catmull-Rom spline for 3+ points
+        const segmentCount = this.closed ? n : n - 1;
+        const scaledT = t * segmentCount;
+        const segment = Math.min(Math.floor(scaledT), segmentCount - 1);
+        const localT = scaledT - segment;
+        
+        // Get 4 control points for this segment
+        let p0, p1, p2, p3;
+        
+        if (this.closed) {
+            p0 = points[(segment - 1 + n) % n];
+            p1 = points[segment % n];
+            p2 = points[(segment + 1) % n];
+            p3 = points[(segment + 2) % n];
+        } else {
+            p0 = points[Math.max(0, segment - 1)];
+            p1 = points[segment];
+            p2 = points[Math.min(n - 1, segment + 1)];
+            p3 = points[Math.min(n - 1, segment + 2)];
+        }
+        
+        // Catmull-Rom basis functions
+        const t2 = localT * localT;
+        const t3 = t2 * localT;
+        
+        const c0 = -0.5 * t3 + t2 - 0.5 * localT;
+        const c1 = 1.5 * t3 - 2.5 * t2 + 1;
+        const c2 = -1.5 * t3 + 2 * t2 + 0.5 * localT;
+        const c3 = 0.5 * t3 - 0.5 * t2;
+        
+        return {
+            x: c0 * p0.x + c1 * p1.x + c2 * p2.x + c3 * p3.x,
+            y: c0 * p0.y + c1 * p1.y + c2 * p2.y + c3 * p3.y
+        };
+    }
+    
+    /**
+     * Get tessellated points for rendering
+     * @param {number} segments - Number of segments per control point span
+     */
+    tessellate(segments = 20) {
+        const points = [];
+        const n = this.controlPoints.length;
+        
+        if (n < 2) {
+            return this.controlPoints.map(p => ({ x: p.x, y: p.y }));
+        }
+        
+        const totalSegments = (this.closed ? n : n - 1) * segments;
+        
+        for (let i = 0; i <= totalSegments; i++) {
+            const t = i / totalSegments;
+            const pt = this.evaluate(t);
+            if (pt) points.push(pt);
+        }
+        
+        return points;
+    }
+    
+    /**
+     * Get approximate arc length
+     */
+    get length() {
+        const tessellated = this.tessellate(10);
+        let len = 0;
+        for (let i = 1; i < tessellated.length; i++) {
+            const dx = tessellated[i].x - tessellated[i-1].x;
+            const dy = tessellated[i].y - tessellated[i-1].y;
+            len += Math.sqrt(dx * dx + dy * dy);
+        }
+        return len;
+    }
+    
+    /**
+     * Get start point
+     */
+    get startPoint() {
+        return this.controlPoints[0] || null;
+    }
+    
+    /**
+     * Get end point
+     */
+    get endPoint() {
+        return this.closed ? this.controlPoints[0] : 
+               this.controlPoints[this.controlPoints.length - 1] || null;
+    }
+}
+
+/**
  * A rectangle (4 lines with constraints)
  */
 export class SketchRectangle {
@@ -324,6 +486,7 @@ export class Sketch {
         this.lines = new Map();
         this.circles = new Map();
         this.arcs = new Map();
+        this.splines = new Map();
         this.rectangles = new Map();
         
         // Constraints
@@ -446,6 +609,19 @@ export class Sketch {
     }
     
     /**
+     * Add a spline to the sketch
+     * @param {Array<{x: number, y: number}>} controlPoints - Array of control point coordinates
+     * @param {boolean} closed - Whether the spline is closed
+     */
+    addSpline(controlPoints, closed = false) {
+        const sketchPoints = controlPoints.map(p => this.addPoint(p.x, p.y));
+        const spline = new SketchSpline(sketchPoints);
+        spline.closed = closed;
+        this.splines.set(spline.id, spline);
+        return spline;
+    }
+    
+    /**
      * Add a constraint to the sketch
      */
     addConstraint(type, entityIds, value = null) {
@@ -471,6 +647,7 @@ export class Sketch {
                this.lines.get(id) ||
                this.circles.get(id) ||
                this.arcs.get(id) ||
+               this.splines.get(id) ||
                this.rectangles.get(id);
     }
     
@@ -483,6 +660,7 @@ export class Sketch {
             ...this.lines.values(),
             ...this.circles.values(),
             ...this.arcs.values(),
+            ...this.splines.values(),
             ...this.rectangles.values()
         ];
     }
@@ -507,6 +685,7 @@ export class Sketch {
         this.lines.clear();
         this.circles.clear();
         this.arcs.clear();
+        this.splines.clear();
         this.rectangles.clear();
         this.constraints.clear();
     }
@@ -534,6 +713,13 @@ export class Sketch {
                 midId: a.mid.id,
                 endId: a.end.id,
                 construction: a.construction
+            })),
+            splines: Array.from(this.splines.values()).map(s => ({
+                id: s.id,
+                pointIds: s.controlPoints.map(p => p.id),
+                degree: s.degree,
+                closed: s.closed,
+                construction: s.construction
             })),
             rectangles: Array.from(this.rectangles.values()).map(r => ({
                 id: r.id,
@@ -709,20 +895,38 @@ export class SketchManager {
         this.tempPoints = [];
         this.previewEntity = null;
         this.snapPoint = null;
+        this.snapResult = null;  // Full snap result with type info
         
         // Selection
         this.selectedEntities = new Set();
         this.hoveredEntity = null;
         
-        // Settings
+        // Legacy settings (delegated to snapManager)
         this.gridSnap = true;
         this.gridSize = 5;
         this.endpointSnap = true;
-        this.snapTolerance = 5;
+        this.snapTolerance = 10;
+        
+        // Use the global snap manager
+        this.snapManager = snapManager;
+        
+        // Sync legacy settings with snap manager
+        this._syncSnapSettings();
         
         // Callbacks
         this.onSketchUpdate = null;
         this.onModeChange = null;
+        this.onSnapUpdate = null;  // Callback for snap visual updates
+    }
+    
+    /**
+     * Sync legacy settings with the snap manager
+     */
+    _syncSnapSettings() {
+        this.snapManager.setEnabled('grid', this.gridSnap);
+        this.snapManager.setGridSize(this.gridSize);
+        this.snapManager.setEnabled('endpoint', this.endpointSnap);
+        this.snapManager.setTolerance(this.snapTolerance);
     }
     
     /**
@@ -797,10 +1001,23 @@ export class SketchManager {
                 return this.handleCircleClick(snapped);
             case SketchMode.ARC:
                 return this.handleArcClick(snapped);
+            case SketchMode.SPLINE:
+                return this.handleSplineClick(snapped);
             case SketchMode.POINT:
                 return this.handlePointClick(snapped);
             case SketchMode.SELECT:
                 return this.handleSelectClick(snapped);
+        }
+    }
+    
+    /**
+     * Handle double-click in sketch (for finishing splines, etc.)
+     */
+    handleDoubleClick(worldPoint) {
+        if (!this.activeSketch) return;
+        
+        if (this.mode === SketchMode.SPLINE) {
+            return this.finishSpline();
         }
     }
     
@@ -847,6 +1064,14 @@ export class SketchManager {
                         // Points might be collinear
                         this.previewEntity = new SketchLine(this.tempPoints[0], snapped);
                     }
+                }
+                break;
+            case SketchMode.SPLINE:
+                // Show spline preview with current points plus cursor position
+                if (this.tempPoints.length >= 1) {
+                    const previewPoints = [...this.tempPoints, snapped];
+                    this.previewEntity = new SketchSpline(previewPoints);
+                    this.previewEntity._isPreview = true;
                 }
                 break;
         }
@@ -965,6 +1190,52 @@ export class SketchManager {
     }
     
     /**
+     * Handle spline mode click
+     * Each click adds a control point, double-click or Enter finishes
+     */
+    handleSplineClick(point) {
+        // Add point to temp collection
+        this.tempPoints.push(point.clone());
+        
+        // Update preview
+        if (this.tempPoints.length >= 2) {
+            this.previewEntity = new SketchSpline(this.tempPoints);
+            this.previewEntity._isPreview = true;
+        }
+        
+        if (this.onSketchUpdate) {
+            this.onSketchUpdate(this.activeSketch, this.previewEntity);
+        }
+        
+        return null; // Spline isn't complete yet
+    }
+    
+    /**
+     * Finish the current spline (called by double-click or Enter)
+     */
+    finishSpline(close = false) {
+        if (this.tempPoints.length < 2) {
+            // Need at least 2 points for a spline
+            this.tempPoints = [];
+            this.previewEntity = null;
+            return null;
+        }
+        
+        // Create the spline with all collected points
+        const controlPoints = this.tempPoints.map(p => ({ x: p.x, y: p.y }));
+        const spline = this.activeSketch.addSpline(controlPoints, close);
+        
+        this.tempPoints = [];
+        this.previewEntity = null;
+        
+        if (this.onSketchUpdate) {
+            this.onSketchUpdate(this.activeSketch);
+        }
+        
+        return spline;
+    }
+    
+    /**
      * Handle point mode click
      */
     handlePointClick(point) {
@@ -1026,9 +1297,39 @@ export class SketchManager {
     }
     
     /**
-     * Apply snap to a point
+     * Apply snap to a point using the comprehensive snap manager
      */
     applySnap(point) {
+        // Use the comprehensive snap manager
+        const result = this.snapManager.findSnapPoint(point, this.activeSketch, this.snapTolerance);
+        
+        if (result) {
+            this.snapResult = result;
+            this.snapPoint = result.point;
+            
+            // Notify listeners for visual feedback
+            if (this.onSnapUpdate) {
+                this.onSnapUpdate(result);
+            }
+            
+            return result.point.clone();
+        }
+        
+        // No snap - clear snap state
+        this.snapResult = null;
+        this.snapPoint = null;
+        
+        if (this.onSnapUpdate) {
+            this.onSnapUpdate(null);
+        }
+        
+        return point.clone();
+    }
+    
+    /**
+     * Legacy apply snap (fallback method)
+     */
+    applySnapLegacy(point) {
         let snapped = point.clone();
         
         // Grid snap
@@ -1103,6 +1404,12 @@ export class SketchManager {
      * Finish current drawing (double-click or Enter)
      */
     finish() {
+        if (this.mode === SketchMode.SPLINE && this.tempPoints.length >= 2) {
+            // Finish the spline
+            this.finishSpline();
+            return;
+        }
+        
         if (this.mode === SketchMode.LINE && this.tempPoints.length > 0) {
             // Could close the shape if near start point
             this.tempPoints = [];
@@ -1123,6 +1430,7 @@ export class SketchManager {
             this.activeSketch.lines.delete(id);
             this.activeSketch.circles.delete(id);
             this.activeSketch.arcs.delete(id);
+            this.activeSketch.splines.delete(id);
             this.activeSketch.rectangles.delete(id);
         }
         
@@ -1150,6 +1458,7 @@ export default {
     SketchLine,
     SketchCircle,
     SketchArc,
+    SketchSpline,
     SketchRectangle,
     SketchConstraint,
     Sketch,
