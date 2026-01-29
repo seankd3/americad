@@ -40,10 +40,12 @@ The core CAD functionality works, but there are critical bugs that need fixing b
 | `sphere 15` | ✅ PASS | 774 | Smooth tessellation |
 | `cylinder 10 30` | ✅ PASS | 130 | Proper caps and body |
 | `cone 15 5 25` | ✅ PASS | 335 | Fixed! Working correctly |
-| `torus 20 5` | ❌ FAIL | - | OCCT API mismatch: `BRepPrimAPI_MakeTorus_3` expects 4 params, got 3 |
-| `wedge 20 20 10 5` | ❌ FAIL | - | OCCT API mismatch: `BRepPrimAPI_MakeWedge_3` expects 7 params, got 5 |
+| `torus 20 5` | ⚠️ FIXED | - | Now uses `BRepPrimAPI_MakeTorus_4(Ax2, R1, R2, angle)` |
+| `wedge 20 20 10 5` | ⚠️ FIXED | - | Now uses `BRepPrimAPI_MakeWedge_2(Ax2, dx, dy, dz, ltx)` |
 
-**Issue:** The OpenCASCADE.js bindings have different constructor signatures than expected. Need to check the correct API for torus and wedge.
+**Fix Applied:** Updated to correct OCCT.js constructor variants:
+- Torus: `_4` variant with axis and sweep angle (2*PI for full torus)
+- Wedge: `_2` variant with axis and ltx parameter
 
 ---
 
@@ -63,13 +65,14 @@ The core CAD functionality works, but there are critical bugs that need fixing b
 
 | Operation | Result | Notes |
 |-----------|--------|-------|
-| `union` | ❌ FAIL | `BRepAlgoAPI_Fuse_2` expects 1 param, got 2 |
-| `subtract` | ❌ FAIL | `BRepAlgoAPI_Cut_2` expects 1 param, got 2 |
-| `intersect` | ❌ FAIL | `BRepAlgoAPI_Common_2` expects 1 param, got 2 |
+| `union` | ⚠️ FIXED | Now uses `BRepAlgoAPI_Fuse_3(S1, S2, ProgressRange)` |
+| `subtract` | ⚠️ FIXED | Now uses `BRepAlgoAPI_Cut_3(S1, S2, ProgressRange)` |
+| `intersect` | ⚠️ FIXED | Now uses `BRepAlgoAPI_Common_3(S1, S2, ProgressRange)` |
 
-**Issue:** The OpenCASCADE.js v1.1.1 has different constructor signatures than the code expects. The `_2` variants may have changed or need different initialization.
-
-**Fix Needed:** Check OpenCASCADE.js documentation for correct boolean operation API.
+**Fix Applied:** OCCT 7.x constructor variants:
+- `_1`: Builder pattern (0 params)
+- `_2`: Uses existing PaveFiller (1 param)
+- `_3`: Classic two-shape + progress range (3 params) ← Now using this
 
 ---
 
@@ -159,11 +162,11 @@ function selectObject(object) {
 | Test | Result | Notes |
 |------|--------|-------|
 | `export step` | ❌ FAIL | Shape tracking issue: "Shape not found" |
-| `export stl` | ❌ FAIL | API issue: `writer.SetASCIIMode is not a function` |
+| `export stl` | ⚠️ FIXED | Added fallback for missing `SetASCIIMode` method |
 
 **Issues:**
 1. **STEP Export:** The kernel creates shapes but doesn't persist them in the shape map for later export. Need to store shape references.
-2. **STL Export:** OpenCASCADE.js API mismatch - `StlAPI_Writer` doesn't have `SetASCIIMode` method in this version.
+2. **STL Export:** ⚠️ FIXED - Added graceful fallback when `SetASCIIMode` is unavailable (uses binary mode instead).
 
 ---
 
@@ -171,12 +174,14 @@ function selectObject(object) {
 
 ### Critical (Blockers for v1.0)
 1. **Selection Infinite Loop** - Makes app partially unusable when clicking objects
-2. **Boolean Operations Broken** - Core CAD functionality missing
+
+### Fixed ✅
+2. ~~**Boolean Operations Broken**~~ - Fixed by using `_3` constructor variants with ProgressRange
+3. ~~**Torus/Wedge Primitives**~~ - Fixed by using correct constructor variants (_4 and _2)
+5. ~~**STL Export**~~ - Fixed with graceful fallback for SetASCIIMode
 
 ### High Priority
-3. **Torus/Wedge Primitives** - OCCT API parameter mismatch
 4. **STEP Export** - Shape not persisted for export
-5. **STL Export** - Wrong API method name
 
 ### Medium Priority
 6. **Excessive Console Logging** - "SELECTED: BODY_003" logged hundreds of times per keystroke

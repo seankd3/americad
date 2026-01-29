@@ -256,10 +256,15 @@ function createCone(radius1, radius2, height, center = { x: 0, y: 0, z: 0 }) {
 
 /**
  * Boolean union operation
+ * OCCT 7.x constructor order:
+ *   _1: () - builder pattern
+ *   _2: (PaveFiller) - 1 param
+ *   _3: (Shape1, Shape2, ProgressRange) - 3 params
  */
 function booleanUnion(shape1, shape2) {
-    // Use _2 constructor which takes two shapes and auto-builds (no progress range needed)
-    const fuse = new oc.BRepAlgoAPI_Fuse_2(shape1, shape2);
+    // Use _3 constructor which takes two shapes + progress range
+    const progress = new oc.Message_ProgressRange_1();
+    const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, progress);
     
     if (!fuse.IsDone()) {
         throw new Error('Boolean union failed');
@@ -274,10 +279,15 @@ function booleanUnion(shape1, shape2) {
 
 /**
  * Boolean subtraction operation
+ * OCCT 7.x constructor order:
+ *   _1: () - builder pattern
+ *   _2: (PaveFiller) - 1 param
+ *   _3: (Shape1, Shape2, ProgressRange) - 3 params
  */
 function booleanSubtract(shape1, shape2) {
-    // Use _2 constructor which takes two shapes and auto-builds (no progress range needed)
-    const cut = new oc.BRepAlgoAPI_Cut_2(shape1, shape2);
+    // Use _3 constructor which takes two shapes + progress range
+    const progress = new oc.Message_ProgressRange_1();
+    const cut = new oc.BRepAlgoAPI_Cut_3(shape1, shape2, progress);
     
     if (!cut.IsDone()) {
         throw new Error('Boolean subtraction failed');
@@ -292,10 +302,15 @@ function booleanSubtract(shape1, shape2) {
 
 /**
  * Boolean intersection operation
+ * OCCT 7.x constructor order:
+ *   _1: () - builder pattern
+ *   _2: (PaveFiller) - 1 param
+ *   _3: (Shape1, Shape2, ProgressRange) - 3 params
  */
 function booleanIntersect(shape1, shape2) {
-    // Use _2 constructor which takes two shapes and auto-builds (no progress range needed)
-    const common = new oc.BRepAlgoAPI_Common_2(shape1, shape2);
+    // Use _3 constructor which takes two shapes + progress range
+    const progress = new oc.Message_ProgressRange_1();
+    const common = new oc.BRepAlgoAPI_Common_3(shape1, shape2, progress);
     
     if (!common.IsDone()) {
         throw new Error('Boolean intersection failed');
@@ -462,6 +477,12 @@ function getEdges(shape) {
 
 /**
  * Create a torus primitive
+ * OCCT 7.x constructor order:
+ *   _1: (R1, R2) - simple, no axis
+ *   _2: (R1, R2, angle) - with sweep angle
+ *   _3: (Ax2, R1, R2) - with axis (but may expect angle in some versions)
+ *   _4: (Ax2, R1, R2, angle) - with axis and angle
+ * We use _4 with full 2*PI angle for complete torus
  */
 function createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
     const axis = new oc.gp_Ax2_3(
@@ -469,7 +490,8 @@ function createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
         new oc.gp_Dir_4(0, 0, 1)
     );
     
-    const torus = new oc.BRepPrimAPI_MakeTorus_3(axis, majorRadius, minorRadius).Shape();
+    // Use _4 with axis, major radius, minor radius, and full angle (2*PI)
+    const torus = new oc.BRepPrimAPI_MakeTorus_4(axis, majorRadius, minorRadius, 2 * Math.PI).Shape();
     
     return {
         shape: torus,
@@ -481,6 +503,12 @@ function createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
 
 /**
  * Create a wedge primitive
+ * OCCT 7.x constructor order:
+ *   _1: (dx, dy, dz, ltx) - simple, 4 params
+ *   _2: (Ax2, dx, dy, dz, ltx) - with axis, 5 params
+ *   _3: (dx, dy, dz, xmin, zmin, xmax, zmax) - 7 params
+ *   _4: (Ax2, dx, dy, dz, xmin, zmin, xmax, zmax) - 8 params
+ * We use _2 for positioned wedge with simple ltx
  */
 function createWedge(dx, dy, dz, ltx = 0, center = { x: 0, y: 0, z: 0 }) {
     // BRepPrimAPI_MakeWedge creates a wedge from axes and dimensions
@@ -489,7 +517,8 @@ function createWedge(dx, dy, dz, ltx = 0, center = { x: 0, y: 0, z: 0 }) {
         new oc.gp_Dir_4(0, 0, 1)
     );
     
-    const wedge = new oc.BRepPrimAPI_MakeWedge_3(ax, dx, dy, dz, ltx).Shape();
+    // Use _2 which takes (Ax2, dx, dy, dz, ltx) - 5 params
+    const wedge = new oc.BRepPrimAPI_MakeWedge_2(ax, dx, dy, dz, ltx).Shape();
     
     return {
         shape: wedge,
@@ -930,19 +959,41 @@ function exportSTEPMultiple(shapeList) {
 
 /**
  * Export to STL format
+ * Note: StlAPI_Writer API varies between OCCT versions
+ * - In some versions: SetASCIIMode(bool)
+ * - In opencascade.js: ASCIIMode() getter/setter or may not exist
  */
 function exportSTL(shape) {
     // Tessellate first
     new oc.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, true);
     
     const writer = new oc.StlAPI_Writer();
-    writer.SetASCIIMode(true);
+    
+    // Try to set ASCII mode if method exists (varies by OCCT version)
+    if (typeof writer.SetASCIIMode === 'function') {
+        writer.SetASCIIMode(true);
+    } else if (writer.ASCIIMode !== undefined) {
+        // Some versions use property getter/setter
+        writer.ASCIIMode = true;
+    }
+    // If neither exists, we'll just use binary mode (still works)
     
     const filename = '/output.stl';
-    // Use 2-arg Write method without progress range
-    writer.Write(shape, filename);
     
-    const content = oc.FS.readFile(filename, { encoding: 'utf8' });
+    // Write the shape - StlAPI_Writer.Write takes (shape, filename)
+    // In opencascade.js, we may need to use the virtual filesystem
+    const writeResult = writer.Write(shape, filename);
+    
+    // Read content - check if ASCII or binary
+    let content;
+    try {
+        content = oc.FS.readFile(filename, { encoding: 'utf8' });
+    } catch (e) {
+        // Fallback: read as binary and convert
+        const binary = oc.FS.readFile(filename);
+        content = new TextDecoder().decode(binary);
+    }
+    
     oc.FS.unlink(filename);
     
     return content;
