@@ -252,6 +252,40 @@ export class KernelBridge {
     }
     
     /**
+     * Extrude a sketch profile directly (from sketch geometry data)
+     * @param {Object} profile - Profile data with type, dimensions, center
+     * @param {number} height - Extrusion height
+     * @param {string} plane - Sketch plane ('xy', 'xz', 'yz')
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async extrudeSketchProfile(profile, height, plane = 'xy') {
+        await this.init();
+        return this._call('extrudeSketchProfile', { profile, height, plane });
+    }
+    
+    /**
+     * Create a wire from polygon points
+     * @param {Array<{x,y,z}>} points - 3D points
+     * @returns {Promise<{id: string}>}
+     */
+    async createWireFromPolygon(points) {
+        await this.init();
+        return this._call('createWireFromPolygon', { points });
+    }
+    
+    /**
+     * Create a circular wire
+     * @param {{x,y,z}} center - Center point
+     * @param {number} radius - Circle radius
+     * @param {{x,y,z}} normal - Plane normal
+     * @returns {Promise<{id: string}>}
+     */
+    async createCircleWire(center, radius, normal = { x: 0, y: 0, z: 1 }) {
+        await this.init();
+        return this._call('createCircleWire', { center, radius, normal });
+    }
+    
+    /**
      * Revolve a profile around an axis
      * @param {string} profileId - Profile (face/wire) ID
      * @param {{origin: {x,y,z}, direction: {x,y,z}}} axis - Revolution axis

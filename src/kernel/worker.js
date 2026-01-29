@@ -500,6 +500,214 @@ function createWedge(dx, dy, dz, ltx = 0, center = { x: 0, y: 0, z: 0 }) {
 }
 
 /**
+ * Create a wire (closed path) from a polygon of points
+ * @param {Array<{x,y,z}>} points - Array of 3D points forming the polygon
+ * @returns {{shape: TopoDS_Wire, id: string}}
+ */
+function createWireFromPolygon(points) {
+    const wireBuilder = new oc.BRepBuilderAPI_MakeWire_1();
+    
+    for (let i = 0; i < points.length; i++) {
+        const p1 = points[i];
+        const p2 = points[(i + 1) % points.length];
+        
+        const gp1 = new oc.gp_Pnt_3(p1.x, p1.y, p1.z);
+        const gp2 = new oc.gp_Pnt_3(p2.x, p2.y, p2.z);
+        
+        const edge = new oc.BRepBuilderAPI_MakeEdge_3(gp1, gp2);
+        if (edge.IsDone()) {
+            wireBuilder.Add_1(edge.Edge());
+        }
+    }
+    
+    if (!wireBuilder.IsDone()) {
+        throw new Error('Failed to create wire from polygon');
+    }
+    
+    const wire = wireBuilder.Wire();
+    
+    return {
+        shape: wire,
+        id: getTopoId(wire),
+        type: 'wire'
+    };
+}
+
+/**
+ * Create a face from a wire
+ * @param {TopoDS_Wire} wire - The boundary wire
+ * @param {boolean} planar - Whether to create a planar face (default: true)
+ * @returns {{shape: TopoDS_Face, id: string}}
+ */
+function createFaceFromWire(wire, planar = true) {
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(wire, planar);
+    
+    if (!faceMaker.IsDone()) {
+        throw new Error('Failed to create face from wire');
+    }
+    
+    const face = faceMaker.Face();
+    
+    return {
+        shape: face,
+        id: getTopoId(face),
+        type: 'face'
+    };
+}
+
+/**
+ * Create a circular wire
+ * @param {{x,y,z}} center - Center point
+ * @param {number} radius - Circle radius
+ * @param {{x,y,z}} normal - Plane normal (default: Z axis)
+ * @returns {{shape: TopoDS_Wire, id: string}}
+ */
+function createCircleWire(center, radius, normal = { x: 0, y: 0, z: 1 }) {
+    // Create axis for the circle plane
+    const ax2 = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(center.x, center.y, center.z),
+        new oc.gp_Dir_4(normal.x, normal.y, normal.z)
+    );
+    
+    // Create the circle geometry
+    const circle = new oc.gp_Circ_2(ax2, radius);
+    
+    // Create edge from circle
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_8(circle);
+    if (!edgeMaker.IsDone()) {
+        throw new Error('Failed to create circle edge');
+    }
+    
+    // Create wire from edge
+    const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+    if (!wireMaker.IsDone()) {
+        throw new Error('Failed to create circle wire');
+    }
+    
+    const wire = wireMaker.Wire();
+    
+    return {
+        shape: wire,
+        id: getTopoId(wire),
+        type: 'wire'
+    };
+}
+
+/**
+ * Create a rectangular face on a plane
+ * @param {number} width - Width (X dimension in sketch space)
+ * @param {number} height - Height (Y dimension in sketch space)
+ * @param {{x,y,z}} center - Center point in 3D
+ * @param {string} plane - Plane name ('xy', 'xz', 'yz')
+ * @returns {{shape: TopoDS_Face, id: string}}
+ */
+function createRectangleFace(width, height, center, plane = 'xy') {
+    let p1, p2, p3, p4;
+    const hw = width / 2;
+    const hh = height / 2;
+    
+    switch (plane) {
+        case 'xy':
+            p1 = { x: center.x - hw, y: center.y - hh, z: center.z };
+            p2 = { x: center.x + hw, y: center.y - hh, z: center.z };
+            p3 = { x: center.x + hw, y: center.y + hh, z: center.z };
+            p4 = { x: center.x - hw, y: center.y + hh, z: center.z };
+            break;
+        case 'xz':
+            p1 = { x: center.x - hw, y: center.y, z: center.z - hh };
+            p2 = { x: center.x + hw, y: center.y, z: center.z - hh };
+            p3 = { x: center.x + hw, y: center.y, z: center.z + hh };
+            p4 = { x: center.x - hw, y: center.y, z: center.z + hh };
+            break;
+        case 'yz':
+            p1 = { x: center.x, y: center.y - hw, z: center.z - hh };
+            p2 = { x: center.x, y: center.y + hw, z: center.z - hh };
+            p3 = { x: center.x, y: center.y + hw, z: center.z + hh };
+            p4 = { x: center.x, y: center.y - hw, z: center.z + hh };
+            break;
+        default:
+            throw new Error(`Unknown plane: ${plane}`);
+    }
+    
+    const wire = createWireFromPolygon([p1, p2, p3, p4]);
+    return createFaceFromWire(wire.shape);
+}
+
+/**
+ * Create a circular face on a plane
+ * @param {number} radius - Circle radius
+ * @param {{x,y,z}} center - Center point in 3D
+ * @param {string} plane - Plane name ('xy', 'xz', 'yz')
+ * @returns {{shape: TopoDS_Face, id: string}}
+ */
+function createCircleFace(radius, center, plane = 'xy') {
+    let normal;
+    
+    switch (plane) {
+        case 'xy': normal = { x: 0, y: 0, z: 1 }; break;
+        case 'xz': normal = { x: 0, y: 1, z: 0 }; break;
+        case 'yz': normal = { x: 1, y: 0, z: 0 }; break;
+        default: throw new Error(`Unknown plane: ${plane}`);
+    }
+    
+    const wire = createCircleWire(center, radius, normal);
+    return createFaceFromWire(wire.shape);
+}
+
+/**
+ * Extrude a sketch profile (from sketch geometry data)
+ * @param {Object} profile - Profile data from sketch
+ * @param {number} height - Extrusion height
+ * @param {string} plane - Sketch plane
+ * @returns {{shape: TopoDS_Shape, id: string, mesh: Object}}
+ */
+function extrudeSketchProfile(profile, height, plane = 'xy') {
+    let face;
+    let direction;
+    
+    // Determine extrusion direction based on plane
+    switch (plane) {
+        case 'xy': direction = { x: 0, y: 0, z: 1 }; break;
+        case 'xz': direction = { x: 0, y: 1, z: 0 }; break;
+        case 'yz': direction = { x: 1, y: 0, z: 0 }; break;
+        default: direction = { x: 0, y: 0, z: 1 };
+    }
+    
+    if (profile.type === 'rectangle') {
+        face = createRectangleFace(profile.width, profile.height, {
+            x: profile.center.x,
+            y: profile.center.y,
+            z: 0 // Sketch is at origin
+        }, plane);
+    } else if (profile.type === 'circle') {
+        face = createCircleFace(profile.radius, {
+            x: profile.center.x,
+            y: profile.center.y,
+            z: 0
+        }, plane);
+    } else if (profile.type === 'polygon' && profile.points) {
+        // Convert 2D points to 3D based on plane
+        const points3d = profile.points.map(p => {
+            switch (plane) {
+                case 'xy': return { x: p.x, y: p.y, z: 0 };
+                case 'xz': return { x: p.x, y: 0, z: p.y };
+                case 'yz': return { x: 0, y: p.y, z: p.x };
+                default: return { x: p.x, y: p.y, z: 0 };
+            }
+        });
+        const wire = createWireFromPolygon(points3d);
+        face = createFaceFromWire(wire.shape);
+    } else {
+        throw new Error(`Unsupported profile type: ${profile.type}`);
+    }
+    
+    // Extrude the face
+    const extruded = extrudeProfile(face.shape, direction, height);
+    
+    return extruded;
+}
+
+/**
  * Extrude a face/profile along a direction
  */
 function extrudeProfile(profile, direction, distance) {
@@ -910,6 +1118,33 @@ self.onmessage = async function(e) {
                 shapes.set(extruded.id, extruded.shape);
                 const extrudeMesh = tessellate(extruded.shape);
                 result = { id: extruded.id, mesh: extrudeMesh };
+                break;
+                
+            case 'extrudeSketchProfile':
+                // Extrude directly from sketch profile data (no pre-existing shape required)
+                const sketchExtruded = extrudeSketchProfile(params.profile, params.height, params.plane);
+                shapes.set(sketchExtruded.id, sketchExtruded.shape);
+                const sketchExtrudeMesh = tessellate(sketchExtruded.shape);
+                result = { id: sketchExtruded.id, mesh: sketchExtrudeMesh };
+                break;
+                
+            case 'createWireFromPolygon':
+                const polyWire = createWireFromPolygon(params.points);
+                shapes.set(polyWire.id, polyWire.shape);
+                result = { id: polyWire.id };
+                break;
+                
+            case 'createCircleWire':
+                const circWire = createCircleWire(params.center, params.radius, params.normal);
+                shapes.set(circWire.id, circWire.shape);
+                result = { id: circWire.id };
+                break;
+                
+            case 'createFaceFromWire':
+                const wireForFace = shapes.get(params.wireId);
+                const faceFromWire = createFaceFromWire(wireForFace, params.planar);
+                shapes.set(faceFromWire.id, faceFromWire.shape);
+                result = { id: faceFromWire.id };
                 break;
                 
             case 'revolve':

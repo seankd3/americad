@@ -1380,24 +1380,85 @@ function findClosedProfiles(sketch) {
 
 /**
  * Extrude a profile into a 3D body
+ * Uses kernel B-Rep extrusion when available, falls back to primitives
  */
 async function extrudeProfile(profile, sketch, height) {
     const plane = sketch.plane;
+    const name = `EXTRUDE_${String(System.objects.length + 1).padStart(3, '0')}`;
     
+    // Try kernel-based extrusion for real B-Rep geometry
+    if (isKernelReady()) {
+        try {
+            log('EXTRUDING VIA KERNEL...', 'info');
+            
+            const result = await kernel.extrudeSketchProfile(profile, height, plane);
+            
+            // Convert kernel mesh to Three.js
+            const geometry = meshToThreeGeometry(result.mesh, THREE);
+            
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x808080,
+                metalness: 0.4,
+                roughness: 0.6
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            
+            // Add edges for CAD look
+            const edges = new THREE.EdgesGeometry(geometry, 15);
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+            mesh.add(new THREE.LineSegments(edges, edgeMat));
+            
+            // Metadata
+            mesh.userData = {
+                type: 'body',
+                name: name,
+                id: generateId(),
+                kernelId: result.id,
+                bodyType: 'extrude',
+                material: 'AL-6061-T6',
+                created: Date.now(),
+                isKernelGeometry: true,
+                sourceProfile: profile.type,
+                sketchPlane: plane
+            };
+            
+            scene.add(mesh);
+            System.objects.push(mesh);
+            
+            // Track in DocumentModel
+            if (System.americad?.document) {
+                System.americad.document.trackExternalFeature({
+                    id: mesh.userData.id,
+                    kernelId: result.id,
+                    type: 'extrude',
+                    name: name,
+                    mesh: mesh
+                });
+            }
+            
+            selectObject(mesh);
+            log(`EXTRUDED: ${profile.type.toUpperCase()} (B-REP)`, 'success');
+            return mesh;
+            
+        } catch (error) {
+            console.warn('[Ameri-CAD] Kernel extrude failed, using fallback:', error);
+            log('KERNEL EXTRUDE FAILED - USING FALLBACK', 'warn');
+        }
+    }
+    
+    // Fallback to creating primitives
     if (profile.type === 'rectangle') {
-        // Get rectangle dimensions and position
-        const pts = profile.points;
-        const width = Math.abs(pts[1].x - pts[0].x);
-        const depth = Math.abs(pts[3].y - pts[0].y);
-        
-        // Calculate center in world coordinates
-        const centerX = (pts[0].x + pts[2].x) / 2;
-        const centerY = (pts[0].y + pts[2].y) / 2;
+        const width = profile.width;
+        const depth = profile.height;
+        const centerX = profile.center.x;
+        const centerY = profile.center.y;
         
         let position;
         let size;
         
-        // Convert based on sketch plane
         switch (plane) {
             case 'xy':
                 position = [centerX, centerY, height / 2];
@@ -1416,12 +1477,7 @@ async function extrudeProfile(profile, sketch, height) {
                 size = [width, depth, height];
         }
         
-        await createPrimitive('box', {
-            size,
-            position,
-            name: `EXTRUDE_${String(System.objects.length + 1).padStart(3, '0')}`
-        });
-        
+        await createPrimitive('box', { size, position, name });
         log(`EXTRUDED: BOX ${width.toFixed(1)} x ${depth.toFixed(1)} x ${height}`, 'success');
     }
     else if (profile.type === 'circle') {
@@ -1432,27 +1488,18 @@ async function extrudeProfile(profile, sketch, height) {
         let position;
         
         switch (plane) {
-            case 'xy':
-                position = [cx, cy, height / 2];
-                break;
-            case 'xz':
-                position = [cx, height / 2, cy];
-                break;
-            case 'yz':
-                position = [height / 2, cy, cx];
-                break;
-            default:
-                position = [cx, cy, height / 2];
+            case 'xy': position = [cx, cy, height / 2]; break;
+            case 'xz': position = [cx, height / 2, cy]; break;
+            case 'yz': position = [height / 2, cy, cx]; break;
+            default: position = [cx, cy, height / 2];
         }
         
-        await createPrimitive('cylinder', {
-            radius,
-            height,
-            position,
-            name: `EXTRUDE_${String(System.objects.length + 1).padStart(3, '0')}`
-        });
-        
+        await createPrimitive('cylinder', { radius, height, position, name });
         log(`EXTRUDED: CYLINDER R${radius.toFixed(1)} x H${height}`, 'success');
+    }
+    else if (profile.type === 'polygon') {
+        // Polygon profiles can only be extruded with kernel
+        log('POLYGON EXTRUDE REQUIRES KERNEL', 'error');
     }
 }
 
