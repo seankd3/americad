@@ -240,6 +240,99 @@ export class SweepFeature extends Feature {
 }
 
 /**
+ * Linear pattern feature - creates copies along one or two directions
+ * Supports 1D linear patterns and 2D grid patterns
+ */
+export class LinearPatternFeature extends Feature {
+  constructor(sourceId, params = {}) {
+    super('linearPattern', {
+      direction1: params.direction1 ?? [1, 0, 0], // Primary direction
+      count1: params.count1 ?? 3, // Copies in first direction
+      spacing1: params.spacing1 ?? 10, // Spacing in first direction
+      direction2: params.direction2 ?? null, // Secondary direction (for grid)
+      count2: params.count2 ?? 1, // Copies in second direction
+      spacing2: params.spacing2 ?? 0, // Spacing in second direction
+      ...params,
+    });
+    this.dependencies = [sourceId];
+  }
+
+  /**
+   * Check if this is a 2D grid pattern
+   */
+  isGrid() {
+    return this.params.count2 > 1 && this.params.direction2 !== null;
+  }
+
+  /**
+   * Get total number of copies
+   */
+  getTotalCopies() {
+    return this.params.count1 * (this.params.count2 || 1);
+  }
+}
+
+/**
+ * Circular pattern feature - creates copies around an axis
+ * Supports full 360° and partial angle patterns
+ */
+export class CircularPatternFeature extends Feature {
+  constructor(sourceId, params = {}) {
+    super('circularPattern', {
+      axisOrigin: params.axisOrigin ?? { x: 0, y: 0, z: 0 }, // Center of rotation
+      axisDirection: params.axisDirection ?? [0, 0, 1], // Axis direction (default: Z)
+      count: params.count ?? 6, // Number of copies (including original)
+      totalAngle: params.totalAngle ?? 360, // Total angle to span in degrees
+      ...params,
+    });
+    this.dependencies = [sourceId];
+  }
+
+  /**
+   * Check if this is a full 360° pattern
+   */
+  isFullCircle() {
+    return Math.abs(this.params.totalAngle - 360) < 0.001;
+  }
+
+  /**
+   * Get angle between copies in degrees
+   */
+  getAngleStep() {
+    return this.params.totalAngle / this.params.count;
+  }
+}
+
+/**
+ * Pattern along path feature - creates copies along a curve or edge
+ */
+export class PathPatternFeature extends Feature {
+  constructor(sourceId, pathId, params = {}) {
+    super('pathPattern', {
+      count: params.count ?? 5, // Number of copies along path
+      orientToPath: params.orientToPath ?? false, // Whether to rotate copies to follow path
+      ...params,
+    });
+    this.dependencies = [sourceId, pathId];
+  }
+}
+
+/**
+ * Mirror feature - mirrors a shape across a plane
+ * Can optionally keep original to create symmetric part
+ */
+export class MirrorFeature extends Feature {
+  constructor(sourceId, params = {}) {
+    super('mirror', {
+      plane: params.plane ?? 'yz', // Mirror plane: 'xy', 'xz', 'yz'
+      keepOriginal: params.keepOriginal ?? false, // Fuse with original for symmetric part
+      ...params,
+    });
+    this.dependencies = [sourceId];
+  }
+}
+
+/**
  * Document Model - manages the feature tree
  */
 export class DocumentModel {
@@ -601,6 +694,18 @@ export class DocumentModel {
         break;
       case 'extrude':
         feature = new ExtrudeFeature(data.dependencies[0], data.params);
+        break;
+      case 'linearPattern':
+        feature = new LinearPatternFeature(data.dependencies[0], data.params);
+        break;
+      case 'circularPattern':
+        feature = new CircularPatternFeature(data.dependencies[0], data.params);
+        break;
+      case 'pathPattern':
+        feature = new PathPatternFeature(data.dependencies[0], data.dependencies[1], data.params);
+        break;
+      case 'mirror':
+        feature = new MirrorFeature(data.dependencies[0], data.params);
         break;
       default:
         feature = new Feature(data.type, data.params);

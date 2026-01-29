@@ -830,6 +830,84 @@ export class KernelBridge {
     return this._call('linearPattern', { shapeId, direction, count, spacing });
   }
 
+  /**
+   * Create a 2D grid pattern (linear pattern in two directions)
+   * Like Fusion 360/SolidWorks grid patterns for bolt patterns, etc.
+   * @param {string} shapeId - Shape ID to pattern
+   * @param {number[]} direction1 - First direction vector [dx, dy, dz]
+   * @param {number} count1 - Number of copies in first direction (including original)
+   * @param {number} spacing1 - Distance between copies in first direction
+   * @param {number[]} direction2 - Second direction vector [dx, dy, dz] (optional)
+   * @param {number} count2 - Number of copies in second direction (default: 1)
+   * @param {number} spacing2 - Distance between copies in second direction (default: 0)
+   * @returns {Promise<{id: string, mesh: Object, totalCopies: number, count1: number, count2: number}>}
+   */
+  async linearPatternGrid(
+    shapeId,
+    direction1,
+    count1,
+    spacing1,
+    direction2 = null,
+    count2 = 1,
+    spacing2 = 0
+  ) {
+    await this.init();
+    return this._call('linearPatternGrid', {
+      shapeId,
+      direction1,
+      count1,
+      spacing1,
+      direction2,
+      count2,
+      spacing2,
+    });
+  }
+
+  /**
+   * Create a pattern along a path (curve, edge, or wire)
+   * Copies are positioned along the path at evenly-spaced intervals
+   * @param {string} shapeId - Shape ID to pattern
+   * @param {string} pathId - Path (wire or edge) ID to follow
+   * @param {number} count - Number of copies (including start position)
+   * @param {boolean} orientToPath - Whether to rotate copies to follow path tangent
+   * @returns {Promise<{id: string, mesh: Object, copies: number}>}
+   */
+  async patternAlongPath(shapeId, pathId, count, orientToPath = false) {
+    await this.init();
+    return this._call('patternAlongPath', { shapeId, pathId, count, orientToPath });
+  }
+
+  /**
+   * Mirror a shape and optionally fuse with original to create symmetric part
+   * @param {string} shapeId - Shape ID to mirror
+   * @param {string} plane - Mirror plane: 'xy', 'xz', or 'yz'
+   * @param {boolean} keepOriginal - If true, fuse mirrored with original (symmetric part)
+   * @returns {Promise<{id: string, mesh: Object, type: string}>}
+   */
+  async mirrorSymmetric(shapeId, plane, keepOriginal = false) {
+    await this.init();
+
+    // Convert plane name to origin and normal
+    const planeOrigin = [0, 0, 0];
+    let planeNormal;
+
+    switch (plane.toLowerCase()) {
+      case 'xy':
+        planeNormal = [0, 0, 1];
+        break;
+      case 'xz':
+        planeNormal = [0, 1, 0];
+        break;
+      case 'yz':
+        planeNormal = [1, 0, 0];
+        break;
+      default:
+        throw new Error(`Unknown mirror plane: ${plane}. Use 'xy', 'xz', or 'yz'`);
+    }
+
+    return this._call('mirrorSymmetric', { shapeId, planeOrigin, planeNormal, keepOriginal });
+  }
+
   // ==================== Hole Wizard ====================
 
   /**
@@ -993,7 +1071,14 @@ export class KernelBridge {
    * @param {string} threadType - 'external' or 'internal'
    * @returns {Promise<{type: string, faceId: string, threadInfo: Object}>}
    */
-  async createCosmeticThread(shapeId, faceId, nominalDiameter, pitch, length, threadType = 'external') {
+  async createCosmeticThread(
+    shapeId,
+    faceId,
+    nominalDiameter,
+    pitch,
+    length,
+    threadType = 'external'
+  ) {
     await this.init();
     return this._call('createCosmeticThread', {
       shapeId,

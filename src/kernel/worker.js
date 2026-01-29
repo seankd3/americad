@@ -4202,6 +4202,74 @@ self.onmessage = async function (e) {
         break;
       }
 
+      case 'linearPatternGrid': {
+        const shape = shapes.get(params.shapeId);
+        if (!shape) throw new Error(`Shape not found: ${params.shapeId}`);
+
+        const gridResult = createLinearPatternGrid(
+          shape,
+          params.direction1,
+          params.count1,
+          params.spacing1,
+          params.direction2 || null,
+          params.count2 || 1,
+          params.spacing2 || 0
+        );
+        shapes.set(gridResult.id, gridResult.shape);
+        const gridMesh = tessellate(gridResult.shape);
+        result = {
+          id: gridResult.id,
+          mesh: gridMesh,
+          totalCopies: gridResult.totalCopies,
+          count1: gridResult.count1,
+          count2: gridResult.count2,
+        };
+        break;
+      }
+
+      case 'patternAlongPath': {
+        const shape = shapes.get(params.shapeId);
+        if (!shape) throw new Error(`Shape not found: ${params.shapeId}`);
+
+        const pathShape = shapes.get(params.pathId);
+        if (!pathShape) throw new Error(`Path not found: ${params.pathId}`);
+
+        const pathResult = createPatternAlongPath(
+          shape,
+          pathShape,
+          params.count,
+          params.orientToPath || false
+        );
+        shapes.set(pathResult.id, pathResult.shape);
+        const pathMesh = tessellate(pathResult.shape);
+        result = {
+          id: pathResult.id,
+          mesh: pathMesh,
+          copies: pathResult.copies,
+        };
+        break;
+      }
+
+      case 'mirrorSymmetric': {
+        const shape = shapes.get(params.shapeId);
+        if (!shape) throw new Error(`Shape not found: ${params.shapeId}`);
+
+        const symResult = mirrorShapeSymmetric(
+          shape,
+          params.planeOrigin,
+          params.planeNormal,
+          params.keepOriginal || false
+        );
+        shapes.set(symResult.id, symResult.shape);
+        const symMesh = tessellate(symResult.shape);
+        result = {
+          id: symResult.id,
+          mesh: symMesh,
+          type: symResult.type,
+        };
+        break;
+      }
+
       // ==================== Hole Operations ====================
 
       case 'createSimpleHole': {
