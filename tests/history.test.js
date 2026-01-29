@@ -1,384 +1,347 @@
 /**
  * Ameri-CAD History (Undo/Redo) Tests
- * Tests for command history and crash recovery
+ * Tests for command history from src/state/history.js
+ * and crash recovery from src/crash-guard.js
  */
 
-// Mock history system for testing
-class CommandHistory {
-    constructor(maxCommands = 50) {
-        this.history = [];
-        this.redoStack = [];
-        this.maxCommands = maxCommands;
-    }
-    
-    execute(command) {
-        // Execute the command
-        if (command.execute) {
-            command.execute();
-        }
-        
-        // Add to history
-        this.history.push(command);
-        
-        // Clear redo stack
-        this.redoStack = [];
-        
-        // Trim history if needed
-        if (this.history.length > this.maxCommands) {
-            this.history.shift();
-        }
-        
-        return command;
-    }
-    
-    undo() {
-        if (this.history.length === 0) return null;
-        
-        const command = this.history.pop();
-        if (command.undo) {
-            command.undo();
-        }
-        this.redoStack.push(command);
-        
-        return command;
-    }
-    
-    redo() {
-        if (this.redoStack.length === 0) return null;
-        
-        const command = this.redoStack.pop();
-        if (command.execute) {
-            command.execute();
-        }
-        this.history.push(command);
-        
-        return command;
-    }
-    
-    clear() {
-        this.history = [];
-        this.redoStack = [];
-    }
-    
-    canUndo() {
-        return this.history.length > 0;
-    }
-    
-    canRedo() {
-        return this.redoStack.length > 0;
-    }
-    
-    getHistory() {
-        return [...this.history];
-    }
-    
-    serialize() {
-        return JSON.stringify(this.history.map(cmd => ({
-            type: cmd.type,
-            data: cmd.data,
-            timestamp: cmd.timestamp
-        })));
-    }
-}
+import {
+    Command,
+    CommandManager,
+    CreatePrimitiveCommand,
+    DeleteCommand,
+    TransformCommand,
+    commandManager
+} from '../src/state/history.js';
 
-// Command factory
-class CreatePrimitiveCommand {
-    constructor(type, options, scene) {
-        this.type = 'CREATE_PRIMITIVE';
-        this.primitiveType = type;
-        this.options = options;
-        this.scene = scene;
-        this.mesh = null;
-        this.timestamp = Date.now();
-        this.data = { primitiveType: type, options };
-    }
-    
-    execute() {
-        let geometry;
-        switch (this.primitiveType) {
-            case 'box':
-                const size = this.options.size || [1, 1, 1];
-                geometry = new THREE.BoxGeometry(...size);
-                break;
-            case 'sphere':
-                geometry = new THREE.SphereGeometry(this.options.radius || 1, 32, 16);
-                break;
-            case 'cylinder':
-                geometry = new THREE.CylinderGeometry(
-                    this.options.radius || 1,
-                    this.options.radius || 1,
-                    this.options.height || 2,
-                    32
-                );
-                break;
-            default:
-                geometry = new THREE.BoxGeometry(1, 1, 1);
-        }
-        
-        const material = new THREE.MeshStandardMaterial({ color: 0x808080 });
-        this.mesh = new THREE.Mesh(geometry, material);
-        
-        if (this.options.position) {
-            this.mesh.position.set(...this.options.position);
-        }
-        
-        if (this.scene) {
-            this.scene.add(this.mesh);
-        }
-        
-        return this.mesh;
-    }
-    
-    undo() {
-        if (this.mesh && this.scene) {
-            this.scene.remove(this.mesh);
-        }
-    }
-}
+import { CrashGuard } from '../src/crash-guard.js';
 
-class TransformCommand {
-    constructor(mesh, property, oldValue, newValue) {
-        this.type = 'TRANSFORM';
-        this.mesh = mesh;
-        this.property = property;
-        this.oldValue = oldValue.clone ? oldValue.clone() : { ...oldValue };
-        this.newValue = newValue.clone ? newValue.clone() : { ...newValue };
-        this.timestamp = Date.now();
-        this.data = { property, oldValue: this.oldValue, newValue: this.newValue };
-    }
-    
-    execute() {
-        if (this.mesh && this.mesh[this.property]) {
-            if (this.mesh[this.property].copy) {
-                this.mesh[this.property].copy(this.newValue);
-            } else {
-                this.mesh[this.property] = this.newValue;
-            }
-        }
-    }
-    
-    undo() {
-        if (this.mesh && this.mesh[this.property]) {
-            if (this.mesh[this.property].copy) {
-                this.mesh[this.property].copy(this.oldValue);
-            } else {
-                this.mesh[this.property] = this.oldValue;
-            }
-        }
-    }
-}
-
-class DeleteCommand {
-    constructor(mesh, scene) {
-        this.type = 'DELETE';
-        this.mesh = mesh;
-        this.scene = scene;
-        this.timestamp = Date.now();
-        this.data = { meshId: mesh.uuid };
-    }
-    
-    execute() {
-        if (this.mesh && this.scene) {
-            this.scene.remove(this.mesh);
-        }
-    }
-    
-    undo() {
-        if (this.mesh && this.scene) {
-            this.scene.add(this.mesh);
-        }
-    }
-}
-
-// Export for tests
-window.CommandHistory = CommandHistory;
+// Export for runner compatibility
+window.CommandManager = CommandManager;
+window.Command = Command;
 window.CreatePrimitiveCommand = CreatePrimitiveCommand;
-window.TransformCommand = TransformCommand;
 window.DeleteCommand = DeleteCommand;
+window.TransformCommand = TransformCommand;
 
+describe('Command (base class)', function() {
+    
+    it('should require name in constructor', function() {
+        const cmd = new Command('Test Command');
+        expect(cmd.name).to.equal('Test Command');
+    });
+    
+    it('should have timestamp', function() {
+        const before = Date.now();
+        const cmd = new Command('Test');
+        const after = Date.now();
+        
+        expect(cmd.timestamp).to.be.at.least(before);
+        expect(cmd.timestamp).to.be.at.most(after);
+    });
+    
+    it('should throw on execute() if not implemented', function() {
+        const cmd = new Command('Test');
+        expect(() => cmd.execute()).to.throw('execute() must be implemented');
+    });
+    
+    it('should throw on undo() if not implemented', function() {
+        const cmd = new Command('Test');
+        expect(() => cmd.undo()).to.throw('undo() must be implemented');
+    });
+});
 
-describe('CommandHistory', function() {
-    let history;
+describe('CommandManager', function() {
+    let manager;
     
     beforeEach(function() {
-        history = new CommandHistory();
+        manager = new CommandManager();
     });
     
     describe('Basic Operations', function() {
         
         it('should start empty', function() {
-            expect(history.canUndo()).to.be.false;
-            expect(history.canRedo()).to.be.false;
-            expect(history.getHistory()).to.have.length(0);
+            expect(manager.canUndo()).to.be.false;
+            expect(manager.canRedo()).to.be.false;
         });
         
         it('should execute and store commands', function() {
+            let executed = false;
             const command = {
-                type: 'TEST',
-                execute: () => {},
+                name: 'Test',
+                execute: () => { executed = true; },
                 undo: () => {}
             };
             
-            history.execute(command);
+            manager.execute(command);
             
-            expect(history.canUndo()).to.be.true;
-            expect(history.getHistory()).to.have.length(1);
+            expect(executed).to.be.true;
+            expect(manager.canUndo()).to.be.true;
         });
         
         it('should undo commands', function() {
             let value = 0;
             const command = {
-                type: 'INCREMENT',
+                name: 'Increment',
                 execute: () => { value++; },
                 undo: () => { value--; }
             };
             
-            history.execute(command);
+            manager.execute(command);
             expect(value).to.equal(1);
             
-            history.undo();
+            manager.undo();
             expect(value).to.equal(0);
         });
         
         it('should redo commands', function() {
             let value = 0;
             const command = {
-                type: 'INCREMENT',
+                name: 'Increment',
                 execute: () => { value++; },
                 undo: () => { value--; }
             };
             
-            history.execute(command);
-            history.undo();
+            manager.execute(command);
+            manager.undo();
             expect(value).to.equal(0);
             
-            history.redo();
+            manager.redo();
             expect(value).to.equal(1);
         });
         
         it('should clear redo stack on new command', function() {
-            const cmd1 = { type: 'A', execute: () => {}, undo: () => {} };
-            const cmd2 = { type: 'B', execute: () => {}, undo: () => {} };
+            const cmd1 = { name: 'A', execute: () => {}, undo: () => {} };
+            const cmd2 = { name: 'B', execute: () => {}, undo: () => {} };
             
-            history.execute(cmd1);
-            history.undo();
-            expect(history.canRedo()).to.be.true;
+            manager.execute(cmd1);
+            manager.undo();
+            expect(manager.canRedo()).to.be.true;
             
-            history.execute(cmd2);
-            expect(history.canRedo()).to.be.false;
+            manager.execute(cmd2);
+            expect(manager.canRedo()).to.be.false;
+        });
+        
+        it('should return null when undoing empty stack', function() {
+            const result = manager.undo();
+            expect(result).to.be.null;
+        });
+        
+        it('should return null when redoing empty stack', function() {
+            const result = manager.redo();
+            expect(result).to.be.null;
+        });
+    });
+    
+    describe('push() vs execute()', function() {
+        
+        it('should add command without executing via push()', function() {
+            let executed = false;
+            const command = {
+                name: 'Test',
+                execute: () => { executed = true; },
+                undo: () => {}
+            };
+            
+            manager.push(command);
+            
+            expect(executed).to.be.false;
+            expect(manager.canUndo()).to.be.true;
         });
     });
     
     describe('History Limits', function() {
         
-        it('should limit history to maxCommands', function() {
-            const limitedHistory = new CommandHistory(5);
+        it('should limit history to maxHistory', function() {
+            const limitedManager = new CommandManager(5);
             
             for (let i = 0; i < 10; i++) {
-                limitedHistory.execute({
-                    type: 'TEST',
+                limitedManager.execute({
+                    name: 'Test',
                     index: i,
                     execute: () => {},
                     undo: () => {}
                 });
             }
             
-            expect(limitedHistory.getHistory()).to.have.length(5);
+            expect(limitedManager.undoStack.length).to.equal(5);
         });
         
         it('should keep most recent commands when trimming', function() {
-            const limitedHistory = new CommandHistory(3);
+            const limitedManager = new CommandManager(3);
             
             for (let i = 0; i < 5; i++) {
-                limitedHistory.execute({
-                    type: 'TEST',
+                limitedManager.execute({
+                    name: 'Test',
                     index: i,
                     execute: () => {},
                     undo: () => {}
                 });
             }
             
-            const stored = limitedHistory.getHistory();
+            const stored = limitedManager.undoStack;
             expect(stored[0].index).to.equal(2);
             expect(stored[1].index).to.equal(3);
             expect(stored[2].index).to.equal(4);
         });
     });
     
-    describe('Serialization', function() {
+    describe('State Change Callbacks', function() {
         
-        it('should serialize history to JSON', function() {
-            history.execute({
-                type: 'CREATE',
-                data: { shape: 'box' },
-                timestamp: 12345,
-                execute: () => {},
-                undo: () => {}
+        it('should notify on state change', function() {
+            let callCount = 0;
+            let lastCanUndo, lastCanRedo;
+            
+            manager.onStateChange((canUndo, canRedo) => {
+                callCount++;
+                lastCanUndo = canUndo;
+                lastCanRedo = canRedo;
             });
             
-            const json = history.serialize();
-            const parsed = JSON.parse(json);
+            manager.execute({ name: 'Test', execute: () => {}, undo: () => {} });
             
-            expect(parsed).to.have.length(1);
-            expect(parsed[0].type).to.equal('CREATE');
-            expect(parsed[0].data.shape).to.equal('box');
+            expect(callCount).to.equal(1);
+            expect(lastCanUndo).to.be.true;
+            expect(lastCanRedo).to.be.false;
+        });
+    });
+    
+    describe('clear()', function() {
+        
+        it('should clear all history', function() {
+            manager.execute({ name: 'A', execute: () => {}, undo: () => {} });
+            manager.execute({ name: 'B', execute: () => {}, undo: () => {} });
+            manager.undo();
+            
+            expect(manager.canUndo()).to.be.true;
+            expect(manager.canRedo()).to.be.true;
+            
+            manager.clear();
+            
+            expect(manager.canUndo()).to.be.false;
+            expect(manager.canRedo()).to.be.false;
+        });
+    });
+    
+    describe('getHistorySummary()', function() {
+        
+        it('should return history summary', function() {
+            manager.execute({ name: 'Create', execute: () => {}, undo: () => {} });
+            manager.execute({ name: 'Transform', execute: () => {}, undo: () => {} });
+            manager.undo();
+            
+            const summary = manager.getHistorySummary();
+            
+            expect(summary.undoCount).to.equal(1);
+            expect(summary.redoCount).to.equal(1);
+            expect(summary.undoCommands).to.include('Create');
+            expect(summary.redoCommands).to.include('Transform');
         });
     });
 });
 
 describe('CreatePrimitiveCommand', function() {
-    let scene;
+    let scene, objectsArray;
     
     beforeEach(function() {
         scene = new THREE.Scene();
+        objectsArray = [];
     });
     
-    it('should create box primitive', function() {
-        const cmd = new CreatePrimitiveCommand('box', { size: [2, 3, 4] }, scene);
-        const mesh = cmd.execute();
+    it('should not re-add mesh on first execute (already in scene)', function() {
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const mesh = new THREE.Mesh(geometry);
+        scene.add(mesh);
+        objectsArray.push(mesh);
         
-        expect(mesh).to.exist;
-        expect(scene.children).to.include(mesh);
-        
-        mesh.geometry.computeBoundingBox();
-        const size = new THREE.Vector3();
-        mesh.geometry.boundingBox.getSize(size);
-        
-        expect(size.x).to.equal(2);
-        expect(size.y).to.equal(3);
-        expect(size.z).to.equal(4);
-    });
-    
-    it('should undo creation by removing from scene', function() {
-        const cmd = new CreatePrimitiveCommand('box', {}, scene);
-        cmd.execute();
+        const cmd = new CreatePrimitiveCommand(scene, objectsArray, mesh);
+        cmd.execute(); // First execute - should do nothing (mesh already added)
         
         expect(scene.children).to.have.length(1);
+    });
+    
+    it('should remove mesh on undo', function() {
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const mesh = new THREE.Mesh(geometry);
+        scene.add(mesh);
+        objectsArray.push(mesh);
+        
+        const cmd = new CreatePrimitiveCommand(scene, objectsArray, mesh);
+        cmd.execute();
         
         cmd.undo();
         
         expect(scene.children).to.have.length(0);
+        expect(objectsArray).to.have.length(0);
     });
     
-    it('should apply position from options', function() {
-        const cmd = new CreatePrimitiveCommand('sphere', {
-            radius: 1,
-            position: [10, 20, 30]
-        }, scene);
+    it('should re-add mesh on redo', function() {
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const mesh = new THREE.Mesh(geometry);
+        scene.add(mesh);
+        objectsArray.push(mesh);
         
-        const mesh = cmd.execute();
+        const cmd = new CreatePrimitiveCommand(scene, objectsArray, mesh);
+        cmd.execute();
+        cmd.undo();
+        cmd.execute(); // Redo
         
-        expect(mesh.position.x).to.equal(10);
-        expect(mesh.position.y).to.equal(20);
-        expect(mesh.position.z).to.equal(30);
+        expect(scene.children).to.have.length(1);
+        expect(objectsArray).to.have.length(1);
     });
     
-    it('should store command metadata', function() {
-        const cmd = new CreatePrimitiveCommand('cylinder', { radius: 5, height: 10 }, scene);
+    it('should have correct name', function() {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+        const cmd = new CreatePrimitiveCommand(scene, objectsArray, mesh);
+        expect(cmd.name).to.equal('Create Primitive');
+    });
+});
+
+describe('DeleteCommand', function() {
+    let scene, objectsArray, mesh;
+    
+    beforeEach(function() {
+        scene = new THREE.Scene();
+        objectsArray = [];
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        mesh = new THREE.Mesh(geometry);
+        scene.add(mesh);
+        objectsArray.push(mesh);
+    });
+    
+    it('should remove mesh from scene', function() {
+        expect(scene.children).to.include(mesh);
         
-        expect(cmd.type).to.equal('CREATE_PRIMITIVE');
-        expect(cmd.data.primitiveType).to.equal('cylinder');
-        expect(cmd.timestamp).to.be.a('number');
+        const cmd = new DeleteCommand(scene, objectsArray, mesh);
+        cmd.execute();
+        
+        expect(scene.children).to.not.include(mesh);
+        expect(objectsArray).to.not.include(mesh);
+    });
+    
+    it('should restore mesh on undo', function() {
+        const cmd = new DeleteCommand(scene, objectsArray, mesh);
+        cmd.execute();
+        cmd.undo();
+        
+        expect(scene.children).to.include(mesh);
+        expect(objectsArray).to.include(mesh);
+    });
+    
+    it('should preserve original index on undo', function() {
+        // Add more objects
+        const mesh2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+        const mesh3 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+        scene.add(mesh2);
+        scene.add(mesh3);
+        objectsArray.push(mesh2);
+        objectsArray.push(mesh3);
+        
+        // Delete first mesh
+        const cmd = new DeleteCommand(scene, objectsArray, mesh);
+        cmd.execute();
+        cmd.undo();
+        
+        // Should be restored at index 0
+        expect(objectsArray[0]).to.equal(mesh);
     });
 });
 
@@ -388,149 +351,111 @@ describe('TransformCommand', function() {
     beforeEach(function() {
         const geometry = new THREE.BoxGeometry(1, 1, 1);
         mesh = new THREE.Mesh(geometry);
+        mesh.updateMatrixWorld();
     });
     
-    it('should transform position', function() {
-        const oldPos = mesh.position.clone();
-        const newPos = new THREE.Vector3(5, 10, 15);
+    it('should apply end matrix on execute', function() {
+        const startMatrix = mesh.matrix.clone();
+        const endMatrix = new THREE.Matrix4().makeTranslation(10, 20, 30);
         
-        const cmd = new TransformCommand(mesh, 'position', oldPos, newPos);
+        const cmd = new TransformCommand(mesh, startMatrix, endMatrix);
         cmd.execute();
         
-        expect(mesh.position.x).to.equal(5);
-        expect(mesh.position.y).to.equal(10);
-        expect(mesh.position.z).to.equal(15);
+        expect(mesh.position.x).to.be.closeTo(10, 0.001);
+        expect(mesh.position.y).to.be.closeTo(20, 0.001);
+        expect(mesh.position.z).to.be.closeTo(30, 0.001);
     });
     
-    it('should undo position change', function() {
+    it('should restore start matrix on undo', function() {
         mesh.position.set(0, 0, 0);
-        const oldPos = mesh.position.clone();
-        const newPos = new THREE.Vector3(100, 200, 300);
+        mesh.updateMatrix();
+        const startMatrix = mesh.matrix.clone();
+        const endMatrix = new THREE.Matrix4().makeTranslation(100, 200, 300);
         
-        const cmd = new TransformCommand(mesh, 'position', oldPos, newPos);
+        const cmd = new TransformCommand(mesh, startMatrix, endMatrix);
         cmd.execute();
         cmd.undo();
         
-        expect(mesh.position.x).to.equal(0);
-        expect(mesh.position.y).to.equal(0);
-        expect(mesh.position.z).to.equal(0);
-    });
-    
-    it('should transform scale', function() {
-        const oldScale = mesh.scale.clone();
-        const newScale = new THREE.Vector3(2, 3, 4);
-        
-        const cmd = new TransformCommand(mesh, 'scale', oldScale, newScale);
-        cmd.execute();
-        
-        expect(mesh.scale.x).to.equal(2);
-        expect(mesh.scale.y).to.equal(3);
-        expect(mesh.scale.z).to.equal(4);
-    });
-});
-
-describe('DeleteCommand', function() {
-    let scene, mesh;
-    
-    beforeEach(function() {
-        scene = new THREE.Scene();
-        const geometry = new THREE.BoxGeometry(1, 1, 1);
-        mesh = new THREE.Mesh(geometry);
-        scene.add(mesh);
-    });
-    
-    it('should remove mesh from scene', function() {
-        expect(scene.children).to.include(mesh);
-        
-        const cmd = new DeleteCommand(mesh, scene);
-        cmd.execute();
-        
-        expect(scene.children).to.not.include(mesh);
-    });
-    
-    it('should restore mesh on undo', function() {
-        const cmd = new DeleteCommand(mesh, scene);
-        cmd.execute();
-        cmd.undo();
-        
-        expect(scene.children).to.include(mesh);
+        expect(mesh.position.x).to.be.closeTo(0, 0.001);
+        expect(mesh.position.y).to.be.closeTo(0, 0.001);
+        expect(mesh.position.z).to.be.closeTo(0, 0.001);
     });
 });
 
 describe('Undo/Redo Integration', function() {
-    let history, scene;
+    let manager, scene, objectsArray;
     
     beforeEach(function() {
-        history = new CommandHistory();
+        manager = new CommandManager();
         scene = new THREE.Scene();
+        objectsArray = [];
     });
     
     it('should handle complex undo/redo sequence', function() {
         // Create a box
-        const createCmd = new CreatePrimitiveCommand('box', { size: [1, 1, 1] }, scene);
-        history.execute(createCmd);
-        const mesh = createCmd.mesh;
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const mesh = new THREE.Mesh(geometry);
+        scene.add(mesh);
+        objectsArray.push(mesh);
+        
+        const createCmd = new CreatePrimitiveCommand(scene, objectsArray, mesh);
+        manager.push(createCmd); // Use push since mesh already added
         
         expect(scene.children).to.have.length(1);
         
-        // Move it
-        const moveCmd = new TransformCommand(
-            mesh, 'position',
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(10, 0, 0)
-        );
-        history.execute(moveCmd);
+        // Transform it
+        mesh.position.set(0, 0, 0);
+        mesh.updateMatrix();
+        const startMatrix = mesh.matrix.clone();
+        const endMatrix = new THREE.Matrix4().makeTranslation(10, 0, 0);
         
-        expect(mesh.position.x).to.equal(10);
+        const transformCmd = new TransformCommand(mesh, startMatrix, endMatrix);
+        manager.execute(transformCmd);
         
-        // Scale it
-        const scaleCmd = new TransformCommand(
-            mesh, 'scale',
-            new THREE.Vector3(1, 1, 1),
-            new THREE.Vector3(2, 2, 2)
-        );
-        history.execute(scaleCmd);
+        expect(mesh.position.x).to.be.closeTo(10, 0.001);
         
-        expect(mesh.scale.x).to.equal(2);
+        // Undo transform
+        manager.undo();
+        expect(mesh.position.x).to.be.closeTo(0, 0.001);
         
-        // Undo scale
-        history.undo();
-        expect(mesh.scale.x).to.equal(1);
+        // Redo transform
+        manager.redo();
+        expect(mesh.position.x).to.be.closeTo(10, 0.001);
         
-        // Undo move
-        history.undo();
-        expect(mesh.position.x).to.equal(0);
-        
-        // Redo move
-        history.redo();
-        expect(mesh.position.x).to.equal(10);
-        
-        // Undo move again
-        history.undo();
+        // Undo transform again
+        manager.undo();
         
         // Undo create
-        history.undo();
+        manager.undo();
         expect(scene.children).to.have.length(0);
         
         // Redo create
-        history.redo();
+        manager.redo();
         expect(scene.children).to.have.length(1);
     });
     
     it('should track multiple objects independently', function() {
-        const cmd1 = new CreatePrimitiveCommand('box', { position: [0, 0, 0] }, scene);
-        const cmd2 = new CreatePrimitiveCommand('sphere', { position: [10, 0, 0] }, scene);
+        // Create first mesh
+        const mesh1 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+        scene.add(mesh1);
+        objectsArray.push(mesh1);
+        const cmd1 = new CreatePrimitiveCommand(scene, objectsArray, mesh1);
+        manager.push(cmd1);
         
-        history.execute(cmd1);
-        history.execute(cmd2);
+        // Create second mesh
+        const mesh2 = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8));
+        scene.add(mesh2);
+        objectsArray.push(mesh2);
+        const cmd2 = new CreatePrimitiveCommand(scene, objectsArray, mesh2);
+        manager.push(cmd2);
         
         expect(scene.children).to.have.length(2);
         
-        history.undo();
+        manager.undo(); // Undo mesh2
         expect(scene.children).to.have.length(1);
-        expect(scene.children[0]).to.equal(cmd1.mesh);
+        expect(scene.children[0]).to.equal(mesh1);
         
-        history.undo();
+        manager.undo(); // Undo mesh1
         expect(scene.children).to.have.length(0);
     });
 });
@@ -556,6 +481,10 @@ describe('CrashGuard', function() {
                 writable: true
             });
         }
+        
+        // Reset CrashGuard state
+        CrashGuard.commands = [];
+        CrashGuard.intervalId = null;
     });
     
     afterEach(function() {
@@ -565,125 +494,107 @@ describe('CrashGuard', function() {
                 writable: true
             });
         }
+        CrashGuard.stopAutosave();
     });
     
     it('should save commands to localStorage', function() {
-        const CrashGuard = {
-            KEY: 'americad_crash_recovery',
-            MAX_COMMANDS: 50,
-            commands: [],
-            
-            saveCommand(cmd) {
-                this.commands.push({
-                    type: cmd.type,
-                    data: cmd.data,
-                    timestamp: cmd.timestamp || Date.now()
-                });
-                
-                if (this.commands.length > this.MAX_COMMANDS) {
-                    this.commands.shift();
-                }
-                
-                localStorage.setItem(this.KEY, JSON.stringify(this.commands));
-            },
-            
-            load() {
-                const data = localStorage.getItem(this.KEY);
-                return data ? JSON.parse(data) : [];
-            },
-            
-            clear() {
-                this.commands = [];
-                localStorage.removeItem(this.KEY);
-            },
-            
-            hasRecoveryData() {
-                return localStorage.getItem(this.KEY) !== null;
-            }
-        };
+        CrashGuard.recordCommand({ type: 'CREATE', data: { shape: 'box' } });
+        CrashGuard.recordCommand({ type: 'MOVE', data: { x: 10 } });
+        CrashGuard.saveToStorage();
         
-        CrashGuard.saveCommand({ type: 'CREATE', data: { shape: 'box' }, timestamp: 1000 });
-        CrashGuard.saveCommand({ type: 'MOVE', data: { x: 10 }, timestamp: 2000 });
+        const data = JSON.parse(mockStorage[CrashGuard.KEY]);
         
-        const loaded = CrashGuard.load();
-        
-        expect(loaded).to.have.length(2);
-        expect(loaded[0].type).to.equal('CREATE');
-        expect(loaded[1].type).to.equal('MOVE');
+        expect(data.commands).to.have.length(2);
+        expect(data.commands[0].type).to.equal('CREATE');
+        expect(data.commands[1].type).to.equal('MOVE');
     });
     
     it('should limit stored commands to MAX_COMMANDS', function() {
-        const CrashGuard = {
-            KEY: 'americad_crash_recovery',
-            MAX_COMMANDS: 5,
-            commands: [],
-            
-            saveCommand(cmd) {
-                this.commands.push({
-                    type: cmd.type,
-                    data: cmd.data,
-                    timestamp: cmd.timestamp || Date.now()
-                });
-                
-                if (this.commands.length > this.MAX_COMMANDS) {
-                    this.commands.shift();
-                }
-                
-                localStorage.setItem(this.KEY, JSON.stringify(this.commands));
-            },
-            
-            load() {
-                const data = localStorage.getItem(this.KEY);
-                return data ? JSON.parse(data) : [];
-            }
-        };
+        const originalMax = CrashGuard.MAX_COMMANDS;
+        CrashGuard.MAX_COMMANDS = 5;
         
         for (let i = 0; i < 10; i++) {
-            CrashGuard.saveCommand({ type: 'CMD', data: { index: i }, timestamp: i });
+            CrashGuard.recordCommand({ type: 'CMD', data: { index: i } });
         }
         
-        const loaded = CrashGuard.load();
+        expect(CrashGuard.commands).to.have.length(5);
+        expect(CrashGuard.commands[0].data.index).to.equal(5);
+        expect(CrashGuard.commands[4].data.index).to.equal(9);
         
-        expect(loaded).to.have.length(5);
-        expect(loaded[0].data.index).to.equal(5);
-        expect(loaded[4].data.index).to.equal(9);
+        CrashGuard.MAX_COMMANDS = originalMax;
     });
     
-    it('should detect recovery data on load', function() {
-        const CrashGuard = {
-            KEY: 'americad_crash_recovery',
-            
-            hasRecoveryData() {
-                return localStorage.getItem(this.KEY) !== null;
-            }
-        };
-        
+    it('should detect recovery data presence', function() {
         expect(CrashGuard.hasRecoveryData()).to.be.false;
         
-        localStorage.setItem('americad_crash_recovery', '[{"type":"TEST"}]');
+        CrashGuard.recordCommand({ type: 'TEST', data: {} });
+        CrashGuard.saveToStorage();
         
         expect(CrashGuard.hasRecoveryData()).to.be.true;
     });
     
     it('should clear recovery data', function() {
-        const CrashGuard = {
-            KEY: 'americad_crash_recovery',
-            commands: [],
-            
-            clear() {
-                this.commands = [];
-                localStorage.removeItem(this.KEY);
-            },
-            
-            hasRecoveryData() {
-                return localStorage.getItem(this.KEY) !== null;
-            }
-        };
-        
-        localStorage.setItem('americad_crash_recovery', '[{"type":"TEST"}]');
+        CrashGuard.recordCommand({ type: 'TEST', data: {} });
+        CrashGuard.saveToStorage();
         expect(CrashGuard.hasRecoveryData()).to.be.true;
         
         CrashGuard.clear();
         expect(CrashGuard.hasRecoveryData()).to.be.false;
+        expect(CrashGuard.commands).to.have.length(0);
+    });
+    
+    it('should get recovery data', function() {
+        CrashGuard.recordCommand({ type: 'CREATE_PRIMITIVE', data: { shape: 'box' } });
+        CrashGuard.saveToStorage();
+        
+        const data = CrashGuard.getRecoveryData();
+        expect(data).to.have.length(1);
+        expect(data[0].type).to.equal('CREATE_PRIMITIVE');
+    });
+    
+    it('should generate recovery summary', function() {
+        CrashGuard.recordCommand({ type: 'CREATE_PRIMITIVE', data: {} });
+        CrashGuard.recordCommand({ type: 'TRANSFORM', data: {} });
+        CrashGuard.recordCommand({ type: 'CREATE_PRIMITIVE', data: {} });
+        CrashGuard.saveToStorage();
+        
+        const summary = CrashGuard.getRecoverySummary();
+        
+        expect(summary.commandCount).to.equal(3);
+        expect(summary.types['CREATE_PRIMITIVE']).to.equal(2);
+        expect(summary.types['TRANSFORM']).to.equal(1);
+    });
+    
+    it('should identify critical types for immediate save', function() {
+        expect(CrashGuard.shouldImmediateSave('CREATE_PRIMITIVE')).to.be.true;
+        expect(CrashGuard.shouldImmediateSave('DELETE')).to.be.true;
+        expect(CrashGuard.shouldImmediateSave('IMPORT')).to.be.true;
+        expect(CrashGuard.shouldImmediateSave('BOOLEAN_OP')).to.be.true;
+        expect(CrashGuard.shouldImmediateSave('TRANSFORM')).to.be.false;
+    });
+    
+    it('should generate unique IDs', function() {
+        const id1 = CrashGuard.generateId();
+        const id2 = CrashGuard.generateId();
+        
+        expect(id1).to.be.a('string');
+        expect(id2).to.be.a('string');
+        expect(id1).to.not.equal(id2);
+    });
+});
+
+describe('Singleton commandManager', function() {
+    
+    it('should be exported and available', function() {
+        expect(commandManager).to.be.instanceOf(CommandManager);
+    });
+    
+    it('should be a singleton instance', function() {
+        const before = commandManager.undoStack.length;
+        commandManager.execute({ name: 'Test', execute: () => {}, undo: () => {} });
+        expect(commandManager.undoStack.length).to.equal(before + 1);
+        
+        // Clean up
+        commandManager.clear();
     });
 });

@@ -1,7 +1,18 @@
 /**
  * Ameri-CAD Primitives Tests
- * Tests for shape generation and validation
+ * Tests for shape generation and validation using real geometry utilities
  */
+
+import { 
+    calculateVolume, 
+    validateBoundingBox, 
+    checkManifold, 
+    getMeshStats,
+    GeometryUtils 
+} from '../src/core/geometry-utils.js';
+
+// Expose GeometryUtils globally for backward compatibility
+window.GeometryUtils = GeometryUtils;
 
 describe('Primitives', function() {
     
@@ -46,7 +57,7 @@ describe('Primitives', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const stats = GeometryUtils.getMeshStats(mesh);
+            const stats = getMeshStats(mesh);
             
             expect(stats.volume).to.be.closeTo(golden.volume, golden.tolerance.volume);
             expect(stats.boundingBox.size.x).to.be.closeTo(golden.boundingBox.size.x, 0.001);
@@ -86,7 +97,7 @@ describe('Primitives', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const volume = GeometryUtils.calculateVolume(mesh);
+            const volume = calculateVolume(mesh);
             const expected = (4/3) * Math.PI * Math.pow(radius, 3);
             
             // Within 1% accuracy
@@ -118,7 +129,7 @@ describe('Primitives', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const stats = GeometryUtils.getMeshStats(mesh);
+            const stats = getMeshStats(mesh);
             
             expect(stats.volume).to.be.closeTo(golden.volume, golden.tolerance.volume);
             expect(stats.boundingBox.size.y).to.be.closeTo(golden.boundingBox.size.y, 0.001);
@@ -158,7 +169,7 @@ describe('Primitives', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const volume = GeometryUtils.calculateVolume(mesh);
+            const volume = calculateVolume(mesh);
             const expected = (1/3) * Math.PI * Math.pow(radius, 2) * height;
             
             // Within 2% accuracy (cone approximation is less precise)
@@ -190,7 +201,7 @@ describe('Primitives', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const volume = GeometryUtils.calculateVolume(mesh);
+            const volume = calculateVolume(mesh);
             const expected = 2 * Math.PI * Math.PI * R * r * r;
             
             // Within 2% accuracy
@@ -206,7 +217,7 @@ describe('Primitives', function() {
             mesh.position.set(10, 20, 30);
             mesh.updateMatrixWorld();
             
-            const bbox = GeometryUtils.validateBoundingBox(mesh);
+            const bbox = validateBoundingBox(mesh);
             
             expect(bbox.center.x).to.be.closeTo(10, 0.001);
             expect(bbox.center.y).to.be.closeTo(20, 0.001);
@@ -219,7 +230,7 @@ describe('Primitives', function() {
             mesh.scale.set(2, 3, 4);
             mesh.updateMatrixWorld();
             
-            const bbox = GeometryUtils.validateBoundingBox(mesh);
+            const bbox = validateBoundingBox(mesh);
             
             expect(bbox.size.x).to.be.closeTo(2, 0.001);
             expect(bbox.size.y).to.be.closeTo(3, 0.001);
@@ -232,7 +243,7 @@ describe('Primitives', function() {
             mesh.rotation.z = Math.PI / 2; // 90 degrees
             mesh.updateMatrixWorld();
             
-            const bbox = GeometryUtils.validateBoundingBox(mesh);
+            const bbox = validateBoundingBox(mesh);
             
             // After 90° Z rotation, X size becomes Y size
             expect(bbox.size.x).to.be.closeTo(1, 0.001);
@@ -244,12 +255,12 @@ describe('Primitives', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const volumeBefore = GeometryUtils.calculateVolume(mesh);
+            const volumeBefore = calculateVolume(mesh);
             
             mesh.position.set(100, 200, 300);
             mesh.updateMatrixWorld();
             
-            const volumeAfter = GeometryUtils.calculateVolume(mesh);
+            const volumeAfter = calculateVolume(mesh);
             
             expect(volumeAfter).to.be.closeTo(volumeBefore, 0.001);
         });
@@ -259,12 +270,12 @@ describe('Primitives', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const volumeBefore = GeometryUtils.calculateVolume(mesh);
+            const volumeBefore = calculateVolume(mesh);
             
             mesh.scale.set(2, 2, 2);
             mesh.updateMatrixWorld();
             
-            const volumeAfter = GeometryUtils.calculateVolume(mesh);
+            const volumeAfter = calculateVolume(mesh);
             
             // Volume scales by factor³ = 8
             expect(volumeAfter).to.be.closeTo(volumeBefore * 8, 0.01);
@@ -310,7 +321,7 @@ describe('Geometry Validation', function() {
             
             primitives.forEach((geometry, i) => {
                 const mesh = new THREE.Mesh(geometry);
-                const result = GeometryUtils.checkManifold(mesh);
+                const result = checkManifold(mesh);
                 expect(result.isManifold, `Primitive ${i} should be manifold`).to.be.true;
             });
         });
@@ -323,7 +334,7 @@ describe('Geometry Validation', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const bbox = GeometryUtils.validateBoundingBox(mesh);
+            const bbox = validateBoundingBox(mesh);
             
             expect(bbox.size.x).to.be.above(0);
             expect(bbox.size.y).to.be.above(0);
@@ -335,7 +346,7 @@ describe('Geometry Validation', function() {
             const mesh = new THREE.Mesh(geometry);
             mesh.updateMatrixWorld();
             
-            const bbox = GeometryUtils.validateBoundingBox(mesh);
+            const bbox = validateBoundingBox(mesh);
             
             expect(bbox.max.x).to.be.above(bbox.min.x);
             expect(bbox.max.y).to.be.above(bbox.min.y);
@@ -355,7 +366,7 @@ describe('Geometry Validation', function() {
             primitives.forEach((geometry, i) => {
                 const mesh = new THREE.Mesh(geometry);
                 mesh.updateMatrixWorld();
-                const volume = GeometryUtils.calculateVolume(mesh);
+                const volume = calculateVolume(mesh);
                 expect(volume, `Primitive ${i} should have positive volume`).to.be.above(0);
             });
         });
