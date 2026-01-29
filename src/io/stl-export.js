@@ -56,7 +56,7 @@ export function meshToSTL(meshData, name = 'americad') {
  * @param {string} header - Optional 80-byte header text
  * @returns {ArrayBuffer} Binary STL data
  */
-export function meshToSTLBinary(meshData, header = 'AmericaD Binary STL Export') {
+export function meshToSTLBinary(meshData, header = 'Ameri-CAD Binary STL Export') {
     const { vertices, indices } = meshData;
     const triangleCount = indices.length / 3;
     
@@ -136,7 +136,7 @@ export function mergeMeshesToSTL(meshes, name = 'americad', binary = false) {
     const merged = mergeMeshes(meshes);
     
     if (binary) {
-        return meshToSTLBinary(merged, `AmericaD: ${name}`);
+        return meshToSTLBinary(merged, `Ameri-CAD: ${name}`);
     } else {
         return meshToSTL(merged, name);
     }

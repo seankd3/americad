@@ -1,8 +1,8 @@
-# AmericaD - AI Agent Documentation
+# Ameri-CAD - AI Agent Documentation
 
 ## Project Overview
 
-AmericaD is a professional 3D CAD (Computer-Aided Design) web application built with Three.js. It provides a browser-based 3D modeling environment inspired by Fusion 360, featuring tools for creating primitives, sketching, transforming objects, and navigating 3D space.
+Ameri-CAD is a professional 3D CAD (Computer-Aided Design) web application built with Three.js. It provides a browser-based 3D modeling environment inspired by Fusion 360, featuring tools for creating primitives, sketching, transforming objects, and navigating 3D space.
 
 **Key Characteristics:**
 - Pure frontend application with no backend dependencies

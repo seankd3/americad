@@ -29,7 +29,7 @@
  *    - Should create a rectangular tube with bend
  */
 
-// Manual test commands to run in AmericaD command line:
+// Manual test commands to run in Ameri-CAD command line:
 const testCommands = `
 # Test 1: Simple pipe along Z axis
 profile-circle 1

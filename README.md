@@ -280,7 +280,7 @@ When loaded, the geometry is regenerated from the feature tree via the kernel.
 |--------|-----------|----------|
 | **STEP** | `.step` | CAD interoperability (ISO 10303-21, AP214) |
 | **STL** | `.stl` | 3D printing (ASCII or binary) |
-| **AmericaD** | `.americad` | Native parametric format |
+| **Ameri-CAD** | `.americad` | Native parametric format |
 
 ---
 

@@ -1,4 +1,4 @@
-# AmericaD Integration Test Report
+# Ameri-CAD Integration Test Report
 **Date:** 2026-01-29  
 **Version:** 2.0.1-LA  
 **Test Environment:** Chromium (Clawd browser), OCCT 7.0  

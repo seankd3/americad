@@ -353,7 +353,7 @@ export function openFilePicker() {
 }
 
 /**
- * Validate that a JSON object is a valid AmericaD document
+ * Validate that a JSON object is a valid Ameri-CAD document
  * 
  * @param {Object} data - Parsed JSON data
  * @returns {{valid: boolean, error?: string}} Validation result

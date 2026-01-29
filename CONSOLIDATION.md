@@ -1,4 +1,4 @@
-# AmericaD Architecture Consolidation
+# Ameri-CAD Architecture Consolidation
 
 ## Status: PHASE 1-2 COMPLETE
 Started: 2025-01-29

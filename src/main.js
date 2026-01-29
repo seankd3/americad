@@ -734,7 +734,7 @@ export class AmericaD {
             
             let content;
             if (binary) {
-                content = meshToSTLBinary(meshData, `AmericaD: ${name}`);
+                content = meshToSTLBinary(meshData, `Ameri-CAD: ${name}`);
             } else {
                 content = meshToSTL(meshData, name);
             }

@@ -65,7 +65,7 @@ export function registerExportCommands(app) {
             let content;
             if (meshes.length === 1) {
                 content = binary 
-                    ? meshToSTLBinary(meshes[0], `AmericaD: ${filename}`)
+                    ? meshToSTLBinary(meshes[0], `Ameri-CAD: ${filename}`)
                     : meshToSTL(meshes[0], filename);
             } else {
                 content = mergeMeshesToSTL(meshes, filename, binary);

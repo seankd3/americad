@@ -1,4 +1,4 @@
-# AmericaD Browser Smoke Test Report
+# Ameri-CAD Browser Smoke Test Report
 
 **Date:** 2026-01-29  
 **Tester:** Automated via Clawdbot  
