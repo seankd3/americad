@@ -19,7 +19,9 @@
     "lint:fix": "eslint src/ app.js --ext .js,.mjs --fix",
     "format": "prettier --write 'src/**/*.js' 'app.js' '*.json' '*.md'",
     "format:check": "prettier --check 'src/**/*.js' 'app.js'",
-    "prepare": "husky"
+    "prepare": "husky",
+    "docs:screenshots": "node scripts/capture-screenshots.js",
+    "docs:serve": "npx serve docs -p 3000"
   },
   "repository": {
     "type": "git",

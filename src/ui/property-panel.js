@@ -5,7 +5,7 @@
  * Shows in the right sidebar under Properties tab.
  */
 
-import { FEATURE_PARAMS, getFeatureParams, hasEditableParams } from './param-editor.js';
+import { getFeatureParams } from './param-editor.js';
 
 /**
  * Property Panel - Inline property editor bound to selection
@@ -173,7 +173,7 @@ export class PropertyPanel {
     bindEvents() {
         // Section collapse toggles
         this.container.querySelectorAll('.prop-section-header').forEach(header => {
-            header.addEventListener('click', (e) => {
+            header.addEventListener('click', (_e) => {
                 const section = header.closest('.prop-section');
                 const sectionName = section.dataset.section;
                 this.toggleSection(sectionName, section);
@@ -447,7 +447,7 @@ export class PropertyPanel {
         if (!container) return;
         
         // Default info
-        let info = {
+        const info = {
             volume: '—',
             surface: '—',
             faces: '—',

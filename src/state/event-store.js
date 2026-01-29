@@ -28,6 +28,9 @@ export const EventTypes = {
     // Visibility
     FEATURE_VISIBILITY_CHANGED: 'feature_visibility_changed',
     
+    // Suppression
+    FEATURE_SUPPRESSION_CHANGED: 'feature_suppression_changed',
+    
     // Dependencies
     DEPENDENCY_ADDED: 'dependency_added',
     DEPENDENCY_REMOVED: 'dependency_removed',

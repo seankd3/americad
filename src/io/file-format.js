@@ -71,7 +71,8 @@ function serializeFeature(feature) {
         transform: getFeatureTransform(feature),
         dependencies: [...feature.dependencies],
         name: feature.name,
-        visible: feature.visible
+        visible: feature.visible,
+        suppressed: feature.suppressed ?? false
     };
     
     // Remove internal params that shouldn't be serialized
@@ -88,7 +89,7 @@ function serializeFeature(feature) {
  * @param {Feature} feature - The feature
  * @returns {number[]} 4x4 transform matrix as flat array
  */
-function getFeatureTransform(feature) {
+function getFeatureTransform(_feature) {
     // Identity matrix by default
     // Future: extract from Three.js mesh if transforms have been applied
     return [
@@ -273,6 +274,7 @@ function deserializeFeature(data) {
     feature.id = data.id;
     feature.name = data.name || feature.name;
     feature.visible = data.visible ?? true;
+    feature.suppressed = data.suppressed ?? false;
     
     return feature;
 }

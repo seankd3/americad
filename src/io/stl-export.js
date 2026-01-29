@@ -12,7 +12,7 @@
  * @returns {string} ASCII STL content
  */
 export function meshToSTL(meshData, name = 'americad') {
-    const { vertices, normals, indices } = meshData;
+    const { vertices, indices } = meshData;
     const lines = [];
     
     // Sanitize name (no spaces or special chars)

@@ -344,7 +344,7 @@ function registerAppCommands() {
     registerCommand('grid', {
         description: 'Toggle grid visibility',
         category: 'view',
-        execute(params, context) {
+        execute(_params, _context) {
             // This will be handled by the app
             return 'GRID TOGGLED';
         }

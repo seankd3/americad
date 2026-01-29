@@ -10,7 +10,7 @@
  */
 
 import * as THREE from 'three';
-import { SketchMode, ConstraintType } from './sketch-manager.js';
+import { ConstraintType } from './sketch-manager.js';
 import { SnapType } from '../ui/snap-manager.js';
 
 // Sketch colors - distinctive blue/cyan for sketch mode
@@ -831,7 +831,7 @@ export class SketchRenderer {
     /**
      * Create dimension text using a sprite
      */
-    createDimensionText(text, position, color) {
+    createDimensionText(text, position, _color) {
         // Create canvas for text
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -877,7 +877,6 @@ export class SketchRenderer {
     createConstraintSymbol(letter, position, color, plane) {
         const group = new THREE.Group();
         const size = 2.5;  // Symbol size
-        const lineWidth = 0.4;
         
         // Create lines that form the letter
         const material = new THREE.LineBasicMaterial({ 

@@ -538,6 +538,173 @@ function getEdges(shape) {
 }
 
 /**
+ * Get all face IDs for a shape
+ */
+function getFaces(shape) {
+    const faces = [];
+    const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    
+    while (explorer.More()) {
+        const face = oc.TopoDS.Face_1(explorer.Current());
+        faces.push(getTopoId(face));
+        explorer.Next();
+    }
+    
+    return faces;
+}
+
+/**
+ * Get a face by its topology ID
+ * @param {TopoDS_Shape} shape - Parent shape
+ * @param {string} faceId - Face topology ID to find
+ * @returns {TopoDS_Face|null} - The face or null if not found
+ */
+function getFaceById(shape, faceId) {
+    const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    
+    while (explorer.More()) {
+        const face = oc.TopoDS.Face_1(explorer.Current());
+        if (getTopoId(face) === faceId) {
+            return face;
+        }
+        explorer.Next();
+    }
+    
+    return null;
+}
+
+/**
+ * Apply draft angle to faces for manufacturing (injection molding, casting)
+ * Draft tilts faces by an angle relative to a pull direction.
+ * 
+ * @param {TopoDS_Shape} shape - Shape to apply draft to
+ * @param {string[]} faceIds - Array of face IDs to draft (empty = all vertical faces)
+ * @param {number} angleDegrees - Draft angle in degrees
+ * @param {{x: number, y: number, z: number}} direction - Pull direction (normalized)
+ * @param {{x: number, y: number, z: number}} neutralPlanePoint - Point on neutral plane (default: origin)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string, facesModified: number}}
+ */
+function applyDraft(shape, faceIds, angleDegrees, direction, neutralPlanePoint = { x: 0, y: 0, z: 0 }) {
+    // Validate angle
+    if (angleDegrees <= 0 || angleDegrees >= 90) {
+        throw new Error(`Draft angle must be between 0 and 90 degrees (got ${angleDegrees})`);
+    }
+    
+    const angleRadians = angleDegrees * Math.PI / 180;
+    
+    // Normalize direction vector
+    const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+    if (len < 1e-10) {
+        throw new Error('Draft direction vector cannot be zero');
+    }
+    const dir = new oc.gp_Dir_4(direction.x / len, direction.y / len, direction.z / len);
+    
+    // Create neutral plane through the specified point, perpendicular to pull direction
+    const neutralPnt = new oc.gp_Pnt_3(neutralPlanePoint.x, neutralPlanePoint.y, neutralPlanePoint.z);
+    const neutralPlane = new oc.gp_Pln_2(neutralPnt, dir);
+    
+    // Create draft maker with the shape
+    const draftMaker = new oc.BRepOffsetAPI_DraftAngle_1(shape);
+    
+    // Collect faces to draft
+    let facesToDraft = [];
+    
+    if (faceIds && faceIds.length > 0) {
+        // Use specified faces
+        for (const faceId of faceIds) {
+            const face = getFaceById(shape, faceId);
+            if (face) {
+                facesToDraft.push(face);
+            }
+        }
+        
+        if (facesToDraft.length === 0) {
+            throw new Error('None of the specified face IDs were found');
+        }
+    } else {
+        // Auto-select: draft all faces that are roughly parallel to pull direction
+        // (faces whose normal is perpendicular to pull direction - i.e., vertical walls)
+        const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        
+        while (explorer.More()) {
+            const face = oc.TopoDS.Face_1(explorer.Current());
+            
+            // Get face surface to check normal
+            const surface = oc.BRep_Tool.Surface_2(face);
+            if (!surface.IsNull()) {
+                // Get UV bounds
+                const uMin = { current: 0 }, uMax = { current: 0 };
+                const vMin = { current: 0 }, vMax = { current: 0 };
+                surface.get().Bounds(uMin, uMax, vMin, vMax);
+                
+                // Sample normal at center of face
+                const uMid = (uMin.current + uMax.current) / 2;
+                const vMid = (vMin.current + vMax.current) / 2;
+                
+                const pnt = new oc.gp_Pnt_1();
+                const d1u = new oc.gp_Vec_1();
+                const d1v = new oc.gp_Vec_1();
+                surface.get().D1(uMid, vMid, pnt, d1u, d1v);
+                
+                // Compute normal as cross product of surface derivatives
+                const normal = d1u.Crossed(d1v);
+                const normalLen = normal.Magnitude();
+                
+                if (normalLen > 1e-10) {
+                    // Check angle between face normal and pull direction
+                    // Faces with normal perpendicular to pull direction (dot product ~0) are vertical walls
+                    const normalDir = new oc.gp_Dir_2(normal);
+                    const dotProduct = normalDir.X() * dir.X() + normalDir.Y() * dir.Y() + normalDir.Z() * dir.Z();
+                    
+                    // If dot product is small (< 0.1), the face is roughly perpendicular to pull direction
+                    // These are the "vertical walls" that typically need draft
+                    if (Math.abs(dotProduct) < 0.1) {
+                        facesToDraft.push(face);
+                    }
+                }
+            }
+            
+            explorer.Next();
+        }
+        
+        if (facesToDraft.length === 0) {
+            throw new Error('No suitable faces found for drafting (no faces perpendicular to pull direction)');
+        }
+    }
+    
+    // Add each face to the draft operation
+    for (const face of facesToDraft) {
+        try {
+            // Add face with draft angle
+            // BRepOffsetAPI_DraftAngle::Add(Face, Dir, Angle, NeutralPlane, Flag)
+            // Flag = true means the angle is measured from the face, false from the direction
+            draftMaker.Add(face, dir, angleRadians, neutralPlane, true);
+        } catch (e) {
+            // Some faces may not be draftable (e.g., already planar in pull direction)
+            console.warn(`[Kernel] Could not add face to draft: ${e.message}`);
+        }
+    }
+    
+    // Build the result
+    draftMaker.Build();
+    
+    if (!draftMaker.IsDone()) {
+        // Get error status for better error message
+        const status = draftMaker.Status();
+        throw new Error(`Draft operation failed (status: ${status}). The angle may be too large or geometry is incompatible.`);
+    }
+    
+    const draftedShape = draftMaker.Shape();
+    
+    return {
+        shape: draftedShape,
+        id: getTopoId(draftedShape),
+        type: 'draft',
+        facesModified: facesToDraft.length
+    };
+}
+
+/**
  * Create a torus primitive
  * OCCT constructor order (from OCCT docs):
  *   _1: (R1, R2) - major and minor radii, coaxial to Z
@@ -1192,15 +1359,144 @@ function revolveProfile(profile, axis, angleDegrees) {
 }
 
 /**
- * Shell a solid (hollow it out)
+ * Get all faces from a shape with their properties
+ * @param {TopoDS_Shape} shape - The shape to analyze
+ * @returns {Array<{face: TopoDS_Face, id: string, area: number, centroid: {x,y,z}, normal: {x,y,z}}>}
  */
-function shellSolid(shape, faceIds, thickness) {
+function getAllFaces(shape) {
+    const faces = [];
+    const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    
+    while (explorer.More()) {
+        const face = oc.TopoDS.Face_1(explorer.Current());
+        const faceId = getTopoId(face);
+        
+        // Calculate face area using GProp
+        const props = new oc.GProp_GProps_1();
+        oc.BRepGProp.SurfaceProperties_1(face, props, true, true);
+        const area = props.Mass();
+        
+        // Get centroid
+        const centroidPnt = props.CentreOfMass();
+        const centroid = {
+            x: centroidPnt.X(),
+            y: centroidPnt.Y(),
+            z: centroidPnt.Z()
+        };
+        
+        // Get face normal at centroid (approximate)
+        let normal = { x: 0, y: 0, z: 1 }; // default
+        try {
+            const surface = oc.BRep_Tool.Surface_2(face);
+            if (!surface.IsNull()) {
+                // Get UV bounds
+                const uMin = { current: 0 }, uMax = { current: 0 };
+                const vMin = { current: 0 }, vMax = { current: 0 };
+                oc.BRepTools.UVBounds_1(face, uMin, uMax, vMin, vMax);
+                
+                const uMid = (uMin.current + uMax.current) / 2;
+                const vMid = (vMin.current + vMax.current) / 2;
+                
+                // Compute normal using BRepLProp
+                const faceAnalysis = new oc.BRepLProp_SLProps_1(face, uMid, vMid, 1, 1e-6);
+                if (faceAnalysis.IsNormalDefined()) {
+                    const n = faceAnalysis.Normal();
+                    // Account for face orientation
+                    const orientation = face.Orientation_1();
+                    const flip = (orientation === oc.TopAbs_Orientation.TopAbs_REVERSED) ? -1 : 1;
+                    normal = { x: n.X() * flip, y: n.Y() * flip, z: n.Z() * flip };
+                }
+            }
+        } catch (e) {
+            // Fall back to default normal if analysis fails
+        }
+        
+        faces.push({ face, id: faceId, area, centroid, normal });
+        explorer.Next();
+    }
+    
+    return faces;
+}
+
+/**
+ * Find the largest face of a shape
+ * @param {TopoDS_Shape} shape - The shape to analyze
+ * @returns {TopoDS_Face|null} The largest face
+ */
+function getLargestFace(shape) {
+    const faces = getAllFaces(shape);
+    if (faces.length === 0) return null;
+    
+    let largest = faces[0];
+    for (const f of faces) {
+        if (f.area > largest.area) {
+            largest = f;
+        }
+    }
+    return largest.face;
+}
+
+/**
+ * Find a face by direction (top, bottom, front, back, left, right)
+ * @param {TopoDS_Shape} shape - The shape to analyze
+ * @param {string} direction - 'top', 'bottom', 'front', 'back', 'left', 'right'
+ * @returns {TopoDS_Face|null} The face most aligned with the direction
+ */
+function getFaceByDirection(shape, direction) {
+    const faces = getAllFaces(shape);
+    if (faces.length === 0) return null;
+    
+    // Define direction vectors
+    const dirVectors = {
+        'top':    { x: 0, y: 0, z: 1 },
+        'bottom': { x: 0, y: 0, z: -1 },
+        'front':  { x: 0, y: -1, z: 0 },
+        'back':   { x: 0, y: 1, z: 0 },
+        'left':   { x: -1, y: 0, z: 0 },
+        'right':  { x: 1, y: 0, z: 0 }
+    };
+    
+    const targetDir = dirVectors[direction.toLowerCase()];
+    if (!targetDir) {
+        throw new Error(`Unknown direction: ${direction}. Use: top, bottom, front, back, left, right`);
+    }
+    
+    // Find face whose normal best aligns with target direction
+    let bestFace = null;
+    let bestDot = -Infinity;
+    
+    for (const f of faces) {
+        // Dot product of face normal with target direction
+        const dot = f.normal.x * targetDir.x + f.normal.y * targetDir.y + f.normal.z * targetDir.z;
+        if (dot > bestDot) {
+            bestDot = dot;
+            bestFace = f.face;
+        }
+    }
+    
+    // Only return if the face is reasonably aligned (dot > 0.5 means within ~60 degrees)
+    return bestDot > 0.5 ? bestFace : null;
+}
+
+/**
+ * Shell a solid (hollow it out)
+ * @param {TopoDS_Shape} shape - Solid to shell
+ * @param {string[]|null} faceIds - Specific face IDs to remove (optional)
+ * @param {number} thickness - Wall thickness (positive = shell inward)
+ * @param {string} faceSelection - Face selection mode: 'none', 'largest', 'top', 'bottom', etc.
+ */
+function shellSolid(shape, faceIds, thickness, faceSelection = 'largest') {
     const shell = new oc.BRepOffsetAPI_MakeThickSolid();
     
     // Collect faces to remove
     const facesToRemove = new oc.TopTools_ListOfShape_1();
     
-    if (faceIds && faceIds.length > 0) {
+    // Determine which faces to remove
+    if (faceSelection === 'none') {
+        // Closed shell - no faces removed
+        // facesToRemove remains empty
+    } else if (faceIds && faceIds.length > 0) {
+        // Explicit face IDs provided
         const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
         
         while (explorer.More()) {
@@ -1213,13 +1509,28 @@ function shellSolid(shape, faceIds, thickness) {
             
             explorer.Next();
         }
+    } else if (faceSelection === 'largest') {
+        // Remove the largest face (default Fusion 360 behavior)
+        const largestFace = getLargestFace(shape);
+        if (largestFace) {
+            facesToRemove.Append_1(largestFace);
+        }
+    } else {
+        // Direction-based selection: top, bottom, front, back, left, right
+        const dirFace = getFaceByDirection(shape, faceSelection);
+        if (dirFace) {
+            facesToRemove.Append_1(dirFace);
+        } else {
+            throw new Error(`Could not find a '${faceSelection}' face on this shape`);
+        }
     }
     
-    // MakeThickSolidByJoin without progress range (use 9-arg version)
+    // MakeThickSolidByJoin: negative thickness shells inward
+    // Use negative thickness to create internal cavity
     shell.MakeThickSolidByJoin(
         shape,
         facesToRemove,
-        thickness,
+        -thickness,  // Negative for inward shell
         1e-6,
         oc.BRepOffset_Mode.BRepOffset_Skin,
         false,
@@ -1229,13 +1540,31 @@ function shellSolid(shape, faceIds, thickness) {
     );
     
     if (!shell.IsDone()) {
-        throw new Error('Shell operation failed');
+        throw new Error('Shell operation failed - wall thickness may be too large for this geometry');
     }
     
     return {
         shape: shell.Shape(),
         id: getTopoId(shell.Shape()),
         type: 'shell'
+    };
+}
+
+/**
+ * Get face IDs for a shape (for selection/analysis)
+ * @param {TopoDS_Shape} shape - The shape to analyze
+ * @returns {{faceIds: string[], faces: Array<{id: string, area: number, centroid: Object, normal: Object}>}}
+ */
+function getFaces(shape) {
+    const faces = getAllFaces(shape);
+    return {
+        faceIds: faces.map(f => f.id),
+        faces: faces.map(f => ({
+            id: f.id,
+            area: f.area,
+            centroid: f.centroid,
+            normal: f.normal
+        }))
     };
 }
 
@@ -1356,7 +1685,7 @@ function exportSTEP(shape) {
     // Cleanup virtual file
     try {
         oc.FS.unlink(filename);
-    } catch (e) {
+    } catch (_e) {
         // Ignore cleanup errors
     }
     
@@ -1426,19 +1755,18 @@ function exportSTL(shape, ascii = true) {
     
     // Write to virtual filesystem
     // The Write method signature: Write(shape, filename) returns bool
-    let writeSuccess;
     try {
         // Try with progress range first (newer OCCT API)
         if (typeof oc.Message_ProgressRange_1 === 'function') {
             const progress = new oc.Message_ProgressRange_1();
-            writeSuccess = writer.Write(shape, filename, progress);
+            writer.Write(shape, filename, progress);
         } else {
             // Fallback to simple 2-argument version
-            writeSuccess = writer.Write(shape, filename);
+            writer.Write(shape, filename);
         }
-    } catch (e) {
+    } catch (_e) {
         // If Write throws, try alternative approach
-        writeSuccess = writer.Write(shape, filename);
+        writer.Write(shape, filename);
     }
     
     // Check if file was written
@@ -1446,7 +1774,7 @@ function exportSTL(shape, ascii = true) {
     try {
         oc.FS.stat(filename);
         fileExists = true;
-    } catch (e) {
+    } catch (_e) {
         fileExists = false;
     }
     
@@ -1459,7 +1787,7 @@ function exportSTL(shape, ascii = true) {
     if (ascii) {
         try {
             content = oc.FS.readFile(filename, { encoding: 'utf8' });
-        } catch (e) {
+        } catch (_e) {
             // Binary fallback - convert to string
             const binary = oc.FS.readFile(filename);
             content = new TextDecoder().decode(binary);
@@ -1472,7 +1800,7 @@ function exportSTL(shape, ascii = true) {
     // Clean up virtual filesystem
     try {
         oc.FS.unlink(filename);
-    } catch (e) {
+    } catch (_e) {
         // Ignore cleanup errors
     }
     
@@ -1895,12 +2223,154 @@ function createHoleTool(holeType, params) {
 }
 
 /**
+ * Detect interference (overlap) between bodies
+ * Uses BRepAlgoAPI_Common to find intersection volumes
+ * @param {Array<string>} shapeIds - Array of shape IDs to check
+ * @returns {{interferences: Array<{body1: string, body2: string, volume: number, intersectionShapeId: string}>}}
+ */
+function detectInterference(shapeIds) {
+    const interferences = [];
+    
+    // Need at least 2 shapes to check
+    if (shapeIds.length < 2) {
+        return { interferences };
+    }
+    
+    // Check all pairs
+    for (let i = 0; i < shapeIds.length; i++) {
+        for (let j = i + 1; j < shapeIds.length; j++) {
+            const shape1 = shapes.get(shapeIds[i]);
+            const shape2 = shapes.get(shapeIds[j]);
+            
+            if (!shape1 || !shape2) {
+                continue; // Skip missing shapes
+            }
+            
+            try {
+                // Find intersection using BRepAlgoAPI_Common
+                const progress = new oc.Message_ProgressRange_1();
+                const common = new oc.BRepAlgoAPI_Common_3(shape1, shape2, progress);
+                
+                if (common.IsDone()) {
+                    const intersection = common.Shape();
+                    
+                    // Check if intersection has volume (not empty or just touching)
+                    const props = new oc.GProp_GProps_1();
+                    oc.BRepGProp.VolumeProperties_1(intersection, props, true, true, true);
+                    const volume = props.Mass();
+                    
+                    // Only report if there's actual volumetric interference
+                    // Use small threshold to filter out numerical noise
+                    if (volume > 1e-9) {
+                        // Store the intersection shape
+                        const intersectionId = getTopoId(intersection);
+                        shapes.set(intersectionId, intersection);
+                        
+                        interferences.push({
+                            body1: shapeIds[i],
+                            body2: shapeIds[j],
+                            volume,
+                            intersectionShapeId: intersectionId
+                        });
+                    }
+                }
+            } catch (e) {
+                // Boolean operation failed for this pair - skip silently
+                console.warn(`[Kernel] Interference check failed for ${shapeIds[i]} vs ${shapeIds[j]}:`, e.message);
+            }
+        }
+    }
+    
+    return { interferences };
+}
+
+/**
  * Calculate volume of shape
  */
 function calculateVolume(shape) {
     const props = new oc.GProp_GProps_1();
     oc.BRepGProp.VolumeProperties_1(shape, props, true, true, true);
     return props.Mass();
+}
+
+/**
+ * Calculate comprehensive mass properties of a shape
+ * Uses OpenCASCADE's GProp_GProps for accurate B-Rep calculations
+ * @param {TopoDS_Shape} shape - The shape to analyze
+ * @param {number} density - Material density in g/cm³ (default: 1.0)
+ * @returns {Object} Mass properties including volume, surface area, center of gravity, etc.
+ */
+function calculateMassProperties(shape, density = 1.0) {
+    // Volume properties (includes volume, center of gravity, moments of inertia)
+    const volProps = new oc.GProp_GProps_1();
+    oc.BRepGProp.VolumeProperties_1(shape, volProps, true, true, true);
+    
+    const volume = volProps.Mass(); // For volume props, Mass() returns volume
+    const cog = volProps.CentreOfMass();
+    
+    // Get the inertia matrix (3x3 symmetric matrix)
+    const inertiaMatrix = volProps.MatrixOfInertia();
+    const inertia = {
+        Ixx: inertiaMatrix.Value(1, 1),
+        Iyy: inertiaMatrix.Value(2, 2),
+        Izz: inertiaMatrix.Value(3, 3),
+        Ixy: inertiaMatrix.Value(1, 2),
+        Ixz: inertiaMatrix.Value(1, 3),
+        Iyz: inertiaMatrix.Value(2, 3)
+    };
+    
+    // Surface properties
+    const surfProps = new oc.GProp_GProps_1();
+    oc.BRepGProp.SurfaceProperties_1(shape, surfProps, true, true);
+    const surfaceArea = surfProps.Mass(); // For surface props, Mass() returns area
+    
+    // Get bounding box
+    const bbox = getBoundingBox(shape);
+    const boundingBox = {
+        min: bbox.min,
+        max: bbox.max,
+        dimensions: {
+            x: bbox.max.x - bbox.min.x,
+            y: bbox.max.y - bbox.min.y,
+            z: bbox.max.z - bbox.min.z
+        }
+    };
+    
+    // Calculate mass from volume and density
+    // Volume is in mm³, density is in g/cm³
+    // 1 cm³ = 1000 mm³, so we divide volume by 1000 to get cm³
+    const volumeInCm3 = volume / 1000;
+    const mass = volumeInCm3 * density;
+    
+    // Principal moments of inertia (eigenvalues of inertia tensor)
+    // For principal axes, we'd need to compute eigenvalues
+    // The StaticMoments gives us the first moments about coordinate planes
+    const staticMomentsRef = { Ix: { current: 0 }, Iy: { current: 0 }, Iz: { current: 0 } };
+    volProps.StaticMoments(staticMomentsRef.Ix, staticMomentsRef.Iy, staticMomentsRef.Iz);
+    const staticMoments = {
+        Sx: staticMomentsRef.Ix.current,
+        Sy: staticMomentsRef.Iy.current,
+        Sz: staticMomentsRef.Iz.current
+    };
+    
+    return {
+        volume,                  // mm³
+        volumeCm3: volumeInCm3,  // cm³
+        surfaceArea,             // mm²
+        surfaceAreaCm2: surfaceArea / 100, // cm²
+        mass,                    // grams (based on density in g/cm³)
+        density,                 // g/cm³ (input)
+        centerOfGravity: {
+            x: cog.X(),
+            y: cog.Y(),
+            z: cog.Z()
+        },
+        momentsOfInertia: inertia, // mm⁵ (volume-based moments)
+        staticMoments,             // First moments about coordinate planes
+        boundingBox,
+        // Additional useful derived values
+        boundingBoxVolume: boundingBox.dimensions.x * boundingBox.dimensions.y * boundingBox.dimensions.z
+    };
 }
 
 /**
@@ -2047,6 +2517,32 @@ self.onmessage = async function(e) {
                 if (!shapeGE) throw new Error(`Shape not found: ${params.shapeId}`);
                 result = { edgeIds: getEdges(shapeGE) };
                 break;
+            
+            case 'getFaces':
+                const shapeGF = shapes.get(params.shapeId);
+                if (!shapeGF) throw new Error(`Shape not found: ${params.shapeId}`);
+                result = { faceIds: getFaces(shapeGF) };
+                break;
+            
+            case 'draft': {
+                const shapeDraft = shapes.get(params.shapeId);
+                if (!shapeDraft) throw new Error(`Shape not found: ${params.shapeId}`);
+                const drafted = applyDraft(
+                    shapeDraft,
+                    params.faceIds || [],
+                    params.angle,
+                    params.direction,
+                    params.neutralPlanePoint || { x: 0, y: 0, z: 0 }
+                );
+                shapes.set(drafted.id, drafted.shape);
+                const draftMesh = tessellate(drafted.shape);
+                result = { 
+                    id: drafted.id, 
+                    mesh: draftMesh, 
+                    facesModified: drafted.facesModified 
+                };
+                break;
+            }
                 
             case 'createTorus':
                 const torus = createTorus(params.majorRadius, params.minorRadius, params.center);
@@ -2139,10 +2635,17 @@ self.onmessage = async function(e) {
                 
             case 'shell':
                 const shapeS = shapes.get(params.shapeId);
-                const shelled = shellSolid(shapeS, params.faceIds, params.thickness);
+                if (!shapeS) throw new Error(`Shape not found: ${params.shapeId}`);
+                const shelled = shellSolid(shapeS, params.faceIds, params.thickness, params.faceSelection || 'largest');
                 shapes.set(shelled.id, shelled.shape);
                 const shellMesh = tessellate(shelled.shape);
                 result = { id: shelled.id, mesh: shellMesh };
+                break;
+            
+            case 'getFaces':
+                const shapeFaces = shapes.get(params.shapeId);
+                if (!shapeFaces) throw new Error(`Shape not found: ${params.shapeId}`);
+                result = getFaces(shapeFaces);
                 break;
                 
             case 'loft':
@@ -2241,6 +2744,32 @@ self.onmessage = async function(e) {
                 const bboxShape = shapes.get(params.id);
                 result = getBoundingBox(bboxShape);
                 break;
+                
+            case 'massProperties': {
+                const massShape = shapes.get(params.shapeId);
+                if (!massShape) throw new Error(`Shape not found: ${params.shapeId}`);
+                const density = params.density || 1.0;
+                result = calculateMassProperties(massShape, density);
+                break;
+            }
+            
+            case 'detectInterference': {
+                // Detect overlapping/intersecting bodies
+                const interferenceResult = detectInterference(params.shapeIds);
+                
+                // Tessellate interference shapes for visualization
+                const interferencesWithMesh = interferenceResult.interferences.map(interference => {
+                    const intersectionShape = shapes.get(interference.intersectionShapeId);
+                    if (intersectionShape) {
+                        const mesh = tessellate(intersectionShape);
+                        return { ...interference, mesh };
+                    }
+                    return interference;
+                });
+                
+                result = { interferences: interferencesWithMesh };
+                break;
+            }
                 
             case 'deleteShape':
                 shapes.delete(params.id);

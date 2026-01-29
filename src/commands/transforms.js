@@ -383,6 +383,68 @@ export function registerTransformCommands(kernel) {
             return results;
         }
     });
+    
+    // DRAFT - Apply draft angle for manufacturing
+    registerCommand('draft', {
+        aliases: ['draftangle', 'taper'],
+        description: 'Apply draft angle to faces for manufacturing (injection molding, casting)',
+        usage: 'draft <angle> [direction]\n  draft 3       - 3° draft on selected/auto faces, Z pull direction\n  draft 5 x     - 5° draft, X pull direction\n  draft 2 0,0,1 - 2° draft, custom direction vector',
+        category: 'transform',
+        params: [
+            { name: 'angle', type: 'number', required: true, description: 'Draft angle in degrees (typically 1-5°)' },
+            { name: 'direction', type: 'string', required: false, default: 'z', description: 'Pull direction: x, y, z, -x, -y, -z, or x,y,z vector' }
+        ],
+        validate(params, context) {
+            if (!context.selection?.length) return 'Nothing selected';
+            if (params.angle <= 0 || params.angle >= 90) {
+                return 'Draft angle must be between 0 and 90 degrees';
+            }
+            return true;
+        },
+        async execute(params, context) {
+            const results = [];
+            
+            for (const id of context.selection) {
+                // Get original body info
+                const originalBody = context.document?.bodies?.get(id) || 
+                                    context.document?.getBody?.(id);
+                const originalName = originalBody?.name || 'Shape';
+                
+                // Apply draft using kernel bridge
+                // Pass null for faceIds to auto-select vertical walls
+                const result = await krnl.draft(
+                    id, 
+                    params.angle, 
+                    params.direction,
+                    null,  // auto-select faces
+                    null   // neutral plane at origin
+                );
+                
+                // Remove old shape from kernel
+                await krnl.deleteShape(id);
+                
+                // Update document: remove old, add new
+                if (context.document?.removeBody) {
+                    context.document.removeBody(id);
+                }
+                if (context.document?.addBody) {
+                    context.document.addBody(result.id, {
+                        ...result,
+                        type: 'draft',
+                        name: originalName,
+                        params: {
+                            angle: params.angle,
+                            direction: params.direction
+                        }
+                    });
+                }
+                
+                results.push(result);
+            }
+            
+            return results;
+        }
+    });
 }
 
 export default { registerTransformCommands };

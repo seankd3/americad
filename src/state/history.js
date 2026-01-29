@@ -6,7 +6,7 @@
  * Examples: "Create Box", "Move", "Boolean Subtract", "Edit Width (20 → 30)"
  */
 
-import * as THREE from 'three';
+// THREE unused - kept for reference, transforms handle this
 import { serializeMatrix4, deserializeMatrix4, applyMatrix4ToObject } from '../core/transforms.js';
 
 /**

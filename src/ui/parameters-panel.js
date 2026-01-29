@@ -6,7 +6,7 @@
  * Allows editing expressions and highlights circular dependencies.
  */
 
-import { parameters, ParameterStore } from '../state/parameters.js';
+import { parameters } from '../state/parameters.js';
 
 /**
  * Parameters Panel - displays and edits parametric expressions
@@ -154,7 +154,7 @@ export class ParametersPanel {
      * Render a single parameter row
      */
     renderRow(param) {
-        const hasError = param.error != null;
+        const hasError = param.error !== null;
         const isCircular = param.error?.includes('Circular');
         const deps = param.dependencies.length > 0 
             ? `data-deps="${param.dependencies.join(', ')}"` 

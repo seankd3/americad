@@ -1026,7 +1026,7 @@ export class SketchManager {
     /**
      * Handle double-click in sketch (for finishing splines, etc.)
      */
-    handleDoubleClick(worldPoint) {
+    handleDoubleClick(_worldPoint) {
         if (!this.activeSketch) return;
         
         if (this.mode === SketchMode.SPLINE) {
@@ -1073,7 +1073,7 @@ export class SketchManager {
                             this.tempPoints[1],
                             snapped
                         );
-                    } catch (e) {
+                    } catch (_e) {
                         // Points might be collinear
                         this.previewEntity = new SketchLine(this.tempPoints[0], snapped);
                     }

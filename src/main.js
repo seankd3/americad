@@ -3,14 +3,15 @@
  * Integrates all modules: Kernel + Document Model + UI
  */
 
-import { kernel, meshToThreeGeometry, downloadFile } from './kernel/bridge.js';
+import { kernel, downloadFile } from './kernel/bridge.js';
 import { DocumentModel, BoxFeature, CylinderFeature, SphereFeature, ConeFeature, BooleanFeature } from './state/document.js';
 import { Evaluator } from './kernel/evaluator.js';
 import { FeatureTreeUI, addFeatureTreeStyles } from './ui/feature-tree.js';
-import { ParamEditor, editFeature, hasEditableParams } from './ui/param-editor.js';
+import { editFeature, hasEditableParams } from './ui/param-editor.js';
 import { initPropertyPanel } from './ui/property-panel.js';
 import { MeasureTool, MeasureMode } from './ui/measure-tool.js';
-import { commandManager } from './state/history.js';
+// commandManager unused - imported for future use
+// import { commandManager } from './state/history.js';
 import { CrashGuard } from './crash-guard.js';
 import { meshToSTL, meshToSTLBinary, mergeMeshesToSTL, geometryToMeshData, downloadSTL, getSTLStats } from './io/stl-export.js';
 import { serialize, deserialize, downloadFile as downloadAmericadFile, openFilePicker, validate, FILE_EXTENSION } from './io/file-format.js';

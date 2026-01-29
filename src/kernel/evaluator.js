@@ -66,6 +66,14 @@ export class Evaluator {
         const feature = this.document.getFeature(featureId);
         if (!feature) return null;
         
+        // Skip effectively suppressed features
+        if (this.document.isEffectivelySuppressed(featureId)) {
+            console.log(`[Evaluator] Skipping suppressed: ${feature.name}`);
+            // Remove mesh if it exists (feature was unsuppressed before)
+            this.removeFeatureMesh(featureId);
+            return null;
+        }
+        
         try {
             let result;
             
@@ -304,6 +312,16 @@ export class Evaluator {
         for (const featureId of order) {
             await this.evaluateFeature(featureId);
         }
+    }
+    
+    /**
+     * Handle suppression change for a feature
+     * Re-evaluates the feature and its dependents when suppression state changes
+     * @param {string} featureId - Feature ID that changed suppression state
+     */
+    async handleSuppressionChange(featureId) {
+        // Re-evaluate the feature and all its dependents
+        await this.reEvaluateFromFeature(featureId);
     }
     
     /**

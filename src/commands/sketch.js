@@ -7,12 +7,12 @@
 import { registerCommand } from '../core/commands.js';
 import { sketchManager, SketchMode, ConstraintType, SketchLine, SketchCircle } from '../sketch/sketch-manager.js';
 import { solveSketch } from '../sketch/constraint-solver.js';
-import { snapManager, SnapType } from '../ui/snap-manager.js';
+import { snapManager } from '../ui/snap-manager.js';
 
 /**
  * Register all sketch-related commands
  */
-export function registerSketchCommands(context) {
+export function registerSketchCommands(_context) {
     
     // SKETCH - Enter sketch mode
     registerCommand('sketch', {
@@ -198,7 +198,7 @@ export function registerSketchCommands(context) {
         params: [
             { name: 'size', type: 'number', required: false, description: 'Grid size (omit to toggle)' }
         ],
-        async execute(params, ctx) {
+        async execute(params, _ctx) {
             if (params.size !== undefined) {
                 sketchManager.gridSize = params.size;
                 return { success: true, gridSize: params.size };
@@ -220,7 +220,7 @@ export function registerSketchCommands(context) {
             { name: 'type', type: 'string', required: false, description: 'on/off or snap type (grid, point, midpoint, center, intersection, nearest)' },
             { name: 'value', type: 'string', required: false, description: 'on/off or grid size' }
         ],
-        async execute(params, ctx) {
+        async execute(params, _ctx) {
             const type = params.type?.toLowerCase();
             const value = params.value?.toLowerCase();
             

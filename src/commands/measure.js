@@ -10,7 +10,7 @@ import { MeasureMode } from '../ui/measure-tool.js';
 /**
  * Register all measure commands
  */
-export function registerMeasureCommands(app) {
+export function registerMeasureCommands(_app) {
     
     // MEASURE - Enter measure mode or show submenu
     registerCommand('measure', {

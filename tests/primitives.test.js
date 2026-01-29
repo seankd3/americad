@@ -188,10 +188,12 @@ describe('Primitives', function() {
             const size = new THREE.Vector3();
             geometry.boundingBox.getSize(size);
             
-            // Outer diameter = 2 * (radius + tube) = 26
+            // Three.js TorusGeometry creates torus in XY plane with tube extending in Z
+            // Outer diameter in X and Y = 2 * (radius + tube) = 26
             expect(size.x).to.be.closeTo(26, 0.5);
-            // Height = 2 * tube = 6
-            expect(size.y).to.be.closeTo(6, 0.5);
+            expect(size.y).to.be.closeTo(26, 0.5);
+            // Tube thickness in Z = 2 * tube = 6
+            expect(size.z).to.be.closeTo(6, 0.5);
         });
         
         it('should have volume close to 2π² R r²', function() {
@@ -322,7 +324,7 @@ describe('Geometry Validation', function() {
             primitives.forEach((geometry, i) => {
                 const mesh = new THREE.Mesh(geometry);
                 const result = checkManifold(mesh);
-                expect(result.isManifold, `Primitive ${i} should be manifold`).to.be.true;
+                expect(result.isManifold, `Primitive ${i} V=${result.vertices} E=${result.edges} F=${result.faces} Euler=${result.euler}`).to.be.true;
             });
         });
     });

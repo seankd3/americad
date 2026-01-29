@@ -284,7 +284,7 @@ export function listCommands(category = null) {
     const result = [];
     const seen = new Set();
     
-    for (const [name, cmd] of commands) {
+    for (const [_name, cmd] of commands) {
         if (seen.has(cmd.name)) continue;
         if (category && cmd.category !== category) continue;
         

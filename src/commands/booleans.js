@@ -294,22 +294,53 @@ export function registerBooleanCommands(kernel) {
     // SHELL - Hollow out a solid
     registerCommand('shell', {
         aliases: ['hollow'],
-        description: 'Hollow out a solid, optionally removing faces',
+        description: 'Hollow out a solid by removing a face (creates open shell) or keep all faces (closed shell)',
         category: 'feature',
+        usage: 'shell <thickness> [face_to_remove]\n  shell 2       - Remove largest face (default)\n  shell 2 top   - Remove top face\n  shell 2 none  - Closed shell (no face removed)',
         params: [
             { name: 'thickness', type: 'number', required: true, description: 'Wall thickness' },
-            { name: 'faceIds', type: 'array', required: false, default: [], description: 'Faces to remove (open shell)' }
+            { name: 'faceToRemove', type: 'string', required: false, default: 'largest', description: 'Face to remove: none, largest, top, bottom, front, back, left, right' }
         ],
         validate(params, context) {
             if (!context.selection?.length) return 'Select a solid to shell';
             if (params.thickness <= 0) return 'Thickness must be positive';
+            
+            // Validate face selection
+            const validSelections = ['none', 'largest', 'top', 'bottom', 'front', 'back', 'left', 'right'];
+            const selection = (params.faceToRemove || 'largest').toLowerCase();
+            if (!validSelections.includes(selection)) {
+                return `Invalid face selection: ${params.faceToRemove}. Use: ${validSelections.join(', ')}`;
+            }
             return true;
         },
         async execute(params, context) {
             const shapeId = context.selection[0];
-            const faceIds = params.faceIds || context.selectedFaceIds || [];
+            const faceSelection = (params.faceToRemove || 'largest').toLowerCase();
             
-            const result = await kernel.shell(shapeId, faceIds, params.thickness);
+            // If explicit face IDs are selected, use those instead
+            const faceIds = context.selectedFaceIds || null;
+            
+            const result = await kernel.shell(shapeId, faceIds, params.thickness, faceSelection);
+            return result;
+        }
+    });
+    
+    // GETFACES - List all face IDs for a shape (for debugging/selection)
+    registerCommand('getfaces', {
+        aliases: ['faces', 'listfaces'],
+        description: 'List all face IDs and properties for a shape',
+        category: 'analysis',
+        params: [
+            { name: 'shapeId', type: 'string', required: false, description: 'Shape ID (or use selection)' }
+        ],
+        validate(params, context) {
+            const shapeId = params.shapeId || (context.selection?.length ? context.selection[0] : null);
+            if (!shapeId) return 'Select a shape or provide shapeId';
+            return true;
+        },
+        async execute(params, context) {
+            const shapeId = params.shapeId || context.selection[0];
+            const result = await kernel.getFaces(shapeId);
             return result;
         }
     });
@@ -354,6 +385,70 @@ export function registerBooleanCommands(kernel) {
             const path = params.path || context.selection[1];
             const result = await kernel.sweep(profile, path);
             return result;
+        }
+    });
+    
+    // INTERFERENCE - Detect overlapping bodies
+    registerCommand('interference', {
+        aliases: ['clash', 'collide', 'overlap'],
+        description: 'Detect overlapping/interfering bodies (critical for assemblies)',
+        category: 'analysis',
+        params: [
+            { name: 'body1', type: 'string', required: false, description: 'First body ID (or use selection for all)' },
+            { name: 'body2', type: 'string', required: false, description: 'Second body ID (optional, check pair)' }
+        ],
+        validate(params, context) {
+            // If specific pair given, validate we have 2 IDs
+            if (params.body1 && params.body2) {
+                return true;
+            }
+            // Otherwise need at least 2 selected shapes
+            const shapes = params.body1 
+                ? [params.body1, ...(context.selection || [])]
+                : (context.selection || []);
+            
+            if (shapes.length < 2) {
+                return 'Interference check requires at least 2 bodies. Select bodies or provide IDs.';
+            }
+            return true;
+        },
+        async execute(params, context) {
+            // Determine which shapes to check
+            let shapeIds;
+            if (params.body1 && params.body2) {
+                // Check specific pair
+                shapeIds = [params.body1, params.body2];
+            } else if (params.body1) {
+                // Check body1 against all selected
+                shapeIds = [params.body1, ...(context.selection || [])];
+            } else {
+                // Check all selected against each other
+                shapeIds = [...(context.selection || [])];
+            }
+            
+            // Remove duplicates
+            shapeIds = [...new Set(shapeIds)];
+            
+            const result = await kernel.detectInterference(shapeIds);
+            
+            // Format result for user
+            if (result.interferences.length === 0) {
+                return { 
+                    message: `No interference detected among ${shapeIds.length} bodies.`,
+                    interferences: []
+                };
+            }
+            
+            return {
+                message: `Found ${result.interferences.length} interference(s)`,
+                interferences: result.interferences.map(i => ({
+                    body1: i.body1,
+                    body2: i.body2,
+                    volume: i.volume,
+                    intersectionShapeId: i.intersectionShapeId,
+                    mesh: i.mesh
+                }))
+            };
         }
     });
 }

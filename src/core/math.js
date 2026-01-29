@@ -65,7 +65,11 @@ export function computeBoundingBox(objects) {
         return { box, center: new THREE.Vector3(), size: new THREE.Vector3() };
     }
     
-    box.setFromObjects(objects);
+    // Iterate over objects and expand the bounding box
+    for (const object of objects) {
+        box.expandByObject(object);
+    }
+    
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     

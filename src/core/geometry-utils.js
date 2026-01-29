@@ -102,18 +102,52 @@ export function checkManifold(mesh) {
     const position = geometry.attributes.position;
     const index = geometry.index;
     
-    // Build edge set using vertex pairs
+    // Build edge set using position-based vertex keys for proper deduplication
     const edgeSet = new Set();
     const vertexSet = new Set();
     let faceCount = 0;
     
-    const makeEdgeKey = (a, b) => {
-        return a < b ? `${a}-${b}` : `${b}-${a}`;
+    // Quantize to grid for vertex deduplication - handles floating point seams
+    const EPSILON = 0.001;
+    const quantize = (val) => Math.round(val / EPSILON) * EPSILON;
+    const roundVertex = (v) => {
+        const qx = quantize(v.x);
+        const qy = quantize(v.y);
+        const qz = quantize(v.z);
+        return `${qx},${qy},${qz}`;
     };
     
-    const roundVertex = (v) => {
-        // Round to avoid floating point issues
-        return `${v.x.toFixed(6)},${v.y.toFixed(6)},${v.z.toFixed(6)}`;
+    const makeEdgeKey = (vKey1, vKey2) => {
+        // Use position-based keys for edges, sorted for consistency
+        // Return null for degenerate edges (same position)
+        if (vKey1 === vKey2) return null;
+        return vKey1 < vKey2 ? `${vKey1}|${vKey2}` : `${vKey2}|${vKey1}`;
+    };
+    
+    const processTriangle = (v0, v1, v2) => {
+        const vKey0 = roundVertex(v0);
+        const vKey1 = roundVertex(v1);
+        const vKey2 = roundVertex(v2);
+        
+        // Skip degenerate triangles (where 2+ vertices coincide)
+        if (vKey0 === vKey1 || vKey1 === vKey2 || vKey2 === vKey0) {
+            return;
+        }
+        
+        vertexSet.add(vKey0);
+        vertexSet.add(vKey1);
+        vertexSet.add(vKey2);
+        
+        // Track edges using position-based keys (skip null/degenerate edges)
+        const e0 = makeEdgeKey(vKey0, vKey1);
+        const e1 = makeEdgeKey(vKey1, vKey2);
+        const e2 = makeEdgeKey(vKey2, vKey0);
+        
+        if (e0) edgeSet.add(e0);
+        if (e1) edgeSet.add(e1);
+        if (e2) edgeSet.add(e2);
+        
+        faceCount++;
     };
     
     if (index) {
@@ -122,21 +156,11 @@ export function checkManifold(mesh) {
             const i1 = index.getX(i + 1);
             const i2 = index.getX(i + 2);
             
-            // Track unique vertices
             const v0 = new THREE.Vector3().fromBufferAttribute(position, i0);
             const v1 = new THREE.Vector3().fromBufferAttribute(position, i1);
             const v2 = new THREE.Vector3().fromBufferAttribute(position, i2);
             
-            vertexSet.add(roundVertex(v0));
-            vertexSet.add(roundVertex(v1));
-            vertexSet.add(roundVertex(v2));
-            
-            // Track edges
-            edgeSet.add(makeEdgeKey(i0, i1));
-            edgeSet.add(makeEdgeKey(i1, i2));
-            edgeSet.add(makeEdgeKey(i2, i0));
-            
-            faceCount++;
+            processTriangle(v0, v1, v2);
         }
     } else {
         for (let i = 0; i < position.count; i += 3) {
@@ -144,15 +168,7 @@ export function checkManifold(mesh) {
             const v1 = new THREE.Vector3().fromBufferAttribute(position, i + 1);
             const v2 = new THREE.Vector3().fromBufferAttribute(position, i + 2);
             
-            vertexSet.add(roundVertex(v0));
-            vertexSet.add(roundVertex(v1));
-            vertexSet.add(roundVertex(v2));
-            
-            edgeSet.add(makeEdgeKey(i, i + 1));
-            edgeSet.add(makeEdgeKey(i + 1, i + 2));
-            edgeSet.add(makeEdgeKey(i + 2, i));
-            
-            faceCount++;
+            processTriangle(v0, v1, v2);
         }
     }
     
@@ -160,6 +176,11 @@ export function checkManifold(mesh) {
     const E = edgeSet.size;
     const F = faceCount;
     const euler = V - E + F;
+    
+    // Debug output for manifold issues
+    if (euler !== 2) {
+        console.log(`[checkManifold] V=${V}, E=${E}, F=${F}, Euler=${euler}`);
+    }
     
     return {
         isManifold: euler === 2,

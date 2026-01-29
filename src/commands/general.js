@@ -4,13 +4,13 @@
  * Utility commands: help, undo, redo, delete, select, view, etc.
  */
 
-import { registerCommand, listCommands, help as getHelp } from '../core/commands.js';
+import { registerCommand, help as getHelp } from '../core/commands.js';
 import { hasEditableParams } from '../ui/param-editor.js';
 
 /**
  * Register all general commands
  */
-export function registerGeneralCommands(app) {
+export function registerGeneralCommands(_app) {
     
     // HELP - Show help
     registerCommand('help', {
@@ -411,6 +411,124 @@ export function registerGeneralCommands(app) {
             context.document?.clear();
             context.selection = [];
             return 'Document cleared';
+        }
+    });
+    
+    // SUPPRESS - Suppress selected feature(s)
+    registerCommand('suppress', {
+        aliases: ['sup'],
+        description: 'Suppress selected feature(s) - skips during regeneration',
+        category: 'general',
+        params: [
+            { name: 'target', type: 'string', required: false, default: '', description: '"all" to suppress all, or feature ID' }
+        ],
+        validate(params, context) {
+            if (params.target === 'all') return true;
+            if (params.target) return true;
+            if (!context.selection?.length && !context.app?.selectedFeatureId) {
+                return 'Nothing selected. Select a feature or specify "suppress all"';
+            }
+            return true;
+        },
+        async execute(params, context) {
+            const doc = context.document || context.app?.document;
+            if (!doc) return 'No document available';
+            
+            if (params.target === 'all') {
+                doc.suppressAll();
+                // Re-evaluate if evaluator available
+                if (context.evaluator) {
+                    await context.evaluator.evaluateAll();
+                } else if (context.app?.evaluator) {
+                    await context.app.evaluator.evaluateAll();
+                }
+                return 'Suppressed all features';
+            }
+            
+            // Get feature IDs to suppress
+            let featureIds = [];
+            if (params.target) {
+                featureIds = [params.target];
+            } else if (context.app?.selectedFeatureId) {
+                featureIds = [context.app.selectedFeatureId];
+            } else if (context.selection?.length) {
+                featureIds = [...context.selection];
+            }
+            
+            let suppressed = 0;
+            for (const id of featureIds) {
+                const feature = doc.getFeature(id);
+                if (feature && !feature.suppressed) {
+                    doc.setSuppression(id, true);
+                    suppressed++;
+                    // Re-evaluate from this feature
+                    const evaluator = context.evaluator || context.app?.evaluator;
+                    if (evaluator) {
+                        await evaluator.handleSuppressionChange(id);
+                    }
+                }
+            }
+            
+            return `Suppressed ${suppressed} feature(s)`;
+        }
+    });
+    
+    // UNSUPPRESS - Unsuppress selected feature(s)
+    registerCommand('unsuppress', {
+        aliases: ['unsup'],
+        description: 'Unsuppress selected feature(s) - restores during regeneration',
+        category: 'general',
+        params: [
+            { name: 'target', type: 'string', required: false, default: '', description: '"all" to unsuppress all, or feature ID' }
+        ],
+        validate(params, context) {
+            if (params.target === 'all') return true;
+            if (params.target) return true;
+            if (!context.selection?.length && !context.app?.selectedFeatureId) {
+                return 'Nothing selected. Select a feature or specify "unsuppress all"';
+            }
+            return true;
+        },
+        async execute(params, context) {
+            const doc = context.document || context.app?.document;
+            if (!doc) return 'No document available';
+            
+            if (params.target === 'all') {
+                doc.unsuppressAll();
+                // Re-evaluate if evaluator available
+                if (context.evaluator) {
+                    await context.evaluator.evaluateAll();
+                } else if (context.app?.evaluator) {
+                    await context.app.evaluator.evaluateAll();
+                }
+                return 'Unsuppressed all features';
+            }
+            
+            // Get feature IDs to unsuppress
+            let featureIds = [];
+            if (params.target) {
+                featureIds = [params.target];
+            } else if (context.app?.selectedFeatureId) {
+                featureIds = [context.app.selectedFeatureId];
+            } else if (context.selection?.length) {
+                featureIds = [...context.selection];
+            }
+            
+            let unsuppressed = 0;
+            for (const id of featureIds) {
+                const feature = doc.getFeature(id);
+                if (feature && feature.suppressed) {
+                    doc.setSuppression(id, false);
+                    unsuppressed++;
+                    // Re-evaluate from this feature
+                    const evaluator = context.evaluator || context.app?.evaluator;
+                    if (evaluator) {
+                        await evaluator.handleSuppressionChange(id);
+                    }
+                }
+            }
+            
+            return `Unsuppressed ${unsuppressed} feature(s)`;
         }
     });
 }

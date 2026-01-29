@@ -41,6 +41,7 @@ export class Feature {
         this.valid = true;      // Whether feature evaluated successfully
         this.error = null;      // Error message if invalid
         this.visible = true;
+        this.suppressed = false; // Whether feature is suppressed (skipped during regeneration)
         this.name = params.name || `${type}_${this.id}`;
         this.createdAt = Date.now();
         this.modifiedAt = Date.now();
@@ -57,6 +58,7 @@ export class Feature {
             dependencies: this.dependencies,
             name: this.name,
             visible: this.visible,
+            suppressed: this.suppressed,
             createdAt: this.createdAt,
             modifiedAt: this.modifiedAt
         };
@@ -501,6 +503,7 @@ export class DocumentModel {
         feature.id = data.id;
         feature.name = data.name;
         feature.visible = data.visible ?? true;
+        feature.suppressed = data.suppressed ?? false;
         feature.createdAt = data.createdAt;
         feature.modifiedAt = data.modifiedAt;
         feature.dependencies = data.dependencies || [];
@@ -783,6 +786,19 @@ export class DocumentModel {
                 break;
             }
             
+            case EventTypes.FEATURE_SUPPRESSION_CHANGED: {
+                const feature = this.features.get(payload.featureId);
+                if (feature) {
+                    feature.suppressed = payload.suppressed;
+                    feature.modifiedAt = event.timestamp;
+                    
+                    if (triggerCallbacks && this.onFeatureModified) {
+                        this.onFeatureModified(feature);
+                    }
+                }
+                break;
+            }
+            
             case EventTypes.DOCUMENT_CLEARED: {
                 this.features.clear();
                 this.rootFeatures = [];
@@ -881,7 +897,7 @@ export class DocumentModel {
         });
         
         // Handle undo (truncation)
-        store.on('truncated', (version) => {
+        store.on('truncated', (_version) => {
             this.rebuildFromEvents(store.getEvents(0), true);
         });
         
@@ -1013,6 +1029,106 @@ export class DocumentModel {
         
         store.append(event);
         return feature;
+    }
+    
+    /**
+     * Toggle feature suppression and emit event
+     * @param {string} featureId - Feature ID
+     * @param {boolean} suppressed - New suppression state
+     * @param {EventStore} store - Optional EventStore to emit to
+     * @returns {Feature|null} The updated feature
+     */
+    setSuppressionWithEvent(featureId, suppressed, store = eventStore) {
+        const feature = this.features.get(featureId);
+        if (!feature) return null;
+        
+        const event = createEvent(EventTypes.FEATURE_SUPPRESSION_CHANGED, {
+            featureId: featureId,
+            oldSuppressed: feature.suppressed,
+            suppressed: suppressed
+        });
+        
+        store.append(event);
+        return feature;
+    }
+    
+    /**
+     * Set feature suppression (direct mutation without event)
+     * @param {string} featureId - Feature ID
+     * @param {boolean} suppressed - New suppression state
+     * @returns {Feature|null} The updated feature
+     */
+    setSuppression(featureId, suppressed) {
+        const feature = this.features.get(featureId);
+        if (!feature) return null;
+        
+        feature.suppressed = suppressed;
+        feature.modifiedAt = Date.now();
+        this.modifiedAt = Date.now();
+        
+        if (this.onFeatureModified) this.onFeatureModified(feature);
+        if (this.onDocumentChanged) this.onDocumentChanged();
+        
+        return feature;
+    }
+    
+    /**
+     * Check if a feature is effectively suppressed
+     * A feature is effectively suppressed if it or any of its dependencies are suppressed
+     * @param {string} featureId - Feature ID
+     * @returns {boolean} True if effectively suppressed
+     */
+    isEffectivelySuppressed(featureId) {
+        const feature = this.features.get(featureId);
+        if (!feature) return false;
+        
+        // Check if directly suppressed
+        if (feature.suppressed) return true;
+        
+        // Check if any dependency is effectively suppressed
+        for (const depId of feature.dependencies) {
+            if (this.isEffectivelySuppressed(depId)) return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Get all features that are effectively suppressed
+     * @returns {string[]} Array of feature IDs that are effectively suppressed
+     */
+    getEffectivelySuppressedFeatures() {
+        const suppressed = [];
+        for (const id of this.features.keys()) {
+            if (this.isEffectivelySuppressed(id)) {
+                suppressed.push(id);
+            }
+        }
+        return suppressed;
+    }
+    
+    /**
+     * Suppress all features
+     */
+    suppressAll() {
+        for (const feature of this.features.values()) {
+            feature.suppressed = true;
+            feature.modifiedAt = Date.now();
+        }
+        this.modifiedAt = Date.now();
+        if (this.onDocumentChanged) this.onDocumentChanged();
+    }
+    
+    /**
+     * Unsuppress all features
+     */
+    unsuppressAll() {
+        for (const feature of this.features.values()) {
+            feature.suppressed = false;
+            feature.modifiedAt = Date.now();
+        }
+        this.modifiedAt = Date.now();
+        if (this.onDocumentChanged) this.onDocumentChanged();
     }
 }
 

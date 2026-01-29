@@ -16,6 +16,7 @@ export class FeatureTreeUI {
         this.onFeatureSelect = null;
         this.onFeatureDoubleClick = null;
         this.onVisibilityToggle = null;
+        this.onSuppressionToggle = null;
         this.onFeatureDelete = null;
         this.onFeatureRename = null;
         
@@ -97,13 +98,20 @@ export class FeatureTreeUI {
         const isSelected = feature.id === this.selectedFeatureId;
         const isValid = feature.valid;
         const isVisible = feature.visible;
+        const isSuppressed = feature.suppressed;
+        const isEffectivelySuppressed = this.document.isEffectivelySuppressed(feature.id);
         
         // Icon based on feature type
         const icon = this.getFeatureIcon(feature.type);
         
         // Status indicators
-        const statusClass = !isValid ? 'error' : '';
+        let statusClass = '';
+        if (!isValid) statusClass = 'error';
+        if (isSuppressed) statusClass = 'suppressed';
+        if (isEffectivelySuppressed && !isSuppressed) statusClass = 'inherited-suppressed';
+        
         const visibilityIcon = isVisible ? '👁️' : '👁️‍🗨️';
+        const suppressionIcon = isSuppressed ? '⏸️' : '';
         
         let html = `
             <div class="tree-node ${isSelected ? 'selected' : ''} ${statusClass}" 
@@ -114,6 +122,7 @@ export class FeatureTreeUI {
                 </span>
                 <span class="tree-icon">${icon}</span>
                 <span class="tree-name" data-id="${feature.id}">${feature.name}</span>
+                ${suppressionIcon ? `<span class="tree-suppression" data-id="${feature.id}" title="Feature is suppressed">${suppressionIcon}</span>` : ''}
                 <span class="tree-visibility" data-id="${feature.id}" title="Toggle visibility">
                     ${visibilityIcon}
                 </span>
@@ -268,6 +277,9 @@ export class FeatureTreeUI {
             <div class="context-item" data-action="visibility">
                 ${feature.visible ? '👁️‍🗨️ Hide' : '👁️ Show'}
             </div>
+            <div class="context-item" data-action="suppress">
+                ${feature.suppressed ? '▶️ Unsuppress' : '⏸️ Suppress'}
+            </div>
             <div class="context-divider"></div>
             <div class="context-item danger" data-action="delete">🗑️ Delete</div>
         `;
@@ -309,6 +321,12 @@ export class FeatureTreeUI {
                 const feature = this.document.getFeature(featureId);
                 if (feature && this.onVisibilityToggle) {
                     this.onVisibilityToggle(featureId, !feature.visible);
+                }
+                break;
+            case 'suppress':
+                const suppressFeature = this.document.getFeature(featureId);
+                if (suppressFeature && this.onSuppressionToggle) {
+                    this.onSuppressionToggle(featureId, !suppressFeature.suppressed);
                 }
                 break;
             case 'delete':
@@ -421,6 +439,22 @@ export function addFeatureTreeStyles() {
         
         .tree-node.error {
             color: var(--text-error, #ff6b6b);
+        }
+        
+        .tree-node.suppressed {
+            opacity: 0.5;
+            color: var(--text-muted, #888);
+            font-style: italic;
+        }
+        
+        .tree-node.inherited-suppressed {
+            opacity: 0.6;
+            color: var(--text-muted, #999);
+        }
+        
+        .tree-suppression {
+            margin-left: 4px;
+            font-size: 10px;
         }
         
         .tree-node.highlight {

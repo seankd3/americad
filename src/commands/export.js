@@ -10,7 +10,7 @@ import { meshToSTL, meshToSTLBinary, mergeMeshesToSTL, downloadSTL, getSTLStats,
 /**
  * Register all export commands
  */
-export function registerExportCommands(app) {
+export function registerExportCommands(_app) {
     
     // EXPORT STL - Export to STL format
     registerCommand('export stl', {

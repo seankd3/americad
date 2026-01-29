@@ -212,7 +212,7 @@ export class MeasureTool {
      * Clear all measurements
      */
     clearAll() {
-        for (const [id, measurement] of this.measurements) {
+        for (const [_id, measurement] of this.measurements) {
             if (measurement.group) {
                 this.displayGroup.remove(measurement.group);
                 this._disposeGroup(measurement.group);
@@ -493,7 +493,7 @@ export class MeasureTool {
         
         // Get perpendicular direction (prefer screen-up direction)
         const up = new THREE.Vector3(0, 1, 0);
-        let offset = new THREE.Vector3().crossVectors(direction, up);
+        const offset = new THREE.Vector3().crossVectors(direction, up);
         if (offset.lengthSq() < 0.001) {
             offset.crossVectors(direction, new THREE.Vector3(1, 0, 0));
         }

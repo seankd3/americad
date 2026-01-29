@@ -8,7 +8,7 @@
  * - Real-time feedback
  */
 
-import { execute, autocomplete, help, listCommands, on } from '../core/commands.js';
+import { execute, autocomplete, listCommands, on } from '../core/commands.js';
 
 export class CommandLine {
     constructor(options = {}) {
@@ -237,7 +237,7 @@ export class CommandLine {
         }
     }
     
-    handleInput(e) {
+    handleInput(_e) {
         const value = this.input.value.trim();
         
         if (value.length > 0) {
@@ -387,11 +387,11 @@ export class CommandLine {
         this.output.scrollTop = this.output.scrollHeight;
     }
     
-    logExecute(event) {
+    logExecute(_event) {
         // Already logged in executeInput
     }
     
-    logError(event) {
+    logError(_event) {
         // Already logged in executeInput
     }
     
@@ -430,7 +430,7 @@ export class CommandLine {
     saveHistory() {
         try {
             localStorage.setItem('ameri-cmd-history', JSON.stringify(this.history));
-        } catch (e) {
+        } catch (_e) {
             // localStorage not available
         }
     }
@@ -442,7 +442,7 @@ export class CommandLine {
                 this.history = JSON.parse(saved);
                 this.historyIndex = this.history.length;
             }
-        } catch (e) {
+        } catch (_e) {
             // localStorage not available
         }
     }

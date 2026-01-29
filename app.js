@@ -48,6 +48,9 @@ import { ViewportModeManager, ViewportMode } from './src/ui/viewport-modes.js';
 // Modal transform system (Blender-style G/R/S)
 import { ModalTransformManager } from './src/ui/modal-transform.js';
 
+// Camera presets system (orthographic views with numpad shortcuts)
+import { CameraPresetManager, CameraPresets, handleViewShortcut, registerViewCommands } from './src/ui/camera-presets.js';
+
 // ========================================
 // SYSTEM STATE
 // ========================================
@@ -92,6 +95,9 @@ const System = {
     // Viewport Manager
     viewportManager: null,
     
+    // Camera Preset Manager
+    cameraPresetManager: null,
+    
     // Stats
     fps: 60,
     frameCount: 0,
@@ -113,6 +119,7 @@ let featureTreeUI; // Feature tree UI component
 let propertyPanel; // Property panel UI component
 let viewportModes; // Viewport display mode manager
 let modalTransformManager; // Blender-style G/R/S modal transforms
+let cameraPresetManager; // Orthographic view presets
 
 // ========================================
 // DOM REFERENCES
@@ -215,11 +222,11 @@ async function initialize() {
  */
 async function initKernelSystem() {
     try {
-        const result = await initializeSystem({
+        await initializeSystem({
             THREE,
             scene,
             camera,
-            onBodyCreated: (mesh, body) => {
+            onBodyCreated: (mesh, _body) => {
                 // Add to system objects array
                 System.objects.push(mesh);
                 selectObject(mesh);
@@ -661,6 +668,20 @@ async function initThreeJS() {
     modalTransformManager.init(scene, camera, renderer, selectionManager, transformControl, controls);
     System.modalTransform = modalTransformManager;
     
+    // Initialize camera preset manager for orthographic views
+    cameraPresetManager = new CameraPresetManager({
+        THREE,
+        camera,
+        controls,
+        onViewChange: (view, isOrtho) => {
+            const preset = CameraPresets[view];
+            const label = preset?.label || view.toUpperCase();
+            log(`VIEW: ${label} (${isOrtho ? 'ORTHO' : 'PERSP'})`, 'info');
+        }
+    });
+    cameraPresetManager.createIndicator(DOM.viewport);
+    System.cameraPresetManager = cameraPresetManager;
+    
     // Set up sketch manager callbacks
     sketchManager.onSketchUpdate = (sketch, previewEntity) => {
         if (sketchRenderer && sketch) {
@@ -671,7 +692,7 @@ async function initThreeJS() {
         }
     };
     
-    sketchManager.onModeChange = (mode, sketch) => {
+    sketchManager.onModeChange = (mode, _sketch) => {
         const modeEl = document.getElementById('tool-mode');
         if (modeEl) {
             if (mode === SketchMode.NONE) {
@@ -1236,13 +1257,15 @@ function renderUndoHistoryPanel() {
 /**
  * Undo to a specific history index
  */
-function undoToHistoryIndex(index) {
+function _undoToHistoryIndex(index) {
     const undone = commandManager.undoTo(index);
     if (undone.length > 0) {
         log(`UNDO TO: ${undone[undone.length - 1].name} (${undone.length} actions)`, 'info');
         selectionManager.deselect(transformControl);
     }
 }
+// Expose for HTML onclick handlers
+window.undoToHistoryIndex = _undoToHistoryIndex;
 
 /**
  * Format timestamp as relative time
@@ -1601,7 +1624,7 @@ function initViewportModes() {
         THREE: THREE,
         scene: scene,
         getObjects: () => System.objects,
-        onModeChange: (mode, label, previous) => {
+        onModeChange: (mode, label, _previous) => {
             System.renderMode = mode;
             log(`DISPLAY: ${label}`, 'info');
             
@@ -1732,7 +1755,7 @@ async function applyDimensionConstraint(value) {
     
     let addedCount = 0;
     
-    for (const { entity, type, id } of selectedEntities) {
+    for (const { type, id } of selectedEntities) {
         // Check if already has a length/radius constraint
         const constraintType = type === 'circle' ? ConstraintType.RADIUS : ConstraintType.LENGTH;
         const existing = Array.from(sketch.constraints.values())
@@ -1789,7 +1812,7 @@ async function applyRadiusConstraint(value) {
     
     let addedCount = 0;
     
-    for (const { entity, id } of selectedCircles) {
+    for (const { id } of selectedCircles) {
         // Check if already has a radius constraint
         const existing = Array.from(sketch.constraints.values())
             .filter(c => c.entities.includes(id) && c.type === ConstraintType.RADIUS);
@@ -2227,17 +2250,11 @@ async function revolveProfile(profile, sketch, angle, axisName) {
     let axis;
     
     // Calculate profile bounds for axis positioning
-    let profileMinX = 0, profileMaxX = 0, profileMinY = 0, profileMaxY = 0;
+    let profileMinX = 0;
     if (profile.type === 'rectangle') {
         profileMinX = profile.center.x - profile.width / 2;
-        profileMaxX = profile.center.x + profile.width / 2;
-        profileMinY = profile.center.y - profile.height / 2;
-        profileMaxY = profile.center.y + profile.height / 2;
     } else if (profile.type === 'circle') {
         profileMinX = profile.center.x - profile.radius;
-        profileMaxX = profile.center.x + profile.radius;
-        profileMinY = profile.center.y - profile.radius;
-        profileMaxY = profile.center.y + profile.radius;
     }
     
     // Set axis based on plane and axis name
@@ -2991,24 +3008,32 @@ function onKeyDown(e) {
                 break;
         }
         
-        // Numpad view shortcuts (CAD-style)
-        switch(e.code) {
-            case 'Numpad7':
-                e.preventDefault();
-                setView('top');
-                break;
-            case 'Numpad1':
-                e.preventDefault();
-                setView('front');
-                break;
-            case 'Numpad3':
-                e.preventDefault();
-                setView('right');
-                break;
-            case 'Numpad0':
-                e.preventDefault();
-                setView('iso');
-                break;
+        // Numpad view shortcuts (Blender-style with ortho support)
+        // Handled by camera preset manager
+        if (cameraPresetManager && handleViewShortcut(e, cameraPresetManager)) {
+            return; // Event was handled
+        }
+        
+        // Legacy numpad shortcuts (fallback to basic setView)
+        if (!cameraPresetManager) {
+            switch(e.code) {
+                case 'Numpad7':
+                    e.preventDefault();
+                    setView(e.ctrlKey ? 'bottom' : 'top');
+                    break;
+                case 'Numpad1':
+                    e.preventDefault();
+                    setView(e.ctrlKey ? 'back' : 'front');
+                    break;
+                case 'Numpad3':
+                    e.preventDefault();
+                    setView(e.ctrlKey ? 'left' : 'right');
+                    break;
+                case 'Numpad0':
+                    e.preventDefault();
+                    setView('iso');
+                    break;
+            }
         }
     }
     
@@ -3245,7 +3270,7 @@ async function executeCommand(cmd) {
                 if (result.success && result.result !== undefined) {
                     log(String(result.result), 'info');
                 }
-            } catch (e) {
+            } catch (_e) {
                 log(`UNKNOWN: ${action}`, 'error');
             }
     }
@@ -3338,7 +3363,7 @@ function saveDocument() {
         try {
             // Get document name from UI
             const titleEl = document.querySelector('.doc-title span[contenteditable]');
-            let docName = titleEl?.textContent?.replace('.AD', '') || 'design';
+            const docName = titleEl?.textContent?.replace('.AD', '') || 'design';
             
             System.americad.saveDocument(docName);
             log(`SAVED: ${docName}.americad`, 'success');
@@ -3402,7 +3427,7 @@ function syncObjectsFromDocument() {
     
     // Collect all meshes from the evaluator
     const evaluator = System.americad.evaluator;
-    for (const [featureId, mesh] of evaluator.meshes) {
+    for (const [_featureId, mesh] of evaluator.meshes) {
         if (mesh) {
             System.objects.push(mesh);
         }

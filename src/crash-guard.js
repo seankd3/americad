@@ -147,7 +147,7 @@ export const CrashGuard = {
             return parsed.commands && 
                    parsed.commands.length > 0 && 
                    age < ONE_HOUR;
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     },
@@ -164,7 +164,7 @@ export const CrashGuard = {
             
             // If last state wasn't 'unloading', it was a crash
             return state.state !== 'unloading' && state.state !== 'clean';
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     },

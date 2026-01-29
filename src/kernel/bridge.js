@@ -44,7 +44,7 @@ export class KernelBridge {
             // Test actual creation (some browsers block this)
             const test = new SharedArrayBuffer(8);
             return test.byteLength === 8;
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     }
@@ -356,6 +356,67 @@ export class KernelBridge {
     }
     
     /**
+     * Get all face IDs for a shape
+     * @param {string} shapeId - Shape ID
+     * @returns {Promise<{faceIds: string[]}>}
+     */
+    async getFaces(shapeId) {
+        await this.init();
+        return this._call('getFaces', { shapeId });
+    }
+    
+    /**
+     * Apply draft angle to faces for manufacturing (injection molding, casting)
+     * Draft tilts faces by an angle relative to a pull direction, making parts
+     * easier to eject from molds.
+     * 
+     * @param {string} shapeId - Shape ID
+     * @param {number} angleDegrees - Draft angle in degrees (typically 1-5°)
+     * @param {string|[number,number,number]} direction - Pull direction: 'x', 'y', 'z', '-x', '-y', '-z', or [dx,dy,dz] vector
+     * @param {string[]|null} faceIds - Specific face IDs to draft, or null for auto-selection (vertical walls)
+     * @param {{x,y,z}|null} neutralPlanePoint - Point on neutral plane (default: origin)
+     * @returns {Promise<{id: string, mesh: Object, facesModified: number}>}
+     */
+    async draft(shapeId, angleDegrees, direction = 'z', faceIds = null, neutralPlanePoint = null) {
+        await this.init();
+        
+        // Parse direction
+        let dirVec;
+        if (typeof direction === 'string') {
+            switch (direction.toLowerCase()) {
+                case 'x': dirVec = { x: 1, y: 0, z: 0 }; break;
+                case 'y': dirVec = { x: 0, y: 1, z: 0 }; break;
+                case 'z': dirVec = { x: 0, y: 0, z: 1 }; break;
+                case '-x': dirVec = { x: -1, y: 0, z: 0 }; break;
+                case '-y': dirVec = { x: 0, y: -1, z: 0 }; break;
+                case '-z': dirVec = { x: 0, y: 0, z: -1 }; break;
+                default:
+                    // Try parsing as "x,y,z" vector string
+                    const parts = direction.split(',').map(p => parseFloat(p.trim()));
+                    if (parts.length === 3 && parts.every(p => !isNaN(p))) {
+                        dirVec = { x: parts[0], y: parts[1], z: parts[2] };
+                    } else {
+                        throw new Error(`Invalid direction: ${direction}. Use 'x', 'y', 'z', '-x', '-y', '-z', or 'x,y,z' vector`);
+                    }
+            }
+        } else if (Array.isArray(direction) && direction.length === 3) {
+            dirVec = { x: direction[0], y: direction[1], z: direction[2] };
+        } else if (typeof direction === 'object' && 'x' in direction) {
+            dirVec = direction;
+        } else {
+            throw new Error('Direction must be a string axis name, [x,y,z] array, or {x,y,z} object');
+        }
+        
+        return this._call('draft', { 
+            shapeId, 
+            angle: angleDegrees,
+            direction: dirVec,
+            faceIds: faceIds || [],
+            neutralPlanePoint: neutralPlanePoint || { x: 0, y: 0, z: 0 }
+        });
+    }
+    
+    /**
      * Extrude a profile along a direction
      * @param {string} profileId - Profile (face/wire) ID
      * @param {{x,y,z}} direction - Extrusion direction vector
@@ -487,13 +548,24 @@ export class KernelBridge {
     /**
      * Shell a solid (hollow it out)
      * @param {string} shapeId - Solid shape ID
-     * @param {string[]} faceIds - Faces to remove (for open shell)
+     * @param {string[]|null} faceIds - Explicit face IDs to remove (optional, overrides faceSelection)
      * @param {number} thickness - Wall thickness
+     * @param {string} faceSelection - Face selection mode: 'none', 'largest', 'top', 'bottom', 'front', 'back', 'left', 'right'
      * @returns {Promise<{id: string, mesh: Object}>}
      */
-    async shell(shapeId, faceIds, thickness) {
+    async shell(shapeId, faceIds, thickness, faceSelection = 'largest') {
         await this.init();
-        return this._call('shell', { shapeId, faceIds, thickness });
+        return this._call('shell', { shapeId, faceIds, thickness, faceSelection });
+    }
+    
+    /**
+     * Get all face IDs and properties for a shape
+     * @param {string} shapeId - Shape ID
+     * @returns {Promise<{faceIds: string[], faces: Array<{id: string, area: number, centroid: Object, normal: Object}>}>}
+     */
+    async getFaces(shapeId) {
+        await this.init();
+        return this._call('getFaces', { shapeId });
     }
     
     /**
@@ -752,6 +824,38 @@ export class KernelBridge {
     async getBoundingBox(id) {
         await this.init();
         return this._call('getBoundingBox', { id });
+    }
+    
+    /**
+     * Get comprehensive mass properties of a shape
+     * Calculates volume, surface area, center of gravity, moments of inertia, etc.
+     * @param {string} shapeId - Shape ID to analyze
+     * @param {number} density - Material density in g/cm³ (default: 1.0)
+     * @returns {Promise<Object>} Mass properties object containing:
+     *   - volume: Volume in mm³
+     *   - volumeCm3: Volume in cm³
+     *   - surfaceArea: Surface area in mm²
+     *   - surfaceAreaCm2: Surface area in cm²
+     *   - mass: Mass in grams (based on density)
+     *   - density: Input density in g/cm³
+     *   - centerOfGravity: {x, y, z} center of mass
+     *   - momentsOfInertia: {Ixx, Iyy, Izz, Ixy, Ixz, Iyz} inertia tensor components
+     *   - boundingBox: {min, max, dimensions}
+     */
+    async getMassProperties(shapeId, density = 1.0) {
+        await this.init();
+        return this._call('massProperties', { shapeId, density });
+    }
+    
+    /**
+     * Detect interference (overlap) between bodies
+     * Checks all pairs of given shapes for volumetric intersection
+     * @param {string[]} shapeIds - Array of shape IDs to check for interference
+     * @returns {Promise<{interferences: Array<{body1: string, body2: string, volume: number, intersectionShapeId: string, mesh: Object}>}>}
+     */
+    async detectInterference(shapeIds) {
+        await this.init();
+        return this._call('detectInterference', { shapeIds });
     }
     
     // ==================== Management ====================

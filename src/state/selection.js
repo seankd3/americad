@@ -3,7 +3,7 @@
  * Handles object selection state and visual feedback
  */
 
-import * as THREE from 'three';
+// THREE unused - type annotations only
 
 /**
  * SelectionManager - Manages selection state for CAD objects
