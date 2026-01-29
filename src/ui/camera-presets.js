@@ -21,387 +21,376 @@
  * Up vector defines the camera orientation
  */
 export const CameraPresets = {
-    front: {
-        position: [0, 1, 0],
-        up: [0, 0, 1],
-        ortho: true,
-        label: 'FRONT',
-        axis: 'Y'
-    },
-    back: {
-        position: [0, -1, 0],
-        up: [0, 0, 1],
-        ortho: true,
-        label: 'BACK',
-        axis: '-Y'
-    },
-    right: {
-        position: [1, 0, 0],
-        up: [0, 0, 1],
-        ortho: true,
-        label: 'RIGHT',
-        axis: 'X'
-    },
-    left: {
-        position: [-1, 0, 0],
-        up: [0, 0, 1],
-        ortho: true,
-        label: 'LEFT',
-        axis: '-X'
-    },
-    top: {
-        position: [0, 0, 1],
-        up: [0, 1, 0],
-        ortho: true,
-        label: 'TOP',
-        axis: 'Z'
-    },
-    bottom: {
-        position: [0, 0, -1],
-        up: [0, -1, 0],
-        ortho: true,
-        label: 'BOTTOM',
-        axis: '-Z'
-    },
-    iso: {
-        position: [1, 1, 1],
-        up: [0, 0, 1],
-        ortho: false,
-        label: 'ISO',
-        axis: null
-    }
+  front: {
+    position: [0, 1, 0],
+    up: [0, 0, 1],
+    ortho: true,
+    label: 'FRONT',
+    axis: 'Y',
+  },
+  back: {
+    position: [0, -1, 0],
+    up: [0, 0, 1],
+    ortho: true,
+    label: 'BACK',
+    axis: '-Y',
+  },
+  right: {
+    position: [1, 0, 0],
+    up: [0, 0, 1],
+    ortho: true,
+    label: 'RIGHT',
+    axis: 'X',
+  },
+  left: {
+    position: [-1, 0, 0],
+    up: [0, 0, 1],
+    ortho: true,
+    label: 'LEFT',
+    axis: '-X',
+  },
+  top: {
+    position: [0, 0, 1],
+    up: [0, 1, 0],
+    ortho: true,
+    label: 'TOP',
+    axis: 'Z',
+  },
+  bottom: {
+    position: [0, 0, -1],
+    up: [0, -1, 0],
+    ortho: true,
+    label: 'BOTTOM',
+    axis: '-Z',
+  },
+  iso: {
+    position: [1, 1, 1],
+    up: [0, 0, 1],
+    ortho: false,
+    label: 'ISO',
+    axis: null,
+  },
 };
 
 /**
  * Default view settings
  */
 export const DEFAULT_VIEW = {
-    preset: 'iso',
-    distance: 100,
-    ortho: false
+  preset: 'iso',
+  distance: 100,
+  ortho: false,
 };
 
 /**
  * CameraPresetManager - Manages camera view presets and orthographic toggle
  */
 export class CameraPresetManager {
-    /**
-     * @param {Object} options
-     * @param {THREE} options.THREE - Three.js library reference
-     * @param {THREE.Camera} options.camera - Current camera (perspective or orthographic)
-     * @param {OrbitControls} options.controls - OrbitControls instance
-     * @param {Function} options.onViewChange - Callback when view changes
-     */
-    constructor(options = {}) {
-        this.THREE = options.THREE;
-        this.perspectiveCamera = options.camera;
-        this.orthographicCamera = null;
-        this.controls = options.controls;
-        this.onViewChange = options.onViewChange || (() => {});
+  /**
+   * @param {Object} options
+   * @param {THREE} options.THREE - Three.js library reference
+   * @param {THREE.Camera} options.camera - Current camera (perspective or orthographic)
+   * @param {OrbitControls} options.controls - OrbitControls instance
+   * @param {Function} options.onViewChange - Callback when view changes
+   */
+  constructor(options = {}) {
+    this.THREE = options.THREE;
+    this.perspectiveCamera = options.camera;
+    this.orthographicCamera = null;
+    this.controls = options.controls;
+    this.onViewChange = options.onViewChange || (() => {});
 
-        // Current state
-        this.currentView = 'iso';
-        this.isOrtho = false;
-        this.savedPerspectiveState = null;
+    // Current state
+    this.currentView = 'iso';
+    this.isOrtho = false;
+    this.savedPerspectiveState = null;
 
-        // Animation
-        this.animationDuration = 300; // ms
-        this.animating = false;
+    // Animation
+    this.animationDuration = 300; // ms
+    this.animating = false;
 
-        // UI indicator element
-        this.indicator = null;
+    // UI indicator element
+    this.indicator = null;
 
-        // Create orthographic camera if THREE is available
-        if (this.THREE && this.perspectiveCamera) {
-            this._createOrthographicCamera();
-        }
+    // Create orthographic camera if THREE is available
+    if (this.THREE && this.perspectiveCamera) {
+      this._createOrthographicCamera();
+    }
+  }
+
+  /**
+   * Initialize with Three.js context
+   */
+  init(THREE, camera, controls) {
+    this.THREE = THREE;
+    this.perspectiveCamera = camera;
+    this.controls = controls;
+    this._createOrthographicCamera();
+  }
+
+  /**
+   * Create the orthographic camera matching perspective camera's view
+   */
+  _createOrthographicCamera() {
+    if (!this.THREE || !this.perspectiveCamera) return;
+
+    const aspect = this.perspectiveCamera.aspect || 1;
+    const frustumSize = 100;
+
+    this.orthographicCamera = new this.THREE.OrthographicCamera(
+      (-frustumSize * aspect) / 2,
+      (frustumSize * aspect) / 2,
+      frustumSize / 2,
+      -frustumSize / 2,
+      0.1,
+      2000
+    );
+
+    this.orthographicCamera.userData.frustumSize = frustumSize;
+
+    // Copy current position
+    this.orthographicCamera.position.copy(this.perspectiveCamera.position);
+    this.orthographicCamera.up.copy(this.perspectiveCamera.up);
+    this.orthographicCamera.quaternion.copy(this.perspectiveCamera.quaternion);
+  }
+
+  /**
+   * Get the currently active camera
+   */
+  getActiveCamera() {
+    return this.isOrtho ? this.orthographicCamera : this.perspectiveCamera;
+  }
+
+  /**
+   * Set the view to a preset
+   * @param {string} presetName - Name of preset (front, back, top, etc.)
+   * @param {boolean} animate - Whether to animate the transition
+   * @returns {boolean} Success
+   */
+  setView(presetName, animate = true) {
+    const preset = CameraPresets[presetName];
+    if (!preset) {
+      console.warn(`[CameraPresets] Unknown preset: ${presetName}`);
+      return false;
     }
 
-    /**
-     * Initialize with Three.js context
-     */
-    init(THREE, camera, controls) {
-        this.THREE = THREE;
-        this.perspectiveCamera = camera;
-        this.controls = controls;
-        this._createOrthographicCamera();
-    }
+    const camera = this.getActiveCamera();
+    if (!camera || !this.controls) return false;
 
-    /**
-     * Create the orthographic camera matching perspective camera's view
-     */
-    _createOrthographicCamera() {
-        if (!this.THREE || !this.perspectiveCamera) return;
+    // Get current distance from target
+    const target = this.controls.target.clone();
+    const currentDistance = camera.position.distanceTo(target) || DEFAULT_VIEW.distance;
 
-        const aspect = this.perspectiveCamera.aspect || 1;
-        const frustumSize = 100;
+    // Calculate new position
+    const direction = new this.THREE.Vector3(...preset.position).normalize();
+    const newPosition = direction.clone().multiplyScalar(currentDistance).add(target);
+    const newUp = new this.THREE.Vector3(...preset.up);
 
-        this.orthographicCamera = new this.THREE.OrthographicCamera(
-            (-frustumSize * aspect) / 2,
-            (frustumSize * aspect) / 2,
-            frustumSize / 2,
-            -frustumSize / 2,
-            0.1,
-            2000
-        );
+    if (animate && this.animationDuration > 0) {
+      this._animateToView(camera, newPosition, newUp, target, () => {
+        this.currentView = presetName;
 
-        this.orthographicCamera.userData.frustumSize = frustumSize;
-
-        // Copy current position
-        this.orthographicCamera.position.copy(this.perspectiveCamera.position);
-        this.orthographicCamera.up.copy(this.perspectiveCamera.up);
-        this.orthographicCamera.quaternion.copy(
-            this.perspectiveCamera.quaternion
-        );
-    }
-
-    /**
-     * Get the currently active camera
-     */
-    getActiveCamera() {
-        return this.isOrtho
-            ? this.orthographicCamera
-            : this.perspectiveCamera;
-    }
-
-    /**
-     * Set the view to a preset
-     * @param {string} presetName - Name of preset (front, back, top, etc.)
-     * @param {boolean} animate - Whether to animate the transition
-     * @returns {boolean} Success
-     */
-    setView(presetName, animate = true) {
-        const preset = CameraPresets[presetName];
-        if (!preset) {
-            console.warn(`[CameraPresets] Unknown preset: ${presetName}`);
-            return false;
-        }
-
-        const camera = this.getActiveCamera();
-        if (!camera || !this.controls) return false;
-
-        // Get current distance from target
-        const target = this.controls.target.clone();
-        const currentDistance =
-            camera.position.distanceTo(target) || DEFAULT_VIEW.distance;
-
-        // Calculate new position
-        const direction = new this.THREE.Vector3(...preset.position).normalize();
-        const newPosition = direction
-            .clone()
-            .multiplyScalar(currentDistance)
-            .add(target);
-        const newUp = new this.THREE.Vector3(...preset.up);
-
-        if (animate && this.animationDuration > 0) {
-            this._animateToView(camera, newPosition, newUp, target, () => {
-                this.currentView = presetName;
-                
-                // Switch to ortho if preset requires it
-                if (preset.ortho && !this.isOrtho) {
-                    this.toggleOrtho(false);
-                }
-                
-                this._updateIndicator();
-                this.onViewChange(presetName, this.isOrtho);
-            });
-        } else {
-            camera.position.copy(newPosition);
-            camera.up.copy(newUp);
-            camera.lookAt(target);
-            this.controls.update();
-
-            this.currentView = presetName;
-            
-            // Switch to ortho if preset requires it
-            if (preset.ortho && !this.isOrtho) {
-                this.toggleOrtho(false);
-            }
-            
-            this._updateIndicator();
-            this.onViewChange(presetName, this.isOrtho);
+        // Switch to ortho if preset requires it
+        if (preset.ortho && !this.isOrtho) {
+          this.toggleOrtho(false);
         }
 
-        return true;
+        this._updateIndicator();
+        this.onViewChange(presetName, this.isOrtho);
+      });
+    } else {
+      camera.position.copy(newPosition);
+      camera.up.copy(newUp);
+      camera.lookAt(target);
+      this.controls.update();
+
+      this.currentView = presetName;
+
+      // Switch to ortho if preset requires it
+      if (preset.ortho && !this.isOrtho) {
+        this.toggleOrtho(false);
+      }
+
+      this._updateIndicator();
+      this.onViewChange(presetName, this.isOrtho);
     }
 
-    /**
-     * Animate camera transition
-     */
-    _animateToView(camera, targetPos, targetUp, lookAtTarget, onComplete) {
-        if (this.animating) return;
-        this.animating = true;
+    return true;
+  }
 
-        const startPos = camera.position.clone();
-        const startUp = camera.up.clone();
-        const startTime = performance.now();
+  /**
+   * Animate camera transition
+   */
+  _animateToView(camera, targetPos, targetUp, lookAtTarget, onComplete) {
+    if (this.animating) return;
+    this.animating = true;
 
-        const animate = () => {
-            const elapsed = performance.now() - startTime;
-            const t = Math.min(elapsed / this.animationDuration, 1);
+    const startPos = camera.position.clone();
+    const startUp = camera.up.clone();
+    const startTime = performance.now();
 
-            // Ease out cubic
-            const eased = 1 - Math.pow(1 - t, 3);
+    const animate = () => {
+      const elapsed = performance.now() - startTime;
+      const t = Math.min(elapsed / this.animationDuration, 1);
 
-            camera.position.lerpVectors(startPos, targetPos, eased);
-            camera.up.lerpVectors(startUp, targetUp, eased).normalize();
-            camera.lookAt(lookAtTarget);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - t, 3);
 
-            if (this.controls) {
-                this.controls.update();
-            }
+      camera.position.lerpVectors(startPos, targetPos, eased);
+      camera.up.lerpVectors(startUp, targetUp, eased).normalize();
+      camera.lookAt(lookAtTarget);
 
-            if (t < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                this.animating = false;
-                if (onComplete) onComplete();
-            }
-        };
+      if (this.controls) {
+        this.controls.update();
+      }
 
+      if (t < 1) {
         requestAnimationFrame(animate);
+      } else {
+        this.animating = false;
+        if (onComplete) onComplete();
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }
+
+  /**
+   * Toggle between orthographic and perspective projection
+   * @param {boolean} animate - Whether to animate (default false for toggle)
+   */
+  toggleOrtho(_animate = false) {
+    if (!this.perspectiveCamera || !this.orthographicCamera) {
+      console.warn('[CameraPresets] Cameras not initialized');
+      return;
     }
 
-    /**
-     * Toggle between orthographic and perspective projection
-     * @param {boolean} animate - Whether to animate (default false for toggle)
-     */
-    toggleOrtho(animate = false) {
-        if (!this.perspectiveCamera || !this.orthographicCamera) {
-            console.warn('[CameraPresets] Cameras not initialized');
-            return;
-        }
+    const oldCamera = this.getActiveCamera();
+    this.isOrtho = !this.isOrtho;
+    const newCamera = this.getActiveCamera();
 
-        const oldCamera = this.getActiveCamera();
-        this.isOrtho = !this.isOrtho;
-        const newCamera = this.getActiveCamera();
+    // Sync camera state
+    newCamera.position.copy(oldCamera.position);
+    newCamera.up.copy(oldCamera.up);
+    newCamera.quaternion.copy(oldCamera.quaternion);
 
-        // Sync camera state
-        newCamera.position.copy(oldCamera.position);
-        newCamera.up.copy(oldCamera.up);
-        newCamera.quaternion.copy(oldCamera.quaternion);
-
-        // Update orthographic frustum based on distance
-        if (this.isOrtho) {
-            this._updateOrthoFrustum();
-        }
-
-        // Update controls to use new camera
-        if (this.controls) {
-            this.controls.object = newCamera;
-            this.controls.update();
-        }
-
-        this._updateIndicator();
-        this.onViewChange(this.currentView, this.isOrtho);
-
-        return this.isOrtho;
+    // Update orthographic frustum based on distance
+    if (this.isOrtho) {
+      this._updateOrthoFrustum();
     }
 
-    /**
-     * Update orthographic frustum size based on camera distance
-     */
-    _updateOrthoFrustum() {
-        if (!this.orthographicCamera || !this.controls) return;
-
-        const distance = this.orthographicCamera.position.distanceTo(
-            this.controls.target
-        );
-        const frustumSize = distance * 0.5; // Scale factor for ortho view
-        const aspect = this.perspectiveCamera?.aspect || 1;
-
-        this.orthographicCamera.left = (-frustumSize * aspect) / 2;
-        this.orthographicCamera.right = (frustumSize * aspect) / 2;
-        this.orthographicCamera.top = frustumSize / 2;
-        this.orthographicCamera.bottom = -frustumSize / 2;
-        this.orthographicCamera.updateProjectionMatrix();
-        this.orthographicCamera.userData.frustumSize = frustumSize;
+    // Update controls to use new camera
+    if (this.controls) {
+      this.controls.object = newCamera;
+      this.controls.update();
     }
 
-    /**
-     * Reset to default perspective view
-     */
-    reset() {
-        // Switch to perspective if in ortho
-        if (this.isOrtho) {
-            this.isOrtho = false;
-            if (this.controls) {
-                this.controls.object = this.perspectiveCamera;
-            }
-        }
+    this._updateIndicator();
+    this.onViewChange(this.currentView, this.isOrtho);
 
-        // Reset to isometric view
-        this.setView('iso', true);
+    return this.isOrtho;
+  }
+
+  /**
+   * Update orthographic frustum size based on camera distance
+   */
+  _updateOrthoFrustum() {
+    if (!this.orthographicCamera || !this.controls) return;
+
+    const distance = this.orthographicCamera.position.distanceTo(this.controls.target);
+    const frustumSize = distance * 0.5; // Scale factor for ortho view
+    const aspect = this.perspectiveCamera?.aspect || 1;
+
+    this.orthographicCamera.left = (-frustumSize * aspect) / 2;
+    this.orthographicCamera.right = (frustumSize * aspect) / 2;
+    this.orthographicCamera.top = frustumSize / 2;
+    this.orthographicCamera.bottom = -frustumSize / 2;
+    this.orthographicCamera.updateProjectionMatrix();
+    this.orthographicCamera.userData.frustumSize = frustumSize;
+  }
+
+  /**
+   * Reset to default perspective view
+   */
+  reset() {
+    // Switch to perspective if in ortho
+    if (this.isOrtho) {
+      this.isOrtho = false;
+      if (this.controls) {
+        this.controls.object = this.perspectiveCamera;
+      }
     }
 
-    /**
-     * Handle resize
-     */
-    resize(width, height) {
-        const aspect = width / height;
+    // Reset to isometric view
+    this.setView('iso', true);
+  }
 
-        if (this.perspectiveCamera) {
-            this.perspectiveCamera.aspect = aspect;
-            this.perspectiveCamera.updateProjectionMatrix();
-        }
+  /**
+   * Handle resize
+   */
+  resize(width, height) {
+    const aspect = width / height;
 
-        if (this.orthographicCamera) {
-            const frustumSize =
-                this.orthographicCamera.userData.frustumSize || 100;
-            this.orthographicCamera.left = (-frustumSize * aspect) / 2;
-            this.orthographicCamera.right = (frustumSize * aspect) / 2;
-            this.orthographicCamera.updateProjectionMatrix();
-        }
+    if (this.perspectiveCamera) {
+      this.perspectiveCamera.aspect = aspect;
+      this.perspectiveCamera.updateProjectionMatrix();
     }
 
-    /**
-     * Create and attach the view indicator UI element
-     * @param {HTMLElement} container - Container to append indicator to
-     */
-    createIndicator(container) {
-        if (this.indicator) {
-            this.indicator.remove();
-        }
+    if (this.orthographicCamera) {
+      const frustumSize = this.orthographicCamera.userData.frustumSize || 100;
+      this.orthographicCamera.left = (-frustumSize * aspect) / 2;
+      this.orthographicCamera.right = (frustumSize * aspect) / 2;
+      this.orthographicCamera.updateProjectionMatrix();
+    }
+  }
 
-        this.indicator = document.createElement('div');
-        this.indicator.className = 'view-indicator';
-        this.indicator.id = 'view-indicator';
-        this._updateIndicator();
-
-        if (container) {
-            container.appendChild(this.indicator);
-        }
-
-        // Add styles if not present
-        this._addIndicatorStyles();
-
-        return this.indicator;
+  /**
+   * Create and attach the view indicator UI element
+   * @param {HTMLElement} container - Container to append indicator to
+   */
+  createIndicator(container) {
+    if (this.indicator) {
+      this.indicator.remove();
     }
 
-    /**
-     * Update the view indicator display
-     */
-    _updateIndicator() {
-        if (!this.indicator) return;
+    this.indicator = document.createElement('div');
+    this.indicator.className = 'view-indicator';
+    this.indicator.id = 'view-indicator';
+    this._updateIndicator();
 
-        const preset = CameraPresets[this.currentView];
-        const viewName = preset?.label || this.currentView.toUpperCase();
-        const orthoText = this.isOrtho ? ' (Ortho)' : ' (Persp)';
-
-        this.indicator.textContent = viewName + orthoText;
-        this.indicator.dataset.view = this.currentView;
-        this.indicator.dataset.ortho = this.isOrtho;
+    if (container) {
+      container.appendChild(this.indicator);
     }
 
-    /**
-     * Add CSS styles for the indicator
-     */
-    _addIndicatorStyles() {
-        if (document.getElementById('view-indicator-styles')) return;
+    // Add styles if not present
+    this._addIndicatorStyles();
 
-        const style = document.createElement('style');
-        style.id = 'view-indicator-styles';
-        style.textContent = `
+    return this.indicator;
+  }
+
+  /**
+   * Update the view indicator display
+   */
+  _updateIndicator() {
+    if (!this.indicator) return;
+
+    const preset = CameraPresets[this.currentView];
+    const viewName = preset?.label || this.currentView.toUpperCase();
+    const orthoText = this.isOrtho ? ' (Ortho)' : ' (Persp)';
+
+    this.indicator.textContent = viewName + orthoText;
+    this.indicator.dataset.view = this.currentView;
+    this.indicator.dataset.ortho = this.isOrtho;
+  }
+
+  /**
+   * Add CSS styles for the indicator
+   */
+  _addIndicatorStyles() {
+    if (document.getElementById('view-indicator-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'view-indicator-styles';
+    style.textContent = `
             .view-indicator {
                 position: absolute;
                 top: 12px;
@@ -426,33 +415,33 @@ export class CameraPresetManager {
                 border-color: #e8b13f;
             }
         `;
-        document.head.appendChild(style);
+    document.head.appendChild(style);
+  }
+
+  /**
+   * Get current view state
+   */
+  getState() {
+    return {
+      view: this.currentView,
+      isOrtho: this.isOrtho,
+      camera: this.getActiveCamera(),
+    };
+  }
+
+  /**
+   * Dispose of resources
+   */
+  dispose() {
+    if (this.indicator) {
+      this.indicator.remove();
+      this.indicator = null;
     }
 
-    /**
-     * Get current view state
-     */
-    getState() {
-        return {
-            view: this.currentView,
-            isOrtho: this.isOrtho,
-            camera: this.getActiveCamera()
-        };
+    if (this.orthographicCamera) {
+      this.orthographicCamera = null;
     }
-
-    /**
-     * Dispose of resources
-     */
-    dispose() {
-        if (this.indicator) {
-            this.indicator.remove();
-            this.indicator = null;
-        }
-
-        if (this.orthographicCamera) {
-            this.orthographicCamera = null;
-        }
-    }
+  }
 }
 
 /**
@@ -464,77 +453,77 @@ export class CameraPresetManager {
  * @returns {boolean} Whether the event was handled
  */
 export function handleViewShortcut(e, manager) {
-    if (!manager) return false;
+  if (!manager) return false;
 
-    // Ignore if typing in an input
-    if (
-        e.target.tagName === 'INPUT' ||
-        e.target.tagName === 'TEXTAREA' ||
-        e.target.isContentEditable
-    ) {
-        return false;
-    }
-
-    const code = e.code;
-    const ctrl = e.ctrlKey || e.metaKey;
-
-    // Numpad shortcuts
-    switch (code) {
-        case 'Numpad1':
-            e.preventDefault();
-            manager.setView(ctrl ? 'back' : 'front');
-            return true;
-
-        case 'Numpad3':
-            e.preventDefault();
-            manager.setView(ctrl ? 'left' : 'right');
-            return true;
-
-        case 'Numpad7':
-            e.preventDefault();
-            manager.setView(ctrl ? 'bottom' : 'top');
-            return true;
-
-        case 'Numpad5':
-            e.preventDefault();
-            manager.toggleOrtho();
-            return true;
-
-        case 'Numpad0':
-            e.preventDefault();
-            manager.reset();
-            return true;
-    }
-
-    // Also handle regular number keys with numlock off or on laptops
-    // Only if Shift is not held (to avoid interfering with other shortcuts)
-    if (!e.shiftKey && !e.altKey) {
-        switch (e.key) {
-            case '1':
-                if (ctrl) {
-                    e.preventDefault();
-                    manager.setView('back');
-                    return true;
-                }
-                break;
-            case '3':
-                if (ctrl) {
-                    e.preventDefault();
-                    manager.setView('left');
-                    return true;
-                }
-                break;
-            case '7':
-                if (ctrl) {
-                    e.preventDefault();
-                    manager.setView('bottom');
-                    return true;
-                }
-                break;
-        }
-    }
-
+  // Ignore if typing in an input
+  if (
+    e.target.tagName === 'INPUT' ||
+    e.target.tagName === 'TEXTAREA' ||
+    e.target.isContentEditable
+  ) {
     return false;
+  }
+
+  const code = e.code;
+  const ctrl = e.ctrlKey || e.metaKey;
+
+  // Numpad shortcuts
+  switch (code) {
+    case 'Numpad1':
+      e.preventDefault();
+      manager.setView(ctrl ? 'back' : 'front');
+      return true;
+
+    case 'Numpad3':
+      e.preventDefault();
+      manager.setView(ctrl ? 'left' : 'right');
+      return true;
+
+    case 'Numpad7':
+      e.preventDefault();
+      manager.setView(ctrl ? 'bottom' : 'top');
+      return true;
+
+    case 'Numpad5':
+      e.preventDefault();
+      manager.toggleOrtho();
+      return true;
+
+    case 'Numpad0':
+      e.preventDefault();
+      manager.reset();
+      return true;
+  }
+
+  // Also handle regular number keys with numlock off or on laptops
+  // Only if Shift is not held (to avoid interfering with other shortcuts)
+  if (!e.shiftKey && !e.altKey) {
+    switch (e.key) {
+      case '1':
+        if (ctrl) {
+          e.preventDefault();
+          manager.setView('back');
+          return true;
+        }
+        break;
+      case '3':
+        if (ctrl) {
+          e.preventDefault();
+          manager.setView('left');
+          return true;
+        }
+        break;
+      case '7':
+        if (ctrl) {
+          e.preventDefault();
+          manager.setView('bottom');
+          return true;
+        }
+        break;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -542,49 +531,47 @@ export function handleViewShortcut(e, manager) {
  * @param {Function} registerCommand - Command registration function
  */
 export function registerViewCommands(registerCommand) {
-    // VIEW command
-    registerCommand('view', {
-        aliases: ['v'],
-        description:
-            'Set camera view (front/back/left/right/top/bottom/iso) or toggle ortho',
-        category: 'view',
-        params: [
-            {
-                name: 'preset',
-                type: 'string',
-                required: true,
-                description:
-                    'View preset: front, back, left, right, top, bottom, iso, ortho, reset'
-            }
-        ],
-        execute(params, context) {
-            const manager = context.cameraPresets;
-            if (!manager) {
-                return 'Camera preset manager not available';
-            }
+  // VIEW command
+  registerCommand('view', {
+    aliases: ['v'],
+    description: 'Set camera view (front/back/left/right/top/bottom/iso) or toggle ortho',
+    category: 'view',
+    params: [
+      {
+        name: 'preset',
+        type: 'string',
+        required: true,
+        description: 'View preset: front, back, left, right, top, bottom, iso, ortho, reset',
+      },
+    ],
+    execute(params, context) {
+      const manager = context.cameraPresets;
+      if (!manager) {
+        return 'Camera preset manager not available';
+      }
 
-            const preset = params.preset.toLowerCase();
+      const preset = params.preset.toLowerCase();
 
-            if (preset === 'ortho' || preset === 'toggle') {
-                const isOrtho = manager.toggleOrtho();
-                return `Projection: ${isOrtho ? 'ORTHOGRAPHIC' : 'PERSPECTIVE'}`;
-            }
+      if (preset === 'ortho' || preset === 'toggle') {
+        const isOrtho = manager.toggleOrtho();
+        return `Projection: ${isOrtho ? 'ORTHOGRAPHIC' : 'PERSPECTIVE'}`;
+      }
 
-            if (preset === 'reset') {
-                manager.reset();
-                return 'View reset to default';
-            }
+      if (preset === 'reset') {
+        manager.reset();
+        return 'View reset to default';
+      }
 
-            if (CameraPresets[preset]) {
-                manager.setView(preset);
-                const viewLabel = CameraPresets[preset].label;
-                return `View: ${viewLabel}`;
-            }
+      if (CameraPresets[preset]) {
+        manager.setView(preset);
+        const viewLabel = CameraPresets[preset].label;
+        return `View: ${viewLabel}`;
+      }
 
-            const validViews = Object.keys(CameraPresets).join(', ');
-            return `Unknown view: ${preset}. Valid views: ${validViews}, ortho, reset`;
-        }
-    });
+      const validViews = Object.keys(CameraPresets).join(', ');
+      return `Unknown view: ${preset}. Valid views: ${validViews}, ortho, reset`;
+    },
+  });
 }
 
 export default CameraPresetManager;
