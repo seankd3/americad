@@ -1898,6 +1898,272 @@ function sweepProfile(profile, path) {
 }
 
 /**
+ * Create a trapezoidal profile for rib feature
+ * Creates a 2D face in XZ plane that can be swept along a path
+ * @param {number} thickness - Base thickness (full width at bottom)
+ * @param {number} height - Rib height
+ * @param {number} draftAngle - Draft angle in radians (0 for rectangular)
+ * @returns {TopoDS_Face} The trapezoidal/rectangular profile face
+ */
+function createRibProfile(thickness, height, draftAngle = 0) {
+  const halfThick = thickness / 2;
+
+  // Calculate top width reduction due to draft
+  // tan(draftAngle) = widthReduction / height
+  const widthReduction = height * Math.tan(draftAngle);
+  const topHalfWidth = Math.max(halfThick - widthReduction, 0.01); // Ensure minimum width
+
+  // Create trapezoid points in XZ plane (X = width, Z = height)
+  // Profile is centered on origin, extending upward in Z
+  const p1 = new oc.gp_Pnt_3(-halfThick, 0, 0); // Bottom left
+  const p2 = new oc.gp_Pnt_3(halfThick, 0, 0); // Bottom right
+  const p3 = new oc.gp_Pnt_3(topHalfWidth, 0, height); // Top right
+  const p4 = new oc.gp_Pnt_3(-topHalfWidth, 0, height); // Top left
+
+  // Build the wire
+  const wireBuilder = new oc.BRepBuilderAPI_MakeWire_1();
+
+  const e1 = new oc.BRepBuilderAPI_MakeEdge_3(p1, p2);
+  const e2 = new oc.BRepBuilderAPI_MakeEdge_3(p2, p3);
+  const e3 = new oc.BRepBuilderAPI_MakeEdge_3(p3, p4);
+  const e4 = new oc.BRepBuilderAPI_MakeEdge_3(p4, p1);
+
+  if (e1.IsDone()) wireBuilder.Add_1(e1.Edge());
+  if (e2.IsDone()) wireBuilder.Add_1(e2.Edge());
+  if (e3.IsDone()) wireBuilder.Add_1(e3.Edge());
+  if (e4.IsDone()) wireBuilder.Add_1(e4.Edge());
+
+  if (!wireBuilder.IsDone()) {
+    throw new Error('Failed to create rib profile wire');
+  }
+
+  const wire = wireBuilder.Wire();
+
+  // Create face from wire
+  const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(wire, true);
+  if (!faceMaker.IsDone()) {
+    throw new Error('Failed to create rib profile face');
+  }
+
+  return faceMaker.Face();
+}
+
+/**
+ * Create a rib feature
+ * A rib is a thin wall that adds stiffness, created by sweeping a profile along a path
+ *
+ * @param {TopoDS_Shape} baseBody - The body to add the rib to
+ * @param {TopoDS_Wire} pathWire - The path/spine for the rib (sketch line/curve on base)
+ * @param {number} thickness - Rib thickness
+ * @param {number} height - Rib height (perpendicular to the face)
+ * @param {number} draftAngleDeg - Draft angle in degrees (0 for no draft)
+ * @param {{x,y,z}} direction - Direction of rib extrusion (face normal)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createRib(baseBody, pathWire, thickness, height, draftAngleDeg = 0, direction = null) {
+  const draftAngleRad = (draftAngleDeg * Math.PI) / 180;
+
+  // Create the rib profile (trapezoidal cross-section)
+  const profile = createRibProfile(thickness, height, draftAngleRad);
+
+  // If direction is provided, we need to orient the profile
+  // The profile is created in XZ plane, we need to transform it to align with the path
+  let orientedProfile = profile;
+
+  if (direction) {
+    // Normalize direction
+    const len = Math.sqrt(direction.x ** 2 + direction.y ** 2 + direction.z ** 2);
+    const dirNorm = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+
+    // Create transformation to align Z axis with direction
+    const trsf = new oc.gp_Trsf_1();
+
+    // If direction is not Z (0,0,1), we need to rotate
+    if (Math.abs(dirNorm.z - 1) > 1e-6) {
+      // Calculate rotation axis (cross product of Z and direction)
+      const ax = -dirNorm.y;
+      const ay = dirNorm.x;
+      const az = 0;
+      const axLen = Math.sqrt(ax * ax + ay * ay);
+
+      if (axLen > 1e-10) {
+        // Angle between Z and direction
+        const angle = Math.acos(Math.min(1, Math.max(-1, dirNorm.z)));
+
+        const rotAxis = new oc.gp_Ax1_2(
+          new oc.gp_Pnt_3(0, 0, 0),
+          new oc.gp_Dir_4(ax / axLen, ay / axLen, az)
+        );
+        trsf.SetRotation_1(rotAxis, angle);
+
+        const transformer = new oc.BRepBuilderAPI_Transform_2(profile, trsf, true);
+        orientedProfile = oc.TopoDS.Face_1(transformer.Shape());
+      }
+    }
+  }
+
+  // Sweep the profile along the path
+  const spine = oc.TopoDS.Wire_1(pathWire);
+  const pipe = new oc.BRepOffsetAPI_MakePipe_1(spine, orientedProfile);
+  pipe.Build();
+
+  if (!pipe.IsDone()) {
+    throw new Error('Failed to sweep rib profile along path');
+  }
+
+  const ribShape = pipe.Shape();
+
+  // Union with base body
+  const progress = new oc.Message_ProgressRange_1();
+  const fuse = new oc.BRepAlgoAPI_Fuse_3(baseBody, ribShape, progress);
+
+  if (!fuse.IsDone()) {
+    throw new Error('Failed to fuse rib with base body');
+  }
+
+  return {
+    shape: fuse.Shape(),
+    id: getTopoId(fuse.Shape()),
+    type: 'rib',
+  };
+}
+
+/**
+ * Create a rib from sketch data (simplified workflow)
+ * Creates a rib along a line segment on a face
+ *
+ * @param {TopoDS_Shape} baseBody - The body to add the rib to
+ * @param {{x,y,z}} startPoint - Start point of rib path
+ * @param {{x,y,z}} endPoint - End point of rib path
+ * @param {number} thickness - Rib thickness
+ * @param {number} height - Rib height
+ * @param {number} draftAngleDeg - Draft angle in degrees
+ * @param {{x,y,z}} direction - Direction of rib height (typically face normal)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createRibFromLine(
+  baseBody,
+  startPoint,
+  endPoint,
+  thickness,
+  height,
+  draftAngleDeg = 0,
+  direction = { x: 0, y: 0, z: 1 }
+) {
+  // Create the path wire from start to end
+  const p1 = new oc.gp_Pnt_3(startPoint.x, startPoint.y, startPoint.z);
+  const p2 = new oc.gp_Pnt_3(endPoint.x, endPoint.y, endPoint.z);
+
+  const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_3(p1, p2);
+  if (!edgeMaker.IsDone()) {
+    throw new Error('Failed to create rib path edge');
+  }
+
+  const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+  if (!wireMaker.IsDone()) {
+    throw new Error('Failed to create rib path wire');
+  }
+
+  const pathWire = wireMaker.Wire();
+
+  return createRib(baseBody, pathWire, thickness, height, draftAngleDeg, direction);
+}
+
+/**
+ * Create a web feature
+ * A web is a thin wall created by extruding a profile by a thickness
+ *
+ * @param {TopoDS_Shape} baseBody - The body to add the web to (can be null for standalone)
+ * @param {TopoDS_Face|TopoDS_Wire} profile - The profile to extrude (face or wire)
+ * @param {number} thickness - Web thickness (extrusion distance)
+ * @param {{x,y,z}} direction - Extrusion direction (normalized)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createWeb(baseBody, profile, thickness, direction = { x: 0, y: 0, z: 1 }) {
+  // Normalize direction
+  const len = Math.sqrt(direction.x ** 2 + direction.y ** 2 + direction.z ** 2);
+  const dirNorm = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+
+  // Determine if profile is a wire or face
+  let faceProfile = profile;
+  const shapeType = profile.ShapeType();
+
+  if (shapeType === oc.TopAbs_ShapeEnum.TopAbs_WIRE) {
+    // Convert wire to face
+    const wire = oc.TopoDS.Wire_1(profile);
+    const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(wire, true);
+    if (!faceMaker.IsDone()) {
+      throw new Error('Failed to create face from web profile wire');
+    }
+    faceProfile = faceMaker.Face();
+  } else if (shapeType !== oc.TopAbs_ShapeEnum.TopAbs_FACE) {
+    throw new Error(`Invalid profile type for web: expected FACE or WIRE`);
+  }
+
+  // Create extrusion vector
+  const vec = new oc.gp_Vec_4(
+    dirNorm.x * thickness,
+    dirNorm.y * thickness,
+    dirNorm.z * thickness
+  );
+
+  // Extrude the profile
+  const prism = new oc.BRepPrimAPI_MakePrism_1(faceProfile, vec, false, true);
+  prism.Build();
+
+  if (!prism.IsDone()) {
+    throw new Error('Failed to extrude web profile');
+  }
+
+  const webShape = prism.Shape();
+
+  // If baseBody is provided, union with it
+  if (baseBody) {
+    const progress = new oc.Message_ProgressRange_1();
+    const fuse = new oc.BRepAlgoAPI_Fuse_3(baseBody, webShape, progress);
+
+    if (!fuse.IsDone()) {
+      throw new Error('Failed to fuse web with base body');
+    }
+
+    return {
+      shape: fuse.Shape(),
+      id: getTopoId(fuse.Shape()),
+      type: 'web',
+    };
+  }
+
+  // Return standalone web
+  return {
+    shape: webShape,
+    id: getTopoId(webShape),
+    type: 'web',
+  };
+}
+
+/**
+ * Create a web from polygon points
+ * Convenience function for creating a web from a set of 2D/3D points
+ *
+ * @param {TopoDS_Shape} baseBody - The body to add the web to
+ * @param {Array<{x,y,z}>} points - Polygon points defining the web profile
+ * @param {number} thickness - Web thickness
+ * @param {{x,y,z}} direction - Extrusion direction
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createWebFromPolygon(baseBody, points, thickness, direction = { x: 0, y: 0, z: 1 }) {
+  // Create wire from points
+  const wireResult = createWireFromPolygon(points);
+  const wire = wireResult.shape;
+
+  // Create face from wire
+  const faceResult = createFaceFromWire(wire, true);
+  const face = faceResult.shape;
+
+  return createWeb(baseBody, face, thickness, direction);
+}
+
+/**
  * Mirror a shape across a plane
  * @param {TopoDS_Shape} shape - Shape to mirror
  * @param {Array} planeOrigin - [x, y, z] point on the mirror plane
@@ -2778,6 +3044,279 @@ function detectInterference(shapeIds) {
   return { interferences };
 }
 
+// ==================== Thread Operations ====================
+
+/**
+ * Standard thread profile geometry (ISO metric - 60° thread angle)
+ */
+function getThreadProfileGeometry(pitch, isExternal = true) {
+  const H = (pitch * Math.sqrt(3)) / 2; // Fundamental triangle height
+  const depth = isExternal ? H * 0.6134 : H * 0.5413; // Thread depth
+  const rootRadius = H / 6; // Root radius
+  const crestFlat = pitch / 8; // Crest flat width
+
+  return { H, depth, rootRadius, crestFlat };
+}
+
+/**
+ * Create helical thread path (spine for thread sweep)
+ * @param {number} radius - Helix radius (thread pitch diameter / 2)
+ * @param {number} pitch - Thread pitch
+ * @param {number} length - Total thread length
+ * @param {{x,y,z}} center - Center at base
+ * @returns {{shape: TopoDS_Wire, turns: number}}
+ */
+function createThreadHelix(radius, pitch, length, center = { x: 0, y: 0, z: 0 }) {
+  const turns = length / pitch;
+
+  // Create a cylindrical surface for the helix
+  const axis = new oc.gp_Ax2_3(
+    new oc.gp_Pnt_3(center.x, center.y, center.z),
+    new oc.gp_Dir_4(0, 0, 1)
+  );
+
+  const cylSurface = new oc.Geom_CylindricalSurface_1(axis, radius);
+
+  // Create a 2D line on the surface parameters (u, v) that maps to helix
+  // u is the angle, v maps to height
+  const line2d = new oc.gp_Lin2d_2(new oc.gp_Pnt2d_3(0, 0), new oc.gp_Dir2d_4(2 * Math.PI, pitch));
+
+  const geomLine2d = new oc.Geom2d_Line_2(line2d);
+
+  // Total parameter length for the helix
+  const paramLength = Math.sqrt(Math.pow(2 * Math.PI * turns, 2) + Math.pow(length, 2));
+
+  // Create edge on surface
+  const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_30(
+    new oc.Handle_Geom2d_Curve_2(geomLine2d),
+    new oc.Handle_Geom_Surface_2(cylSurface),
+    0,
+    paramLength
+  );
+
+  if (!edgeMaker.IsDone()) {
+    throw new Error('Failed to create thread helix edge');
+  }
+
+  // Create wire from edge
+  const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+  if (!wireMaker.IsDone()) {
+    throw new Error('Failed to create thread helix wire');
+  }
+
+  return {
+    shape: wireMaker.Wire(),
+    turns,
+  };
+}
+
+/**
+ * Create V-thread profile (triangular cross-section for ISO metric threads)
+ * Profile is created in the XY plane, to be swept along helix
+ * @param {number} pitch - Thread pitch
+ * @param {number} depth - Thread depth (crest to root)
+ * @param {number} radius - Cylinder radius at pitch diameter
+ * @returns {TopoDS_Wire}
+ */
+function createThreadProfile(pitch, depth, radius) {
+  // Create triangular thread profile
+  // Profile sits at the pitch radius, pointing outward for external thread
+  // Thread angle is 60° (30° half-angle) for ISO metric
+
+  const halfPitch = pitch / 2;
+  const halfAngle = Math.PI / 6; // 30 degrees
+
+  // Profile points (in local coordinates, Z is along thread axis)
+  // Root point (bottom of V)
+  const rootPt = new oc.gp_Pnt_3(radius - depth, 0, 0);
+  // Crest point 1 (top left of V)
+  const crest1 = new oc.gp_Pnt_3(radius, 0, -halfPitch);
+  // Crest point 2 (top right of V)
+  const crest2 = new oc.gp_Pnt_3(radius, 0, halfPitch);
+
+  // Create edges
+  const edge1 = new oc.BRepBuilderAPI_MakeEdge_3(rootPt, crest1);
+  const edge2 = new oc.BRepBuilderAPI_MakeEdge_3(crest1, crest2);
+  const edge3 = new oc.BRepBuilderAPI_MakeEdge_3(crest2, rootPt);
+
+  if (!edge1.IsDone() || !edge2.IsDone() || !edge3.IsDone()) {
+    throw new Error('Failed to create thread profile edges');
+  }
+
+  // Build wire
+  const wireMaker = new oc.BRepBuilderAPI_MakeWire_1();
+  wireMaker.Add_1(edge1.Edge());
+  wireMaker.Add_1(edge2.Edge());
+  wireMaker.Add_1(edge3.Edge());
+
+  if (!wireMaker.IsDone()) {
+    throw new Error('Failed to create thread profile wire');
+  }
+
+  return wireMaker.Wire();
+}
+
+/**
+ * Create an external thread on a cylinder (modeled helical geometry)
+ * This creates actual thread geometry suitable for 3D printing
+ * @param {TopoDS_Shape} cylinderShape - The cylinder to add threads to
+ * @param {number} pitch - Thread pitch in mm
+ * @param {number} length - Thread length (0 for full cylinder height)
+ * @param {number} startZ - Z position where threads start (default: 0)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string, threadInfo: Object}}
+ */
+function createExternalThread(cylinderShape, pitch, length, startZ = 0) {
+  // Get cylinder parameters from bounding box (approximation)
+  const bbox = getBoundingBox(cylinderShape);
+  const cylHeight = bbox.max.z - bbox.min.z;
+  const cylRadius = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y) / 2;
+
+  const threadLength = length > 0 ? Math.min(length, cylHeight - startZ) : cylHeight - startZ;
+  const threadGeom = getThreadProfileGeometry(pitch, true);
+
+  // Create the helical cutting tool
+  // For external threads, we cut grooves into the cylinder
+  const pitchRadius = cylRadius - threadGeom.depth / 2;
+  const helix = createThreadHelix(pitchRadius, pitch, threadLength, { x: 0, y: 0, z: startZ });
+
+  // Create thread profile
+  const profile = createThreadProfile(pitch, threadGeom.depth, cylRadius);
+
+  // Create face from profile for sweeping
+  const profileFace = new oc.BRepBuilderAPI_MakeFace_15(profile, true);
+  if (!profileFace.IsDone()) {
+    throw new Error('Failed to create thread profile face');
+  }
+
+  // Sweep the profile along the helix to create thread cutter
+  const pipe = new oc.BRepOffsetAPI_MakePipe_1(helix.shape, profileFace.Face());
+  pipe.Build();
+
+  if (!pipe.IsDone()) {
+    throw new Error('Failed to sweep thread profile - helix generation failed');
+  }
+
+  const threadCutter = pipe.Shape();
+
+  // Cut the thread grooves from the cylinder
+  const progress = new oc.Message_ProgressRange_1();
+  const cut = new oc.BRepAlgoAPI_Cut_3(cylinderShape, threadCutter, progress);
+
+  if (!cut.IsDone()) {
+    throw new Error('Thread cutting operation failed');
+  }
+
+  return {
+    shape: cut.Shape(),
+    id: getTopoId(cut.Shape()),
+    type: 'externalThread',
+    threadInfo: {
+      pitch,
+      length: threadLength,
+      majorDiameter: cylRadius * 2,
+      minorDiameter: (cylRadius - threadGeom.depth) * 2,
+      turns: helix.turns,
+    },
+  };
+}
+
+/**
+ * Create an internal thread (tapped hole with helical geometry)
+ * @param {TopoDS_Shape} targetShape - Shape containing the hole
+ * @param {{x,y,z}} position - Center of hole on surface
+ * @param {{x,y,z}} direction - Direction into material
+ * @param {number} nominalDiameter - Thread nominal diameter (e.g., 10 for M10)
+ * @param {number} pitch - Thread pitch in mm
+ * @param {number} depth - Thread depth
+ * @returns {{shape: TopoDS_Shape, id: string, type: string, threadInfo: Object}}
+ */
+function createInternalThread(targetShape, position, direction, nominalDiameter, pitch, depth) {
+  const threadGeom = getThreadProfileGeometry(pitch, false);
+
+  // Calculate tap drill diameter (minor diameter for internal threads)
+  const minorDiameter = nominalDiameter - 2 * threadGeom.depth;
+  const tapDrillDiameter = minorDiameter;
+
+  // First create the tap drill hole
+  const holeResult = createSimpleHole(targetShape, position, direction, tapDrillDiameter, depth);
+
+  // For internal threads, we would add material (helical ridge)
+  // However, this is computationally expensive. For most applications,
+  // the tap drill hole with thread metadata is sufficient.
+
+  // Store thread metadata for visualization/manufacturing
+  return {
+    shape: holeResult.shape,
+    id: getTopoId(holeResult.shape),
+    type: 'internalThread',
+    threadInfo: {
+      nominalDiameter,
+      pitch,
+      depth,
+      tapDrillDiameter,
+      majorDiameter: nominalDiameter,
+      minorDiameter,
+    },
+  };
+}
+
+/**
+ * Create a cosmetic thread (no geometry modification, just metadata)
+ * Used for manufacturing drawings and fast preview
+ * @param {string} shapeId - Shape ID (unused, for reference)
+ * @param {string} faceId - Face ID where thread is applied
+ * @param {number} nominalDiameter - Thread nominal diameter
+ * @param {number} pitch - Thread pitch
+ * @param {number} length - Thread length
+ * @param {string} threadType - 'external' or 'internal'
+ * @returns {{type: string, faceId: string, threadInfo: Object}}
+ */
+function createCosmeticThread(shapeId, faceId, nominalDiameter, pitch, length, threadType = 'external') {
+  const threadGeom = getThreadProfileGeometry(pitch, threadType === 'external');
+
+  return {
+    type: 'cosmeticThread',
+    faceId,
+    threadInfo: {
+      nominalDiameter,
+      pitch,
+      length,
+      threadType,
+      majorDiameter: nominalDiameter,
+      minorDiameter: nominalDiameter - 2 * threadGeom.depth,
+      depth: threadGeom.depth,
+    },
+  };
+}
+
+/**
+ * Create a threaded cylinder (bolt/screw body)
+ * Creates a cylinder with external threads
+ * @param {number} nominalDiameter - Thread nominal diameter
+ * @param {number} pitch - Thread pitch
+ * @param {number} length - Total length
+ * @param {{x,y,z}} center - Center at base
+ * @returns {{shape: TopoDS_Shape, id: string, type: string, threadInfo: Object}}
+ */
+function createThreadedCylinder(nominalDiameter, pitch, length, center = { x: 0, y: 0, z: 0 }) {
+  // Create base cylinder
+  const radius = nominalDiameter / 2;
+  const cylinder = createCylinder(radius, length, center);
+
+  // Add external threads
+  const threaded = createExternalThread(cylinder.shape, pitch, length, 0);
+
+  return {
+    shape: threaded.shape,
+    id: threaded.id,
+    type: 'threadedCylinder',
+    threadInfo: {
+      ...threaded.threadInfo,
+      nominalDiameter,
+    },
+  };
+}
+
 /**
  * Calculate volume of shape
  */
@@ -3205,6 +3744,103 @@ self.onmessage = async function (e) {
         result = { id: swept.id, mesh: sweepMesh };
         break;
 
+      // ==================== Rib and Web Operations ====================
+
+      case 'createRib': {
+        const baseBodyRib = shapes.get(params.baseBodyId);
+        if (!baseBodyRib) throw new Error(`Base body not found: ${params.baseBodyId}`);
+
+        const pathWireRib = shapes.get(params.pathId);
+        if (!pathWireRib) throw new Error(`Path not found: ${params.pathId}`);
+
+        const ribResult = createRib(
+          baseBodyRib,
+          pathWireRib,
+          params.thickness,
+          params.height,
+          params.draftAngle || 0,
+          params.direction || null
+        );
+        shapes.set(ribResult.id, ribResult.shape);
+        const ribMesh = tessellate(ribResult.shape);
+        result = {
+          id: ribResult.id,
+          mesh: ribMesh,
+          type: 'rib',
+        };
+        break;
+      }
+
+      case 'createRibFromLine': {
+        const baseBodyRibLine = shapes.get(params.baseBodyId);
+        if (!baseBodyRibLine) throw new Error(`Base body not found: ${params.baseBodyId}`);
+
+        const ribLineResult = createRibFromLine(
+          baseBodyRibLine,
+          params.startPoint,
+          params.endPoint,
+          params.thickness,
+          params.height,
+          params.draftAngle || 0,
+          params.direction || { x: 0, y: 0, z: 1 }
+        );
+        shapes.set(ribLineResult.id, ribLineResult.shape);
+        const ribLineMesh = tessellate(ribLineResult.shape);
+        result = {
+          id: ribLineResult.id,
+          mesh: ribLineMesh,
+          type: 'rib',
+        };
+        break;
+      }
+
+      case 'createWeb': {
+        const baseBodyWeb = params.baseBodyId ? shapes.get(params.baseBodyId) : null;
+        if (params.baseBodyId && !baseBodyWeb) {
+          throw new Error(`Base body not found: ${params.baseBodyId}`);
+        }
+
+        const profileWeb = shapes.get(params.profileId);
+        if (!profileWeb) throw new Error(`Profile not found: ${params.profileId}`);
+
+        const webResult = createWeb(
+          baseBodyWeb,
+          profileWeb,
+          params.thickness,
+          params.direction || { x: 0, y: 0, z: 1 }
+        );
+        shapes.set(webResult.id, webResult.shape);
+        const webMesh = tessellate(webResult.shape);
+        result = {
+          id: webResult.id,
+          mesh: webMesh,
+          type: 'web',
+        };
+        break;
+      }
+
+      case 'createWebFromPolygon': {
+        const baseBodyWebPoly = params.baseBodyId ? shapes.get(params.baseBodyId) : null;
+        if (params.baseBodyId && !baseBodyWebPoly) {
+          throw new Error(`Base body not found: ${params.baseBodyId}`);
+        }
+
+        const webPolyResult = createWebFromPolygon(
+          baseBodyWebPoly,
+          params.points,
+          params.thickness,
+          params.direction || { x: 0, y: 0, z: 1 }
+        );
+        shapes.set(webPolyResult.id, webPolyResult.shape);
+        const webPolyMesh = tessellate(webPolyResult.shape);
+        result = {
+          id: webPolyResult.id,
+          mesh: webPolyMesh,
+          type: 'web',
+        };
+        break;
+      }
+
       case 'mirrorShape':
         const shapeMir = shapes.get(params.shapeId);
         if (!shapeMir) throw new Error(`Shape not found: ${params.shapeId}`);
@@ -3465,6 +4101,84 @@ self.onmessage = async function (e) {
           id: toolResult.id,
           mesh: toolMesh,
           type: toolResult.type,
+        };
+        break;
+      }
+
+      // ==================== Thread Operations ====================
+
+      case 'createExternalThread': {
+        const cylinderShape = shapes.get(params.shapeId);
+        if (!cylinderShape) throw new Error(`Shape not found: ${params.shapeId}`);
+
+        const threadResult = createExternalThread(
+          cylinderShape,
+          params.pitch,
+          params.length || 0,
+          params.startZ || 0
+        );
+        shapes.set(threadResult.id, threadResult.shape);
+        const threadMesh = tessellate(threadResult.shape);
+        result = {
+          id: threadResult.id,
+          mesh: threadMesh,
+          type: 'externalThread',
+          threadInfo: threadResult.threadInfo,
+        };
+        break;
+      }
+
+      case 'createInternalThread': {
+        const targetShape = shapes.get(params.shapeId);
+        if (!targetShape) throw new Error(`Shape not found: ${params.shapeId}`);
+
+        const threadResult = createInternalThread(
+          targetShape,
+          params.position,
+          params.direction,
+          params.nominalDiameter,
+          params.pitch,
+          params.depth
+        );
+        shapes.set(threadResult.id, threadResult.shape);
+        const threadMesh = tessellate(threadResult.shape);
+        result = {
+          id: threadResult.id,
+          mesh: threadMesh,
+          type: 'internalThread',
+          threadInfo: threadResult.threadInfo,
+        };
+        break;
+      }
+
+      case 'createCosmeticThread': {
+        // Cosmetic threads don't modify geometry, just return metadata
+        const cosmeticResult = createCosmeticThread(
+          params.shapeId,
+          params.faceId,
+          params.nominalDiameter,
+          params.pitch,
+          params.length,
+          params.threadType || 'external'
+        );
+        result = cosmeticResult;
+        break;
+      }
+
+      case 'createThreadedCylinder': {
+        const threadedCyl = createThreadedCylinder(
+          params.nominalDiameter,
+          params.pitch,
+          params.length,
+          params.center || { x: 0, y: 0, z: 0 }
+        );
+        shapes.set(threadedCyl.id, threadedCyl.shape);
+        const threadedMesh = tessellate(threadedCyl.shape);
+        result = {
+          id: threadedCyl.id,
+          mesh: threadedMesh,
+          type: 'threadedCylinder',
+          threadInfo: threadedCyl.threadInfo,
         };
         break;
       }

@@ -383,6 +383,75 @@ export function registerBooleanCommands(kernel) {
     },
   });
 
+  // OFFSET - Offset 2D sketch entities (wires)
+  registerCommand('offset', {
+    aliases: ['off'],
+    description: 'Offset selected sketch entities by a distance',
+    category: 'sketch',
+    usage:
+      'offset <distance> [mode]\n  offset 5      - Offset outward by 5\n  offset -5     - Offset inward by 5\n  offset 5 both - Create both inward and outward offsets',
+    params: [
+      {
+        name: 'distance',
+        type: 'number',
+        required: true,
+        description: 'Offset distance (positive = outward, negative = inward)',
+      },
+      {
+        name: 'mode',
+        type: 'string',
+        required: false,
+        default: 'single',
+        description: 'Mode: single (one direction) or both (both directions)',
+      },
+    ],
+    validate(params, context) {
+      if (!context.selection?.length) return 'Select a wire/sketch entity to offset';
+      if (params.distance === 0) return 'Distance cannot be zero';
+      const validModes = ['single', 'both'];
+      const mode = (params.mode || 'single').toLowerCase();
+      if (!validModes.includes(mode)) {
+        return `Invalid mode: ${params.mode}. Use: ${validModes.join(', ')}`;
+      }
+      return true;
+    },
+    async execute(params, context) {
+      const wireId = context.selection[0];
+      const mode = (params.mode || 'single').toLowerCase();
+      const result = await kernel.offsetWire(wireId, params.distance, mode);
+      return result;
+    },
+  });
+
+  // OFFSETFACE - Offset 3D faces (thicken/push faces)
+  registerCommand('offsetface', {
+    aliases: ['offsetfaces', 'pushface', 'thickenface'],
+    description: 'Offset selected faces by a distance',
+    category: 'feature',
+    usage:
+      'offsetface <distance>\n  offsetface 2   - Offset faces outward by 2mm\n  offsetface -2  - Offset faces inward by 2mm',
+    params: [
+      {
+        name: 'distance',
+        type: 'number',
+        required: true,
+        description: 'Offset distance (positive = outward, negative = inward)',
+      },
+    ],
+    validate(params, context) {
+      if (!context.selection?.length) return 'Select a shape with faces to offset';
+      if (params.distance === 0) return 'Distance cannot be zero';
+      return true;
+    },
+    async execute(params, context) {
+      const shapeId = context.selection[0];
+      // If specific faces are selected, use those
+      const faceIds = context.selectedFaceIds || null;
+      const result = await kernel.offsetFaces(shapeId, params.distance, faceIds);
+      return result;
+    },
+  });
+
   // GETFACES - List all face IDs for a shape (for debugging/selection)
   registerCommand('getfaces', {
     aliases: ['faces', 'listfaces'],

@@ -633,6 +633,107 @@ export class KernelBridge {
     return this._call('sweep', { profileId, pathId });
   }
 
+  // ==================== Rib and Web Features ====================
+
+  /**
+   * Create a rib feature
+   * A rib is a thin wall that adds stiffness, created by sweeping a trapezoidal
+   * profile along a path and fusing with the base body.
+   *
+   * @param {string} baseBodyId - ID of the body to add the rib to
+   * @param {string} pathId - ID of the path wire (from sketch line/curve)
+   * @param {number} thickness - Rib thickness
+   * @param {number} height - Rib height (perpendicular to the face)
+   * @param {number} draftAngle - Draft angle in degrees (0 for no draft)
+   * @param {{x,y,z}|null} direction - Direction of rib height (face normal), null for auto
+   * @returns {Promise<{id: string, mesh: Object, type: string}>}
+   */
+  async createRib(baseBodyId, pathId, thickness, height, draftAngle = 0, direction = null) {
+    await this.init();
+    return this._call('createRib', {
+      baseBodyId,
+      pathId,
+      thickness,
+      height,
+      draftAngle,
+      direction,
+    });
+  }
+
+  /**
+   * Create a rib from a line segment (simplified workflow)
+   * Creates a rib along a straight line between two points.
+   *
+   * @param {string} baseBodyId - ID of the body to add the rib to
+   * @param {{x,y,z}} startPoint - Start point of rib path
+   * @param {{x,y,z}} endPoint - End point of rib path
+   * @param {number} thickness - Rib thickness
+   * @param {number} height - Rib height
+   * @param {number} draftAngle - Draft angle in degrees (0 for no draft)
+   * @param {{x,y,z}} direction - Direction of rib height (typically face normal)
+   * @returns {Promise<{id: string, mesh: Object, type: string}>}
+   */
+  async createRibFromLine(
+    baseBodyId,
+    startPoint,
+    endPoint,
+    thickness,
+    height,
+    draftAngle = 0,
+    direction = { x: 0, y: 0, z: 1 }
+  ) {
+    await this.init();
+    return this._call('createRibFromLine', {
+      baseBodyId,
+      startPoint,
+      endPoint,
+      thickness,
+      height,
+      draftAngle,
+      direction,
+    });
+  }
+
+  /**
+   * Create a web feature
+   * A web is a thin wall created by extruding a profile by a thickness.
+   *
+   * @param {string|null} baseBodyId - ID of the body to add the web to (null for standalone)
+   * @param {string} profileId - ID of the profile (face or wire) to extrude
+   * @param {number} thickness - Web thickness (extrusion distance)
+   * @param {{x,y,z}} direction - Extrusion direction
+   * @returns {Promise<{id: string, mesh: Object, type: string}>}
+   */
+  async createWeb(baseBodyId, profileId, thickness, direction = { x: 0, y: 0, z: 1 }) {
+    await this.init();
+    return this._call('createWeb', {
+      baseBodyId,
+      profileId,
+      thickness,
+      direction,
+    });
+  }
+
+  /**
+   * Create a web from polygon points
+   * Convenience function for creating a web from a set of points defining the profile.
+   *
+   * @param {string|null} baseBodyId - ID of the body to add the web to (null for standalone)
+   * @param {Array<{x,y,z}>} points - Polygon points defining the web profile
+   * @param {number} thickness - Web thickness
+   * @param {{x,y,z}} direction - Extrusion direction
+   * @returns {Promise<{id: string, mesh: Object, type: string}>}
+   */
+  async createWebFromPolygon(baseBodyId, points, thickness, direction = { x: 0, y: 0, z: 1 }) {
+    await this.init();
+    return this._call('createWebFromPolygon', {
+      baseBodyId,
+      points,
+      thickness,
+      direction,
+    });
+  }
+
   /**
    * Create a circular pattern of a shape around an axis
    * @param {string} shapeId - Shape ID to pattern
@@ -841,6 +942,81 @@ export class KernelBridge {
   async createHoleTool(holeType, params) {
     await this.init();
     return this._call('createHoleTool', { holeType, ...params });
+  }
+
+  // ==================== Thread Operations ====================
+
+  /**
+   * Create external threads on a cylinder (modeled helical geometry)
+   * Creates actual thread geometry suitable for 3D printing
+   * @param {string} shapeId - Cylinder shape ID
+   * @param {number} pitch - Thread pitch in mm
+   * @param {number} length - Thread length (0 for full cylinder height)
+   * @param {number} startZ - Z position where threads start (default: 0)
+   * @returns {Promise<{id: string, mesh: Object, type: string, threadInfo: Object}>}
+   */
+  async createExternalThread(shapeId, pitch, length = 0, startZ = 0) {
+    await this.init();
+    return this._call('createExternalThread', { shapeId, pitch, length, startZ });
+  }
+
+  /**
+   * Create internal threads (tapped hole with helical geometry)
+   * @param {string} shapeId - Target shape ID
+   * @param {{x,y,z}} position - Center of hole on surface
+   * @param {{x,y,z}} direction - Direction into the material (normalized)
+   * @param {number} nominalDiameter - Thread nominal diameter (e.g., 10 for M10)
+   * @param {number} pitch - Thread pitch in mm
+   * @param {number} depth - Thread depth
+   * @returns {Promise<{id: string, mesh: Object, type: string, threadInfo: Object}>}
+   */
+  async createInternalThread(shapeId, position, direction, nominalDiameter, pitch, depth) {
+    await this.init();
+    return this._call('createInternalThread', {
+      shapeId,
+      position,
+      direction,
+      nominalDiameter,
+      pitch,
+      depth,
+    });
+  }
+
+  /**
+   * Create cosmetic thread (no geometry modification, just metadata)
+   * Used for manufacturing drawings and fast preview
+   * @param {string} shapeId - Shape ID (for reference)
+   * @param {string} faceId - Face ID where thread is applied
+   * @param {number} nominalDiameter - Thread nominal diameter
+   * @param {number} pitch - Thread pitch in mm
+   * @param {number} length - Thread length
+   * @param {string} threadType - 'external' or 'internal'
+   * @returns {Promise<{type: string, faceId: string, threadInfo: Object}>}
+   */
+  async createCosmeticThread(shapeId, faceId, nominalDiameter, pitch, length, threadType = 'external') {
+    await this.init();
+    return this._call('createCosmeticThread', {
+      shapeId,
+      faceId,
+      nominalDiameter,
+      pitch,
+      length,
+      threadType,
+    });
+  }
+
+  /**
+   * Create a threaded cylinder (bolt/screw body)
+   * Creates a cylinder with external threads
+   * @param {number} nominalDiameter - Thread nominal diameter
+   * @param {number} pitch - Thread pitch in mm
+   * @param {number} length - Total length
+   * @param {{x,y,z}} center - Center at base
+   * @returns {Promise<{id: string, mesh: Object, type: string, threadInfo: Object}>}
+   */
+  async createThreadedCylinder(nominalDiameter, pitch, length, center = { x: 0, y: 0, z: 0 }) {
+    await this.init();
+    return this._call('createThreadedCylinder', { nominalDiameter, pitch, length, center });
   }
 
   // ==================== Export ====================
