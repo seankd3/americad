@@ -2301,6 +2301,12 @@ function showHelp() {
 ║   exit / finish        Exit sketch mode                   ║
 ║   extrude [height]     Extrude sketch profile             ║
 ║                                                           ║
+║ SKETCH TOOLS (in sketch mode):                            ║
+║   L         Line tool - click two points                  ║
+║   R         Rectangle tool - click two corners            ║
+║   O         Circle tool - click center + radius           ║
+║   A         Arc tool - click three points                 ║
+║                                                           ║
 ║ WORKFLOW: sketch → draw → exit → extrude 20              ║
 ╠═══════════════════════════════════════════════════════════╣
 ║ PRIMITIVES (uses real B-Rep kernel when available):       ║
@@ -2324,9 +2330,7 @@ function showHelp() {
 ║   Ctrl+S    Save document (.americad)                     ║
 ║   Ctrl+O    Open document                                 ║
 ║   C         Enter sketch mode                             ║
-║   L         Line tool (in sketch)                         ║
-║   R         Rectangle tool (in sketch)                    ║
-║   O         Circle tool (in sketch)                       ║
+║   L/R/O/A   Sketch tools (Line/Rect/Circle/Arc)           ║
 ║   Esc       Cancel / Exit sketch                          ║
 ║   Enter     Finish current operation                      ║
 ║   \`         Focus command line                           ║
