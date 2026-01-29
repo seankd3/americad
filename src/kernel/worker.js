@@ -234,6 +234,8 @@ function createSphere(radius, center = { x: 0, y: 0, z: 0 }) {
 
 /**
  * Create a cone primitive
+ * BRepPrimAPI_MakeCone_4 signature: (gp_Ax2, R1, R2, H, angle)
+ * angle is the sweep angle in radians (2*PI for full cone)
  */
 function createCone(radius1, radius2, height, center = { x: 0, y: 0, z: 0 }) {
     const axis = new oc.gp_Ax2_3(
@@ -241,7 +243,8 @@ function createCone(radius1, radius2, height, center = { x: 0, y: 0, z: 0 }) {
         new oc.gp_Dir_4(0, 0, 1)
     );
     
-    const cone = new oc.BRepPrimAPI_MakeCone_4(axis, radius1, radius2, height).Shape();
+    // Full cone requires 2*PI angle (360 degrees)
+    const cone = new oc.BRepPrimAPI_MakeCone_4(axis, radius1, radius2, height, 2 * Math.PI).Shape();
     
     return {
         shape: cone,
