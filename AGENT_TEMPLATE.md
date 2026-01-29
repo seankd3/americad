@@ -32,6 +32,9 @@ Before marking this task complete, you MUST:
 
 **Failure to complete this checklist means the task is NOT done.**
 
+⚠️ **STRICT ENFORCEMENT**: Pre-commit hooks WILL reject commits that fail lint.
+Run `npm run lint -- --max-warnings 0` before committing!
+
 ---
 
 ## Required Output Format

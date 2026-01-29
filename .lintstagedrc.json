@@ -1,6 +1,6 @@
 {
-  "*.js": ["eslint --fix", "prettier --write"],
-  "*.mjs": ["eslint --fix", "prettier --write"],
+  "*.js": ["eslint --fix --max-warnings 0", "prettier --write"],
+  "*.mjs": ["eslint --fix --max-warnings 0", "prettier --write"],
   "*.json": ["prettier --write"],
   "*.md": ["prettier --write"]
 }

@@ -20,10 +20,7 @@ import {
     commandManager, 
     CreatePrimitiveCommand, 
     DeleteCommand, 
-    TransformCommand,
-    BooleanCommand,
-    EditParamCommand,
-    EditParamsCommand
+    TransformCommand
 } from './src/state/history.js';
 
 // Kernel and command system integration
@@ -31,7 +28,7 @@ import { initializeSystem, executeCommand as execCmd, isKernelReady, getCommandS
 import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
 
 // Modular AmericaD class - the unified CAD architecture
-import { AmericaD, app as americadApp } from './src/main.js';
+import { app as americadApp } from './src/main.js';
 
 // Feature tree UI
 import { FeatureTreeUI, addFeatureTreeStyles } from './src/ui/feature-tree.js';
@@ -46,10 +43,10 @@ import { solveSketch } from './src/sketch/constraint-solver.js';
 import { ViewportManager, cameraPresets } from './src/ui/viewport-manager.js';
 
 // Viewport display modes
-import { ViewportModeManager, ViewportMode, ViewportModeLabels } from './src/ui/viewport-modes.js';
+import { ViewportModeManager, ViewportMode } from './src/ui/viewport-modes.js';
 
 // Modal transform system (Blender-style G/R/S)
-import { ModalTransformManager, TransformMode, AxisConstraint, PlaneConstraint } from './src/ui/modal-transform.js';
+import { ModalTransformManager } from './src/ui/modal-transform.js';
 
 // ========================================
 // SYSTEM STATE

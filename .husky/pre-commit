@@ -1,3 +1,2 @@
-# Temporarily relaxed - enable after codebase cleanup
-# npx lint-staged
-echo "Pre-commit checks skipped (enable after lint cleanup)"
+# STRICT ENFORCEMENT - All commits must pass lint + format
+npx lint-staged
