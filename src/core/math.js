@@ -1,5 +1,5 @@
 /**
- * AMERICA-D CAD SYSTEM - Math Utilities
+ * Ameri-CAD CAD SYSTEM - Math Utilities
  * Pure functions for vector/matrix operations
  */
 

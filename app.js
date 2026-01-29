@@ -1,5 +1,5 @@
 /**
- * AMERICA-D CAD SYSTEM
+ * Ameri-CAD CAD SYSTEM
  * Version: 2.1.0-LA
  * Classification: UNRESTRICTED
  * 
@@ -89,7 +89,7 @@ async function startApp() {
         await initialize();
         window.AMERICAD_LOADED = true;
     } catch (e) {
-        console.error('[AMERICA-D] Failed to start:', e);
+        console.error('[Ameri-CAD] Failed to start:', e);
         window.AMERICAD_LOADED = true;
     }
 }
@@ -102,13 +102,13 @@ if (document.readyState === 'loading') {
 
 async function initialize() {
     const safetyTimeout = setTimeout(() => {
-        console.log('[AMERICA-D] Safety timeout triggered');
+        console.log('[Ameri-CAD] Safety timeout triggered');
         if (DOM.splash) DOM.splash.classList.add('hidden');
         if (DOM.app) DOM.app.classList.remove('hidden');
     }, 5000);
     
     try {
-        console.log('[AMERICA-D] Starting initialization...');
+        console.log('[Ameri-CAD] Starting initialization...');
         
         cacheDOM();
         updateLoadingStatus('INIT THREE.JS...');
@@ -138,14 +138,14 @@ async function initialize() {
                 if (DOM.app) DOM.app.classList.remove('hidden');
                 
                 onResize();
-                console.log('[AMERICA-D] SYSTEM READY');
+                console.log('[Ameri-CAD] SYSTEM READY');
             } catch (e) {
-                console.error('[AMERICA-D] Error revealing app:', e);
+                console.error('[Ameri-CAD] Error revealing app:', e);
             }
         }, 300);
         
     } catch (error) {
-        console.error('[AMERICA-D] INIT ERROR:', error);
+        console.error('[Ameri-CAD] INIT ERROR:', error);
         updateLoadingStatus('INIT FAILED: ' + error.message);
         
         setTimeout(() => {
@@ -180,7 +180,7 @@ function setupHistoryCallbacks() {
     // Update UI when history state changes
     commandManager.onStateChange((canUndo, canRedo) => {
         // Could update undo/redo button states here
-        console.log(`[AMERICA-D] History: Undo=${canUndo}, Redo=${canRedo}`);
+        console.log(`[Ameri-CAD] History: Undo=${canUndo}, Redo=${canRedo}`);
     });
     
     // Update properties panel when selection changes
@@ -224,7 +224,7 @@ async function initThreeJS() {
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     } catch (e) {
-        console.error('[AMERICA-D] WebGL error:', e);
+        console.error('[Ameri-CAD] WebGL error:', e);
         renderer = null;
         drawFallbackCanvas();
         return;
@@ -312,7 +312,7 @@ function drawFallbackCanvas() {
     ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('◆ AMERICA-D', cx, cy - 60);
+    ctx.fillText('◆ Ameri-CAD', cx, cy - 60);
     
     ctx.fillStyle = '#ff6b47';
     ctx.font = '14px monospace';
@@ -1241,7 +1241,7 @@ function updateCursorDisplay(pos) {
 }
 
 function log(message, type = 'info') {
-    console.log(`[AMERICA-D] ${message}`);
+    console.log(`[Ameri-CAD] ${message}`);
     
     const hint = DOM.commandHint || document.getElementById('command-hint');
     if (hint) {

@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Math & Geometry Tests
+ * Ameri-CAD Math & Geometry Tests
  * Tests for geometry calculation functions
  */
 

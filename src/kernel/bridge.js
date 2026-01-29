@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Kernel Bridge
+ * Ameri-CAD Kernel Bridge
  * Main thread interface to the OpenCASCADE Web Worker
  */
 

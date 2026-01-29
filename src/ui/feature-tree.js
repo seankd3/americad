@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Feature Tree UI
+ * Ameri-CAD Feature Tree UI
  * Displays and manages the parametric feature tree
  */
 

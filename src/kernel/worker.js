@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Geometry Kernel Worker
+ * Ameri-CAD Geometry Kernel Worker
  * Runs OpenCASCADE.js in a Web Worker for non-blocking B-Rep operations
  */
 

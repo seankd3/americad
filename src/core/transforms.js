@@ -1,5 +1,5 @@
 /**
- * AMERICA-D CAD SYSTEM - Transform Utilities
+ * Ameri-CAD CAD SYSTEM - Transform Utilities
  * Raycasting, world position calculations, and transform helpers
  */
 

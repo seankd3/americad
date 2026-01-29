@@ -1,5 +1,5 @@
 /**
- * AMERICA-D CAD SYSTEM - Command History Manager
+ * Ameri-CAD CAD SYSTEM - Command History Manager
  * Implements Command Pattern for undo/redo functionality
  */
 

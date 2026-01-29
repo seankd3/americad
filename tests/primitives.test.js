@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Primitives Tests
+ * Ameri-CAD Primitives Tests
  * Tests for shape generation and validation
  */
 

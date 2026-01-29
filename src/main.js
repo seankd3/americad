@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Main Entry Point
+ * Ameri-CAD Main Entry Point
  * Integrates all modules: Kernel + Document Model + UI
  */
 
@@ -11,7 +11,7 @@ import { commandManager } from './state/history.js';
 import { CrashGuard } from './crash-guard.js';
 
 /**
- * AMERICA-D Application
+ * Ameri-CAD Application
  */
 export class AmericaD {
     constructor(options = {}) {
@@ -38,7 +38,7 @@ export class AmericaD {
         this.selectedFeatureId = null;
         this.kernelReady = false;
         
-        console.log('[AMERICA-D] Application created');
+        console.log('[Ameri-CAD] Application created');
     }
     
     /**
@@ -47,19 +47,19 @@ export class AmericaD {
     async init(THREE) {
         this.THREE = THREE;
         
-        console.log('[AMERICA-D] Initializing...');
+        console.log('[Ameri-CAD] Initializing...');
         
         // Add styles
         addFeatureTreeStyles();
         
         // Initialize kernel
-        console.log('[AMERICA-D] Loading geometry kernel...');
+        console.log('[Ameri-CAD] Loading geometry kernel...');
         try {
             await kernel.init();
             this.kernelReady = true;
-            console.log('[AMERICA-D] Kernel ready');
+            console.log('[Ameri-CAD] Kernel ready');
         } catch (error) {
-            console.warn('[AMERICA-D] Kernel failed to load, running in mesh-only mode:', error);
+            console.warn('[Ameri-CAD] Kernel failed to load, running in mesh-only mode:', error);
             this.kernelReady = false;
         }
         
@@ -78,7 +78,7 @@ export class AmericaD {
         CrashGuard.onRecover = (data) => this.recoverFromCrash(data);
         CrashGuard.init();
         
-        console.log('[AMERICA-D] Initialization complete');
+        console.log('[Ameri-CAD] Initialization complete');
     }
     
     /**
@@ -295,7 +295,7 @@ export class AmericaD {
         if (!feature) return;
         
         // Show parameter dialog (placeholder)
-        console.log('[AMERICA-D] Edit feature:', feature.name, feature.params);
+        console.log('[Ameri-CAD] Edit feature:', feature.name, feature.params);
         
         // TODO: Show modal with parameter inputs
     }
@@ -366,12 +366,12 @@ export class AmericaD {
     async exportSTEP(featureId = null) {
         const id = featureId || this.selectedFeatureId;
         if (!id) {
-            console.warn('[AMERICA-D] No feature selected for export');
+            console.warn('[Ameri-CAD] No feature selected for export');
             return;
         }
         
         if (!this.kernelReady) {
-            console.warn('[AMERICA-D] Kernel not ready for STEP export');
+            console.warn('[Ameri-CAD] Kernel not ready for STEP export');
             return;
         }
         
@@ -385,12 +385,12 @@ export class AmericaD {
     async exportSTL(featureId = null) {
         const id = featureId || this.selectedFeatureId;
         if (!id) {
-            console.warn('[AMERICA-D] No feature selected for export');
+            console.warn('[Ameri-CAD] No feature selected for export');
             return;
         }
         
         if (!this.kernelReady) {
-            console.warn('[AMERICA-D] Kernel not ready for STL export');
+            console.warn('[Ameri-CAD] Kernel not ready for STL export');
             return;
         }
         
@@ -404,7 +404,7 @@ export class AmericaD {
      * Recover from crash
      */
     recoverFromCrash(data) {
-        console.log('[AMERICA-D] Recovering from crash:', data);
+        console.log('[Ameri-CAD] Recovering from crash:', data);
         // TODO: Replay commands from crash log
     }
     

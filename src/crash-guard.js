@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Crash Guard
+ * Ameri-CAD Crash Guard
  * Auto-save and recovery system using localStorage
  * 
  * Saves the last 50 commands to enable recovery after crashes
@@ -274,7 +274,7 @@ export const CrashGuard = {
                     <h2>RECOVER PREVIOUS SESSION?</h2>
                 </div>
                 <div class="crash-recovery-body">
-                    <p>AMERICA-D detected unsaved work from a previous session.</p>
+                    <p>Ameri-CAD detected unsaved work from a previous session.</p>
                     <div class="crash-recovery-stats">
                         <div class="stat">
                             <span class="stat-value">${summary.commandCount}</span>

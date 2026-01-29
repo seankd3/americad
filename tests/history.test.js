@@ -1,5 +1,5 @@
 /**
- * AMERICA-D History (Undo/Redo) Tests
+ * Ameri-CAD History (Undo/Redo) Tests
  * Tests for command history and crash recovery
  */
 

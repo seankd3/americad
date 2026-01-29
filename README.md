@@ -1,4 +1,4 @@
-# AMERICA-D CAD SYSTEM
+# Ameri-CAD CAD SYSTEM
 
 ```
 VER 2.0.1-LA // UNRESTRICTED
@@ -34,7 +34,7 @@ Install "Live Server" extension, right-click on `index.html` → "Open with Live
 
 ## Overview
 
-AMERICA-D is a professional-grade 3D CAD application designed with the aesthetic sensibilities of American hard tech - inspired by **US Graphics Company's** Berkeley Mono™, **Anduril Industries**, and **Palantir Technologies**. Built for the 21st century industrial designer, engineer, and machinist.
+Ameri-CAD is a professional-grade 3D CAD application designed with the aesthetic sensibilities of American hard tech - inspired by **US Graphics Company's** Berkeley Mono™, **Anduril Industries**, and **Palantir Technologies**. Built for the 21st century industrial designer, engineer, and machinist.
 
 ### Design Philosophy
 
@@ -224,7 +224,7 @@ The command line provides direct access to CAD operations:
 ```
 
 ### No Build Step Required
-AMERICA-D runs directly in the browser using ES modules:
+Ameri-CAD runs directly in the browser using ES modules:
 - Three.js loaded via CDN
 - No bundler required
 - No dependencies to install
@@ -257,6 +257,6 @@ UNRESTRICTED // For American Manufacturing
 ---
 
 ```
-AMERICA-D // SPACE GRADE CAD
+Ameri-CAD // SPACE GRADE CAD
 MADE IN USA
 ```

@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Feature Evaluator
+ * Ameri-CAD Feature Evaluator
  * Compiles the Document Model into geometry via the kernel
  */
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AMERICA-D // CAD SYSTEM</title>
+    <title>Ameri-CAD // CAD SYSTEM</title>
     <meta name="description" content="Professional 3D CAD - Space Grade, HiRel, RadHard">
     <link rel="stylesheet" href="styles.css">
     <!-- Three.js from jsDelivr -->
@@ -20,13 +20,13 @@
     <script>
         // Global error handling
         window.addEventListener('error', (e) => {
-            console.error('[AMERICA-D] Loading error:', e.message);
+            console.error('[Ameri-CAD] Loading error:', e.message);
             const status = document.getElementById('loading-status');
             if (status) status.textContent = 'ERROR: ' + e.message.substring(0, 30);
         });
         
         window.addEventListener('unhandledrejection', (e) => {
-            console.error('[AMERICA-D] Promise rejection:', e.reason);
+            console.error('[Ameri-CAD] Promise rejection:', e.reason);
             e.preventDefault();
             // Show app anyway
             setTimeout(() => {
@@ -41,7 +41,7 @@
         window.AMERICAD_LOADED = false;
         setTimeout(() => {
             if (!window.AMERICAD_LOADED) {
-                console.warn('[AMERICA-D] Module load timeout - showing app');
+                console.warn('[Ameri-CAD] Module load timeout - showing app');
                 const splash = document.getElementById('splash-screen');
                 const app = document.getElementById('app');
                 if (splash) splash.classList.add('hidden');
@@ -57,7 +57,7 @@
     <div id="splash-screen" class="splash-screen">
         <div class="splash-content">
             <div class="splash-brand">
-                <div class="splash-logo">AMERICA-D</div>
+                <div class="splash-logo">Ameri-CAD</div>
                 <div class="splash-version">VER 2.0.1-LA // UNRESTRICTED</div>
             </div>
             <div class="splash-loading">
@@ -79,7 +79,7 @@
         <!-- Header - System Bar -->
         <header class="system-header">
             <div class="header-left">
-                <div class="brand">AMERICA-D</div>
+                <div class="brand">Ameri-CAD</div>
                 <nav class="menu-bar">
                     <div class="menu-item" data-menu="file">
                         FILE

@@ -1,5 +1,5 @@
 /**
- * AMERICA-D Document Model
+ * Ameri-CAD Document Model
  * The Feature DAG (Directed Acyclic Graph) - source of truth for parametric CAD
  */
 

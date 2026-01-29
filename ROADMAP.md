@@ -1,4 +1,4 @@
-# AMERICA-D Development Roadmap
+# Ameri-CAD Development Roadmap
 
 **Generated:** 2026-01-29
 **Goal:** Professional CAD app like Fusion 360, running locally

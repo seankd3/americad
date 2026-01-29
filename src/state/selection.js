@@ -1,5 +1,5 @@
 /**
- * AMERICA-D CAD SYSTEM - Selection Manager
+ * Ameri-CAD CAD SYSTEM - Selection Manager
  * Handles object selection state and visual feedback
  */
 
