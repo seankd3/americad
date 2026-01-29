@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "``` VER 2.0.1-LA // UNRESTRICTED Space Grade / HiRel / RadHard 3D CAD Platform ```",
   "main": "app.js",
+  "type": "module",
   "directories": {
     "lib": "lib",
     "test": "tests"
   },
   "scripts": {
-    "test": "node tests/run-tests.mjs",
+    "test": "npx playwright test",
+    "test:count": "node tests/run-tests.mjs",
     "test:browser": "open tests/runner.html || xdg-open tests/runner.html",
     "serve": "python3 -m http.server 8080",
     "lint": "echo 'No linter configured yet'"
@@ -20,12 +22,20 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/Sean-Kenneth-Doherty/americad/issues"
   },
   "homepage": "https://github.com/Sean-Kenneth-Doherty/americad#readme",
   "dependencies": {
     "opencascade.js": "^1.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1"
   }
 }
