@@ -36,6 +36,9 @@ import {
   validate,
   FILE_EXTENSION,
 } from './io/file-format.js';
+// Reserved for welcome screen integration
+// import { getRecentFilesManager } from './core/recent-files.js';
+// import { WelcomeScreen, addWelcomeScreenStyles } from './ui/welcome-screen.js';
 
 /**
  * Ameri-CAD Application
@@ -62,6 +65,10 @@ export class AmericaD {
     this.treeUI = null;
     this.propertyPanel = null;
     this.measureTool = null;
+
+    // Recent files and welcome screen
+    this.recentFiles = getRecentFilesManager(10);
+    this.welcomeScreen = null;
 
     // State
     this.selectedFeatureId = null;
@@ -122,6 +129,37 @@ export class AmericaD {
         }
       });
     }
+
+    // Initialize welcome screen
+    addWelcomeScreenStyles();
+    this.welcomeScreen = new WelcomeScreen({
+      recentFiles: this.recentFiles,
+      callbacks: {
+        onNewDocument: () => {
+          this.newDocument();
+          this.welcomeScreen.hide();
+        },
+        onOpenFile: async () => {
+          const success = await this.openDocument();
+          if (success) {
+            this.welcomeScreen.hide();
+          }
+        },
+        onOpenRecent: async path => {
+          // For now, recent files store serialized JSON content
+          // In a full implementation, this would read from disk
+          const file = this.recentFiles.get(path);
+          if (file && file.content) {
+            try {
+              await this.loadDocument(file.content, file.name);
+              this.welcomeScreen.hide();
+            } catch (error) {
+              console.error('[Ameri-CAD] Failed to open recent file:', error);
+            }
+          }
+        },
+      },
+    });
 
     console.log('[Ameri-CAD] Initialization complete');
   }
@@ -566,6 +604,10 @@ export class AmericaD {
     // Clear modified state
     this.document.modifiedAt = Date.now();
 
+    // Add to recent files
+    const docName = this.document.name || filename.replace(FILE_EXTENSION, '');
+    this.recentFiles.add(fullFilename, docName, { content: json });
+
     return json;
   }
 
@@ -636,6 +678,12 @@ export class AmericaD {
 
     // Update document title in UI
     this.updateDocumentTitle(this.document.name);
+
+    // Add to recent files
+    const fullFilename = filename || `${this.document.name || 'Untitled'}${FILE_EXTENSION}`;
+    const docName = this.document.name || 'Untitled';
+    const jsonContent = typeof json === 'string' ? json : JSON.stringify(json);
+    this.recentFiles.add(fullFilename, docName, { content: jsonContent });
 
     console.log(`[Ameri-CAD] Loaded document with ${this.document.features.size} features`);
   }
@@ -889,7 +937,54 @@ export class AmericaD {
     this.selectFeature(null);
     CrashGuard.clear();
   }
+
+  // ==================== Welcome Screen ====================
+
+  /**
+   * Show the welcome screen
+   */
+  showWelcomeScreen() {
+    if (this.welcomeScreen) {
+      this.welcomeScreen.show();
+    }
+  }
+
+  /**
+   * Hide the welcome screen
+   */
+  hideWelcomeScreen() {
+    if (this.welcomeScreen) {
+      this.welcomeScreen.hide();
+    }
+  }
+
+  /**
+   * Check if welcome screen is visible
+   * @returns {boolean}
+   */
+  isWelcomeScreenVisible() {
+    return this.welcomeScreen ? this.welcomeScreen.isVisible() : false;
+  }
+
+  /**
+   * Get recent files list
+   * @returns {Array} Array of recent file objects
+   */
+  getRecentFiles() {
+    return this.recentFiles.getRecent();
+  }
+
+  /**
+   * Clear recent files history
+   */
+  clearRecentFiles() {
+    this.recentFiles.clear();
+  }
 }
 
 // Export singleton
 export const app = new AmericaD();
+
+// Re-export for convenience
+export { getRecentFilesManager } from './core/recent-files.js';
+export { WelcomeScreen, addWelcomeScreenStyles } from './ui/welcome-screen.js';

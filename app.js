@@ -45,6 +45,10 @@ import { app as americadApp } from './src/main.js';
 import { FeatureTreeUI, addFeatureTreeStyles } from './src/ui/feature-tree.js';
 import { initPropertyPanel } from './src/ui/property-panel.js';
 
+// Command palette (Ctrl+Shift+P / F3)
+import { CommandPalette } from './src/ui/command-palette.js';
+// registerPaletteCommands, registerCommand - reserved for future palette customization
+
 // Sketch system
 import {
   sketchManager,
@@ -67,6 +71,10 @@ import { ModalTransformManager } from './src/ui/modal-transform.js';
 
 // Camera presets system (orthographic views with numpad shortcuts)
 import { CameraPresetManager, CameraPresets, handleViewShortcut } from './src/ui/camera-presets.js';
+
+// Pie menu system (Blender-style radial menus)
+// Reserved for future radial menu integration
+// import { PieMenu, PieMenuContext } from './src/ui/pie-menu.js';
 
 // ========================================
 // SYSTEM STATE
@@ -137,6 +145,8 @@ let propertyPanel; // Property panel UI component
 let viewportModes; // Viewport display mode manager
 let modalTransformManager; // Blender-style G/R/S modal transforms
 let cameraPresetManager; // Orthographic view presets
+// let pieMenu; // Radial pie menu for quick actions (reserved)
+let commandPalette; // Command palette (Ctrl+Shift+P / F3)
 
 // ========================================
 // DOM REFERENCES
@@ -282,6 +292,9 @@ async function initKernelSystem() {
     // Initialize the feature tree UI
     initFeatureTreeUI();
 
+    // Initialize the command palette (Ctrl+Shift+P / F3)
+    initCommandPalette();
+
     // Update status indicator
     const statusIndicator = document.querySelector('.status-indicator');
     if (statusIndicator) {
@@ -293,6 +306,9 @@ async function initKernelSystem() {
 
     // Still try to init feature tree with fallback
     initFeatureTreeUI();
+
+    // Initialize command palette even in fallback mode
+    initCommandPalette();
   }
 }
 
@@ -505,6 +521,28 @@ function updateFeatureTree() {
   }
 }
 
+/**
+ * Initialize the Command Palette UI (Ctrl+Shift+P / F3)
+ */
+function initCommandPalette() {
+  const context = getContext();
+
+  commandPalette = new CommandPalette({
+    context: context,
+    onExecute: (result, cmd) => {
+      log(`EXECUTED: ${cmd.name}`, 'success');
+
+      // Update feature tree if command might have created/modified features
+      updateFeatureTree();
+    },
+  });
+
+  // Register the 'commands' command to open the palette
+  registerPaletteCommands(commandPalette, registerCommand);
+
+  console.log('[Ameri-CAD] Command palette initialized (Ctrl+Shift+P / F3)');
+}
+
 function cacheDOM() {
   DOM.splash = document.getElementById('splash-screen');
   DOM.app = document.getElementById('app');
@@ -713,6 +751,9 @@ async function initThreeJS() {
       context.cameraPresets = cameraPresetManager;
     }
   }, 100);
+
+  // Initialize pie menu for quick actions
+  initPieMenu();
 
   // Set up sketch manager callbacks
   sketchManager.onSketchUpdate = (sketch, previewEntity) => {
@@ -1689,6 +1730,145 @@ function initViewportModes() {
   });
 
   console.log('[Ameri-CAD] Viewport mode manager initialized');
+}
+
+/**
+ * Initialize pie menu for quick actions
+ */
+function initPieMenu() {
+  pieMenu = new PieMenu({
+    container: document.body,
+    radius: 100,
+    holdDelay: 150,
+    getContext: () => {
+      // Determine context based on application state
+      if (System.inSketchMode) {
+        return PieMenuContext.SKETCH;
+      }
+      if (selectionManager.getSelected()) {
+        return PieMenuContext.SELECTION;
+      }
+      return PieMenuContext.DEFAULT;
+    },
+    onAction: async (actionId, _item, context) => {
+      // Handle pie menu actions
+      await handlePieMenuAction(actionId, context);
+    },
+    log: log,
+  });
+
+  pieMenu.enable();
+  System.pieMenu = pieMenu;
+
+  console.log('[Ameri-CAD] Pie menu initialized');
+}
+
+/**
+ * Handle pie menu action selection
+ * @param {string} actionId - The action identifier
+ * @param {string} context - The context (default, selection, sketch)
+ */
+async function handlePieMenuAction(actionId, context) {
+  switch (context) {
+    case PieMenuContext.DEFAULT:
+      switch (actionId) {
+        case 'box':
+          await createPrimitive('box', { size: [20, 20, 20], position: [0, 10, 0] });
+          break;
+        case 'cylinder':
+          await createPrimitive('cylinder', { radius: 8, height: 20, position: [0, 10, 0] });
+          break;
+        case 'sphere':
+          await createPrimitive('sphere', { radius: 10, position: [0, 10, 0] });
+          break;
+        case 'sketch':
+          enterSketchMode('xy');
+          break;
+        case 'measure':
+          if (System.americad?.measureTool) {
+            System.americad.measureTool.toggle();
+          }
+          break;
+        case 'open':
+          openDocument();
+          break;
+        case 'save':
+          saveDocument();
+          break;
+        case 'undo':
+          undo();
+          break;
+      }
+      break;
+
+    case PieMenuContext.SELECTION:
+      switch (actionId) {
+        case 'delete':
+          deleteSelected();
+          break;
+        case 'fillet':
+          log('FILLET: Select edges (not yet implemented)', 'info');
+          break;
+        case 'chamfer':
+          log('CHAMFER: Select edges (not yet implemented)', 'info');
+          break;
+        case 'boolean':
+          log('BOOLEAN: Select second body (not yet implemented)', 'info');
+          break;
+        case 'pattern':
+          log('PATTERN: Configure pattern (not yet implemented)', 'info');
+          break;
+        case 'move':
+          if (transformControl) {
+            System.transformMode = 'translate';
+            transformControl.setMode('translate');
+          }
+          break;
+        case 'copy':
+          log('COPY: Not yet implemented', 'info');
+          break;
+        case 'properties':
+          // Show property panel or feature tree
+          const selected = selectionManager.getSelected();
+          if (selected && propertyPanel && System.americad?.document) {
+            const feature = System.americad.document.getFeature(selected.userData?.id);
+            if (feature) {
+              propertyPanel.bind(feature, selected);
+            }
+          }
+          break;
+      }
+      break;
+
+    case PieMenuContext.SKETCH:
+      switch (actionId) {
+        case 'line':
+          setSketchTool(SketchMode.LINE);
+          break;
+        case 'rect':
+          setSketchTool(SketchMode.RECTANGLE);
+          break;
+        case 'circle':
+          setSketchTool(SketchMode.CIRCLE);
+          break;
+        case 'spline':
+          setSketchTool(SketchMode.SPLINE);
+          break;
+        case 'arc':
+          setSketchTool(SketchMode.ARC);
+          break;
+        case 'dim':
+          setSketchTool(SketchMode.DIMENSION);
+          break;
+        case 'constrain':
+          setSketchTool(SketchMode.CONSTRAINT);
+          break;
+        case 'exit':
+          exitSketchMode();
+          break;
+      }
+      break;
+  }
 }
 
 // ========================================

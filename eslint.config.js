@@ -31,11 +31,11 @@ export default [
       import: pluginImport,
     },
     rules: {
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-console': 'off',
       'prefer-const': 'warn',
       'no-var': 'error',
-      'eqeqeq': ['warn', 'always'],
+      eqeqeq: ['warn', 'always'],
     },
   },
 ];
