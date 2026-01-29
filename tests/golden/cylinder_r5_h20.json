@@ -1,0 +1,44 @@
+{
+    "name": "cylinder_r5_h20",
+    "description": "Golden reference mesh for cylinder with radius 5 and height 20",
+    "primitiveType": "cylinder",
+    "parameters": {
+        "radiusTop": 5,
+        "radiusBottom": 5,
+        "height": 20,
+        "radialSegments": 64
+    },
+    "geometry": {
+        "vertexCount": 390,
+        "faceCount": 256
+    },
+    "volume": 1570.796,
+    "volumeFormula": "π × r² × h = π × 25 × 20",
+    "surfaceArea": 785.398,
+    "surfaceAreaFormula": "2πr² + 2πrh",
+    "boundingBox": {
+        "min": { "x": -5, "y": -10, "z": -5 },
+        "max": { "x": 5, "y": 10, "z": 5 },
+        "size": { "x": 10, "y": 20, "z": 10 },
+        "center": { "x": 0, "y": 0, "z": 0 }
+    },
+    "topology": {
+        "euler": 2,
+        "isManifold": true
+    },
+    "tolerance": {
+        "volume": 20,
+        "position": 0.001,
+        "size": 0.1
+    },
+    "notes": [
+        "Volume tolerance is higher due to tessellation approximation",
+        "Higher radialSegments = more accurate volume",
+        "Uses 64 segments for balance of accuracy and performance"
+    ],
+    "metadata": {
+        "version": "1.0",
+        "created": "2024-01-29",
+        "generator": "AMERICA-D Test Suite"
+    }
+}

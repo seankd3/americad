@@ -1,0 +1,40 @@
+{
+    "name": "box_10x10x10",
+    "description": "Golden reference mesh for 10x10x10 box primitive",
+    "primitiveType": "box",
+    "parameters": {
+        "width": 10,
+        "height": 10,
+        "depth": 10
+    },
+    "geometry": {
+        "vertexCount": 24,
+        "faceCount": 12,
+        "triangleCount": 12
+    },
+    "volume": 1000,
+    "surfaceArea": 600,
+    "boundingBox": {
+        "min": { "x": -5, "y": -5, "z": -5 },
+        "max": { "x": 5, "y": 5, "z": 5 },
+        "size": { "x": 10, "y": 10, "z": 10 },
+        "center": { "x": 0, "y": 0, "z": 0 }
+    },
+    "topology": {
+        "vertices": 8,
+        "edges": 18,
+        "faces": 12,
+        "euler": 2,
+        "isManifold": true
+    },
+    "tolerance": {
+        "volume": 1,
+        "position": 0.001,
+        "size": 0.001
+    },
+    "metadata": {
+        "version": "1.0",
+        "created": "2024-01-29",
+        "generator": "AMERICA-D Test Suite"
+    }
+}

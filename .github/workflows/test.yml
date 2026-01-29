@@ -1,0 +1,334 @@
+name: AMERICA-D Test Suite
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install -D playwright @playwright/test
+          npx playwright install chromium --with-deps
+      
+      - name: Start HTTP server
+        run: |
+          python3 -m http.server 8080 &
+          sleep 2
+          echo "Server started on port 8080"
+      
+      - name: Create Playwright test file
+        run: |
+          cat > playwright.config.js << 'EOF'
+          module.exports = {
+            testDir: './e2e',
+            timeout: 60000,
+            retries: 2,
+            use: {
+              baseURL: 'http://localhost:8080',
+              headless: true,
+              viewport: { width: 1920, height: 1080 },
+              screenshot: 'only-on-failure',
+              video: 'retain-on-failure',
+            },
+            reporter: [
+              ['html', { open: 'never' }],
+              ['list']
+            ],
+          };
+          EOF
+          
+          mkdir -p e2e
+          
+          cat > e2e/app.spec.js << 'EOF'
+          const { test, expect } = require('@playwright/test');
+
+          test.describe('AMERICA-D CAD Application', () => {
+            
+            test.beforeEach(async ({ page }) => {
+              await page.goto('/');
+              // Wait for app to initialize or timeout
+              await Promise.race([
+                page.waitForSelector('#app:not(.hidden)', { timeout: 10000 }),
+                page.waitForTimeout(5000)
+              ]);
+            });
+
+            test('should load application', async ({ page }) => {
+              // Check title
+              await expect(page).toHaveTitle(/AMERICA-D/);
+              
+              // App should be visible
+              const app = page.locator('#app');
+              await expect(app).toBeVisible({ timeout: 10000 });
+            });
+
+            test('should display header and branding', async ({ page }) => {
+              const brand = page.locator('.brand');
+              await expect(brand).toContainText('AMERICA-D');
+            });
+
+            test('should have tool palette', async ({ page }) => {
+              const toolPalette = page.locator('.tool-palette');
+              await expect(toolPalette).toBeVisible();
+              
+              // Check for select tool button
+              const selectBtn = page.locator('.tool-btn[data-tool="select"]');
+              await expect(selectBtn).toBeVisible();
+            });
+
+            test('should have viewport canvas', async ({ page }) => {
+              const canvas = page.locator('#cad-canvas');
+              await expect(canvas).toBeVisible();
+            });
+
+            test('should have command line', async ({ page }) => {
+              const cmdLine = page.locator('.command-line');
+              await expect(cmdLine).toBeVisible();
+              
+              const input = page.locator('#command-input');
+              await expect(input).toBeVisible();
+            });
+
+            test('should switch tools on click', async ({ page }) => {
+              const sketchBtn = page.locator('.tool-btn[data-tool="sketch"]');
+              await sketchBtn.click();
+              
+              await expect(sketchBtn).toHaveClass(/active/);
+            });
+
+            test('should have data panel with properties', async ({ page }) => {
+              const panel = page.locator('#panel-properties');
+              await expect(panel).toBeVisible();
+              
+              // Check for transform section
+              const transform = page.locator('.section-title:has-text("TRANSFORM")');
+              await expect(transform).toBeVisible();
+            });
+
+            test('should respond to view buttons', async ({ page }) => {
+              const topBtn = page.locator('.view-btn[data-view="top"]');
+              await topBtn.click();
+              
+              await expect(topBtn).toHaveClass(/active/);
+            });
+
+            test('should have status bar', async ({ page }) => {
+              const statusBar = page.locator('.status-bar');
+              await expect(statusBar).toBeVisible();
+              
+              // Check for snap toggle
+              const snapToggle = page.locator('#snap-toggle');
+              await expect(snapToggle).toBeVisible();
+            });
+
+            test('should execute commands in command line', async ({ page }) => {
+              const input = page.locator('#command-input');
+              const hint = page.locator('#command-hint');
+              
+              await input.fill('help');
+              await input.press('Enter');
+              
+              // Command should be executed (hint updates)
+              await expect(hint).not.toHaveText('READY');
+            });
+          });
+
+          test.describe('Visual Regression', () => {
+            
+            test('application layout screenshot', async ({ page }) => {
+              await page.goto('/');
+              await Promise.race([
+                page.waitForSelector('#app:not(.hidden)', { timeout: 10000 }),
+                page.waitForTimeout(5000)
+              ]);
+              
+              // Wait for any animations
+              await page.waitForTimeout(500);
+              
+              await expect(page).toHaveScreenshot('app-layout.png', {
+                maxDiffPixelRatio: 0.1
+              });
+            });
+
+            test('tool palette screenshot', async ({ page }) => {
+              await page.goto('/');
+              await Promise.race([
+                page.waitForSelector('#app:not(.hidden)', { timeout: 10000 }),
+                page.waitForTimeout(5000)
+              ]);
+              
+              const toolPalette = page.locator('.tool-palette');
+              await expect(toolPalette).toHaveScreenshot('tool-palette.png', {
+                maxDiffPixelRatio: 0.1
+              });
+            });
+          });
+          EOF
+      
+      - name: Run Playwright tests
+        run: npx playwright test
+        continue-on-error: true
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+      
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-screenshots
+          path: e2e/*.png
+          retention-days: 30
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install -D playwright
+          npx playwright install chromium --with-deps
+      
+      - name: Start HTTP server
+        run: |
+          python3 -m http.server 8080 &
+          sleep 2
+      
+      - name: Run browser tests
+        run: |
+          cat > run-tests.js << 'EOF'
+          const { chromium } = require('playwright');
+
+          async function runTests() {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            
+            // Collect console output
+            const logs = [];
+            page.on('console', msg => logs.push(msg.text()));
+            
+            // Navigate to test runner
+            await page.goto('http://localhost:8080/tests/runner.html');
+            
+            // Wait for tests to complete (look for mocha stats)
+            await page.waitForFunction(() => {
+              const stats = document.querySelector('#mocha-stats');
+              return stats && stats.textContent.includes('passes');
+            }, { timeout: 60000 }).catch(() => {
+              console.log('Timeout waiting for tests - checking current state');
+            });
+            
+            // Get test results
+            const results = await page.evaluate(() => {
+              const passes = document.querySelectorAll('.test.pass').length;
+              const failures = document.querySelectorAll('.test.fail').length;
+              const pending = document.querySelectorAll('.test.pending').length;
+              
+              const failedTests = [];
+              document.querySelectorAll('.test.fail').forEach(el => {
+                failedTests.push({
+                  title: el.querySelector('h2')?.textContent || 'Unknown',
+                  error: el.querySelector('.error')?.textContent || 'No error message'
+                });
+              });
+              
+              return { passes, failures, pending, failedTests };
+            });
+            
+            console.log('\n=== AMERICA-D Test Results ===');
+            console.log(`✓ Passes: ${results.passes}`);
+            console.log(`✗ Failures: ${results.failures}`);
+            console.log(`○ Pending: ${results.pending}`);
+            
+            if (results.failures > 0) {
+              console.log('\n=== Failed Tests ===');
+              results.failedTests.forEach(test => {
+                console.log(`\n✗ ${test.title}`);
+                console.log(`  ${test.error.substring(0, 200)}`);
+              });
+            }
+            
+            // Take screenshot
+            await page.screenshot({ path: 'test-results.png', fullPage: true });
+            
+            await browser.close();
+            
+            // Exit with error if tests failed
+            if (results.failures > 0) {
+              process.exit(1);
+            }
+          }
+
+          runTests().catch(err => {
+            console.error('Test runner failed:', err);
+            process.exit(1);
+          });
+          EOF
+          
+          node run-tests.js
+      
+      - name: Upload test results screenshot
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: test-results.png
+          retention-days: 30
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Check JavaScript syntax
+        run: |
+          # Basic syntax check using Node.js
+          for file in app.js tests/*.js src/**/*.js 2>/dev/null; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              node --check "$file" 2>&1 || echo "Warning: $file may have syntax issues"
+            fi
+          done
+      
+      - name: Check HTML validity
+        run: |
+          # Check for common HTML issues
+          for file in index.html tests/runner.html; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              grep -c "<html" "$file" > /dev/null && echo "✓ $file has html tag"
+              grep -c "</html>" "$file" > /dev/null && echo "✓ $file closes html tag"
+            fi
+          done

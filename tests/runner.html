@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMERICA-D Test Suite</title>
+    
+    <!-- Mocha CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mocha@10.2.0/mocha.css">
+    
+    <style>
+        body {
+            font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+            background: #0a0a0b;
+            color: #e0e0e5;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(90deg, #1a1a1f 0%, #0a0a0b 100%);
+            border: 1px solid #35353a;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .header h1 {
+            color: #e8b13f;
+            font-size: 24px;
+            margin: 0 0 10px 0;
+            letter-spacing: 2px;
+        }
+        
+        .header .version {
+            color: #6a6a70;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        
+        #mocha {
+            background: #12121a;
+            border: 1px solid #35353a;
+            border-radius: 4px;
+            padding: 20px;
+            margin: 0;
+        }
+        
+        #mocha h1, #mocha h2 {
+            color: #e8b13f;
+        }
+        
+        #mocha .test.pass::before {
+            color: #44ff44;
+        }
+        
+        #mocha .test.fail::before {
+            color: #ff4444;
+        }
+        
+        #mocha .test {
+            color: #e0e0e5;
+        }
+        
+        #mocha .suite {
+            margin-left: 0;
+        }
+        
+        #mocha .test.pass .duration {
+            color: #6a6a70;
+        }
+        
+        /* Hidden canvas for Three.js tests */
+        #test-canvas {
+            position: absolute;
+            left: -9999px;
+            width: 100px;
+            height: 100px;
+        }
+    </style>
+    
+    <!-- Three.js for geometry tests -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div class="header">
+        <h1>◆ AMERICA-D TEST SUITE</h1>
+        <div class="version">VER 2.0.1-LA // AUTOMATED VALIDATION</div>
+    </div>
+    
+    <!-- Hidden canvas for WebGL tests -->
+    <canvas id="test-canvas"></canvas>
+    
+    <!-- Mocha container -->
+    <div id="mocha"></div>
+    
+    <!-- Chai Assertion Library -->
+    <script src="https://cdn.jsdelivr.net/npm/chai@4.3.7/chai.js"></script>
+    
+    <!-- Mocha Test Framework -->
+    <script src="https://cdn.jsdelivr.net/npm/mocha@10.2.0/mocha.js"></script>
+    
+    <script>
+        // Setup Mocha
+        mocha.setup({
+            ui: 'bdd',
+            timeout: 10000,
+            reporter: 'html'
+        });
+        
+        // Make chai.expect global
+        window.expect = chai.expect;
+        window.assert = chai.assert;
+    </script>
+    
+    <!-- Geometry Utilities -->
+    <script type="module">
+        import * as THREE from 'three';
+        
+        // Export to window for tests
+        window.THREE = THREE;
+        
+        // Geometry validation functions
+        window.GeometryUtils = {
+            /**
+             * Calculate volume of a mesh using signed tetrahedron method
+             * Works for closed/manifold meshes
+             */
+            calculateVolume(mesh) {
+                if (!mesh || !mesh.geometry) return 0;
+                
+                const geometry = mesh.geometry;
+                const position = geometry.attributes.position;
+                const index = geometry.index;
+                
+                let volume = 0;
+                
+                if (index) {
+                    // Indexed geometry
+                    for (let i = 0; i < index.count; i += 3) {
+                        const i0 = index.getX(i);
+                        const i1 = index.getX(i + 1);
+                        const i2 = index.getX(i + 2);
+                        
+                        const v0 = new THREE.Vector3().fromBufferAttribute(position, i0);
+                        const v1 = new THREE.Vector3().fromBufferAttribute(position, i1);
+                        const v2 = new THREE.Vector3().fromBufferAttribute(position, i2);
+                        
+                        // Apply mesh world transform
+                        v0.applyMatrix4(mesh.matrixWorld);
+                        v1.applyMatrix4(mesh.matrixWorld);
+                        v2.applyMatrix4(mesh.matrixWorld);
+                        
+                        // Signed volume of tetrahedron with origin
+                        volume += v0.dot(v1.clone().cross(v2)) / 6;
+                    }
+                } else {
+                    // Non-indexed geometry
+                    for (let i = 0; i < position.count; i += 3) {
+                        const v0 = new THREE.Vector3().fromBufferAttribute(position, i);
+                        const v1 = new THREE.Vector3().fromBufferAttribute(position, i + 1);
+                        const v2 = new THREE.Vector3().fromBufferAttribute(position, i + 2);
+                        
+                        v0.applyMatrix4(mesh.matrixWorld);
+                        v1.applyMatrix4(mesh.matrixWorld);
+                        v2.applyMatrix4(mesh.matrixWorld);
+                        
+                        volume += v0.dot(v1.clone().cross(v2)) / 6;
+                    }
+                }
+                
+                return Math.abs(volume);
+            },
+            
+            /**
+             * Validate bounding box of a mesh
+             * Returns { min, max, size, center }
+             */
+            validateBoundingBox(mesh) {
+                if (!mesh || !mesh.geometry) {
+                    return null;
+                }
+                
+                mesh.geometry.computeBoundingBox();
+                const box = mesh.geometry.boundingBox.clone();
+                
+                // Apply world transform
+                box.applyMatrix4(mesh.matrixWorld);
+                
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                
+                const center = new THREE.Vector3();
+                box.getCenter(center);
+                
+                return {
+                    min: { x: box.min.x, y: box.min.y, z: box.min.z },
+                    max: { x: box.max.x, y: box.max.y, z: box.max.z },
+                    size: { x: size.x, y: size.y, z: size.z },
+                    center: { x: center.x, y: center.y, z: center.z }
+                };
+            },
+            
+            /**
+             * Check if mesh is manifold using Euler characteristic
+             * For closed manifold: V - E + F = 2
+             * Returns { isManifold, vertices, edges, faces, euler }
+             */
+            checkManifold(mesh) {
+                if (!mesh || !mesh.geometry) {
+                    return { isManifold: false, error: 'No geometry' };
+                }
+                
+                const geometry = mesh.geometry;
+                const position = geometry.attributes.position;
+                const index = geometry.index;
+                
+                // Build edge set using vertex pairs
+                const edgeSet = new Set();
+                const vertexSet = new Set();
+                let faceCount = 0;
+                
+                const makeEdgeKey = (a, b) => {
+                    return a < b ? `${a}-${b}` : `${b}-${a}`;
+                };
+                
+                const roundVertex = (v) => {
+                    // Round to avoid floating point issues
+                    return `${v.x.toFixed(6)},${v.y.toFixed(6)},${v.z.toFixed(6)}`;
+                };
+                
+                if (index) {
+                    for (let i = 0; i < index.count; i += 3) {
+                        const i0 = index.getX(i);
+                        const i1 = index.getX(i + 1);
+                        const i2 = index.getX(i + 2);
+                        
+                        // Track unique vertices
+                        const v0 = new THREE.Vector3().fromBufferAttribute(position, i0);
+                        const v1 = new THREE.Vector3().fromBufferAttribute(position, i1);
+                        const v2 = new THREE.Vector3().fromBufferAttribute(position, i2);
+                        
+                        vertexSet.add(roundVertex(v0));
+                        vertexSet.add(roundVertex(v1));
+                        vertexSet.add(roundVertex(v2));
+                        
+                        // Track edges
+                        edgeSet.add(makeEdgeKey(i0, i1));
+                        edgeSet.add(makeEdgeKey(i1, i2));
+                        edgeSet.add(makeEdgeKey(i2, i0));
+                        
+                        faceCount++;
+                    }
+                } else {
+                    for (let i = 0; i < position.count; i += 3) {
+                        const v0 = new THREE.Vector3().fromBufferAttribute(position, i);
+                        const v1 = new THREE.Vector3().fromBufferAttribute(position, i + 1);
+                        const v2 = new THREE.Vector3().fromBufferAttribute(position, i + 2);
+                        
+                        vertexSet.add(roundVertex(v0));
+                        vertexSet.add(roundVertex(v1));
+                        vertexSet.add(roundVertex(v2));
+                        
+                        edgeSet.add(makeEdgeKey(i, i + 1));
+                        edgeSet.add(makeEdgeKey(i + 1, i + 2));
+                        edgeSet.add(makeEdgeKey(i + 2, i));
+                        
+                        faceCount++;
+                    }
+                }
+                
+                const V = vertexSet.size;
+                const E = edgeSet.size;
+                const F = faceCount;
+                const euler = V - E + F;
+                
+                return {
+                    isManifold: euler === 2,
+                    vertices: V,
+                    edges: E,
+                    faces: F,
+                    euler: euler,
+                    expected: 2
+                };
+            },
+            
+            /**
+             * Get mesh statistics for comparison
+             */
+            getMeshStats(mesh) {
+                const volume = this.calculateVolume(mesh);
+                const bbox = this.validateBoundingBox(mesh);
+                const manifold = this.checkManifold(mesh);
+                
+                return {
+                    volume,
+                    boundingBox: bbox,
+                    manifold,
+                    vertexCount: mesh.geometry.attributes.position.count,
+                    faceCount: manifold.faces
+                };
+            }
+        };
+        
+        // Load test files after Three.js is ready
+        const testModules = [
+            './math.test.js',
+            './primitives.test.js',
+            './history.test.js'
+        ];
+        
+        async function loadTests() {
+            for (const module of testModules) {
+                try {
+                    await import(module);
+                    console.log(`Loaded: ${module}`);
+                } catch (e) {
+                    console.error(`Failed to load ${module}:`, e);
+                }
+            }
+            
+            // Run tests
+            mocha.run();
+        }
+        
+        // Wait for DOM then load tests
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadTests);
+        } else {
+            loadTests();
+        }
+    </script>
+</body>
+</html>
