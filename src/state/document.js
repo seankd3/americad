@@ -1,12 +1,29 @@
 /**
  * Ameri-CAD Document Model
  * The Feature DAG (Directed Acyclic Graph) - source of truth for parametric CAD
+ * 
+ * This model now supports Event Sourcing:
+ *   Events (append-only) → Projection (DocumentModel) → Geometry Cache
+ * 
+ * The DocumentModel can operate in two modes:
+ * 1. Direct mutation (legacy) - features added/removed directly
+ * 2. Event-sourced - rebuilds state by replaying events from EventStore
  */
+
+import { EventTypes, createEvent, eventStore } from './event-store.js';
 
 // Unique ID generator
 let nextFeatureId = 1;
 function generateId() {
     return `feature_${nextFeatureId++}`;
+}
+
+/**
+ * Reset the ID counter (used when loading documents)
+ * @param {number} startFrom - Next ID to use
+ */
+export function resetFeatureIdCounter(startFrom = 1) {
+    nextFeatureId = startFrom;
 }
 
 /**
@@ -504,6 +521,98 @@ export class DocumentModel {
     }
     
     /**
+     * Add a body to the document (command system compatibility layer)
+     * 
+     * This method provides backward compatibility with the command system
+     * which uses addBody() instead of addFeature(). It wraps trackExternalFeature()
+     * to bridge the two APIs.
+     * 
+     * @param {string} id - Kernel/body ID
+     * @param {Object} data - Body data (type, params, mesh, name)
+     * @returns {Object} The created body/feature reference
+     */
+    addBody(id, data) {
+        // Generate name if not provided
+        const name = data.name || `${(data.type || 'body').toUpperCase()}_${String(this.features.size + 1).padStart(3, '0')}`;
+        
+        // Create feature using trackExternalFeature
+        const feature = this.trackExternalFeature({
+            id: id,
+            type: data.type || 'body',
+            name: name,
+            kernelId: id,
+            mesh: data.mesh
+        }, true);
+        
+        // Store additional body data in params for compatibility
+        feature.params = {
+            ...feature.params,
+            ...data.params,
+            external: true,
+            meshRef: data.mesh
+        };
+        
+        // Return a body-compatible object for legacy code
+        return {
+            id: feature.id,
+            name: feature.name,
+            type: data.type,
+            params: data.params,
+            mesh: data.mesh,
+            feature: feature
+        };
+    }
+    
+    /**
+     * Get a body by ID (command system compatibility layer)
+     * @param {string} id - Body/feature ID
+     * @returns {Object|undefined} Body data or undefined
+     */
+    getBody(id) {
+        const feature = this.features.get(id);
+        if (!feature) return undefined;
+        
+        return {
+            id: feature.id,
+            name: feature.name,
+            type: feature.type,
+            params: feature.params,
+            feature: feature
+        };
+    }
+    
+    /**
+     * Remove a body by ID (command system compatibility layer)
+     * @param {string} id - Body/feature ID
+     */
+    removeBody(id) {
+        this.untrackExternalFeature(id, true);
+    }
+    
+    /**
+     * Get all bodies (command system compatibility layer)
+     * @returns {Array} Array of body objects
+     */
+    getAllBodies() {
+        return Array.from(this.features.values()).map(feature => ({
+            id: feature.id,
+            name: feature.name,
+            type: feature.type,
+            params: feature.params,
+            feature: feature
+        }));
+    }
+    
+    /**
+     * Get bodies filtered by type (command system compatibility layer)
+     * @param {string} type - Body type to filter by
+     * @returns {Array} Array of matching body objects
+     */
+    getBodiesByType(type) {
+        return this.getAllBodies().filter(b => b.type === type);
+    }
+    
+    /**
      * Track an externally-created feature (from app.js legacy path)
      * This allows gradual migration to the unified architecture
      * @param {Object} data - Feature data
@@ -561,7 +670,354 @@ export class DocumentModel {
             }
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Event Sourcing Methods
+    // DocumentModel as a "projection" of events
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Apply a single event to update the document state
+     * This is the core projection logic - events → state
+     * 
+     * @param {Object} event - Event from EventStore
+     * @param {boolean} triggerCallbacks - Whether to fire callbacks (default: false during rebuild)
+     */
+    applyEvent(event, triggerCallbacks = false) {
+        const { type, payload } = event;
+        
+        switch (type) {
+            case EventTypes.FEATURE_ADDED: {
+                const feature = DocumentModel.createFeatureFromJSON(payload.feature);
+                this.features.set(feature.id, feature);
+                
+                if (feature.dependencies.length === 0) {
+                    this.rootFeatures.push(feature.id);
+                }
+                
+                // Update parent children lists
+                for (const depId of feature.dependencies) {
+                    const parent = this.features.get(depId);
+                    if (parent && !parent.children.includes(feature.id)) {
+                        parent.children.push(feature.id);
+                    }
+                }
+                
+                if (triggerCallbacks && this.onFeatureAdded) {
+                    this.onFeatureAdded(feature);
+                }
+                break;
+            }
+            
+            case EventTypes.FEATURE_DELETED: {
+                const featureId = payload.featureId;
+                const feature = this.features.get(featureId);
+                if (!feature) break;
+                
+                // Remove from parent's children lists
+                for (const depId of feature.dependencies) {
+                    const parent = this.features.get(depId);
+                    if (parent) {
+                        parent.children = parent.children.filter(id => id !== featureId);
+                    }
+                }
+                
+                this.rootFeatures = this.rootFeatures.filter(id => id !== featureId);
+                this.features.delete(featureId);
+                
+                if (triggerCallbacks && this.onFeatureRemoved) {
+                    this.onFeatureRemoved(feature);
+                }
+                break;
+            }
+            
+            case EventTypes.FEATURE_RENAMED: {
+                const feature = this.features.get(payload.featureId);
+                if (feature) {
+                    feature.name = payload.newName;
+                    feature.modifiedAt = event.timestamp;
+                    
+                    if (triggerCallbacks && this.onFeatureModified) {
+                        this.onFeatureModified(feature);
+                    }
+                }
+                break;
+            }
+            
+            case EventTypes.PARAM_CHANGED: {
+                const feature = this.features.get(payload.featureId);
+                if (feature) {
+                    feature.params[payload.paramName] = payload.newValue;
+                    feature.modifiedAt = event.timestamp;
+                    
+                    if (triggerCallbacks && this.onFeatureModified) {
+                        this.onFeatureModified(feature);
+                    }
+                }
+                break;
+            }
+            
+            case EventTypes.PARAMS_BATCH_CHANGED: {
+                const feature = this.features.get(payload.featureId);
+                if (feature) {
+                    Object.assign(feature.params, payload.newParams);
+                    feature.modifiedAt = event.timestamp;
+                    
+                    if (triggerCallbacks && this.onFeatureModified) {
+                        this.onFeatureModified(feature);
+                    }
+                }
+                break;
+            }
+            
+            case EventTypes.FEATURE_VISIBILITY_CHANGED: {
+                const feature = this.features.get(payload.featureId);
+                if (feature) {
+                    feature.visible = payload.visible;
+                    feature.modifiedAt = event.timestamp;
+                    
+                    if (triggerCallbacks && this.onFeatureModified) {
+                        this.onFeatureModified(feature);
+                    }
+                }
+                break;
+            }
+            
+            case EventTypes.DOCUMENT_CLEARED: {
+                this.features.clear();
+                this.rootFeatures = [];
+                resetFeatureIdCounter(1);
+                break;
+            }
+            
+            case EventTypes.DOCUMENT_LOADED: {
+                // Full document load - clear and rebuild from payload
+                this.features.clear();
+                this.rootFeatures = [];
+                
+                if (payload.features) {
+                    for (const featureData of payload.features) {
+                        const feature = DocumentModel.createFeatureFromJSON(featureData);
+                        this.features.set(feature.id, feature);
+                    }
+                    this.rootFeatures = payload.rootFeatures || [];
+                    
+                    // Rebuild children relationships
+                    for (const feature of this.features.values()) {
+                        for (const depId of feature.dependencies) {
+                            const parent = this.features.get(depId);
+                            if (parent && !parent.children.includes(feature.id)) {
+                                parent.children.push(feature.id);
+                            }
+                        }
+                    }
+                }
+                
+                // Update ID counter
+                let maxId = 0;
+                for (const id of this.features.keys()) {
+                    const num = parseInt(id.split('_')[1]) || 0;
+                    if (num > maxId) maxId = num;
+                }
+                resetFeatureIdCounter(maxId + 1);
+                break;
+            }
+            
+            default:
+                console.warn(`Unknown event type: ${type}`);
+        }
+        
+        this.modifiedAt = event.timestamp || Date.now();
+        
+        if (triggerCallbacks && this.onDocumentChanged) {
+            this.onDocumentChanged();
+        }
+    }
+    
+    /**
+     * Rebuild document state from a sequence of events
+     * This is the full projection rebuild (used for undo/redo)
+     * 
+     * @param {Array<Object>} events - Events to replay in order
+     * @param {boolean} triggerCallbacksAtEnd - Fire onDocumentChanged once at end
+     */
+    rebuildFromEvents(events, triggerCallbacksAtEnd = true) {
+        // Clear current state
+        this.features.clear();
+        this.rootFeatures = [];
+        resetFeatureIdCounter(1);
+        
+        // Replay all events
+        for (const event of events) {
+            this.applyEvent(event, false);
+        }
+        
+        // Fire final callback
+        if (triggerCallbacksAtEnd && this.onDocumentChanged) {
+            this.onDocumentChanged();
+        }
+    }
+    
+    /**
+     * Sync document with an EventStore
+     * Subscribes to store events and keeps document in sync
+     * 
+     * @param {EventStore} store - EventStore instance to sync with
+     */
+    syncWithEventStore(store) {
+        // Handle new events
+        store.on('eventAppended', (event) => {
+            this.applyEvent(event, true);
+        });
+        
+        // Handle batch appends
+        store.on('batchAppended', (events) => {
+            for (const event of events) {
+                this.applyEvent(event, false);
+            }
+            if (this.onDocumentChanged) {
+                this.onDocumentChanged();
+            }
+        });
+        
+        // Handle undo (truncation)
+        store.on('truncated', (version) => {
+            this.rebuildFromEvents(store.getEvents(0), true);
+        });
+        
+        // Handle redo
+        store.on('redone', (events) => {
+            for (const event of events) {
+                this.applyEvent(event, false);
+            }
+            if (this.onDocumentChanged) {
+                this.onDocumentChanged();
+            }
+        });
+        
+        // Handle store clear
+        store.on('cleared', () => {
+            this.clear();
+        });
+        
+        // Handle restore from snapshot
+        store.on('restored', () => {
+            this.rebuildFromEvents(store.getEvents(0), true);
+        });
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Event-Sourced Operations (emit events instead of direct mutation)
+    // These wrap the direct mutations to also emit events
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Add a feature and emit event
+     * @param {Feature} feature - Feature to add
+     * @param {EventStore} store - Optional EventStore to emit to
+     * @returns {Feature} The added feature
+     */
+    addFeatureWithEvent(feature, store = eventStore) {
+        const event = createEvent(EventTypes.FEATURE_ADDED, {
+            featureId: feature.id,
+            feature: feature.toJSON()
+        });
+        
+        store.append(event);
+        return feature;
+    }
+    
+    /**
+     * Remove a feature and emit event
+     * @param {string} featureId - ID of feature to remove
+     * @param {EventStore} store - Optional EventStore to emit to
+     * @returns {Feature|null} The removed feature
+     */
+    removeFeatureWithEvent(featureId, store = eventStore) {
+        const feature = this.features.get(featureId);
+        if (!feature) return null;
+        
+        const event = createEvent(EventTypes.FEATURE_DELETED, {
+            featureId: featureId,
+            feature: feature.toJSON() // Include for potential redo reconstruction
+        });
+        
+        store.append(event);
+        return feature;
+    }
+    
+    /**
+     * Update feature parameters and emit event
+     * @param {string} featureId - Feature ID
+     * @param {Object} params - New parameter values
+     * @param {EventStore} store - Optional EventStore to emit to
+     * @returns {Feature|null} The updated feature
+     */
+    updateFeatureWithEvent(featureId, params, store = eventStore) {
+        const feature = this.features.get(featureId);
+        if (!feature) return null;
+        
+        // Capture old values for event
+        const oldParams = {};
+        for (const key of Object.keys(params)) {
+            oldParams[key] = feature.params[key];
+        }
+        
+        const event = createEvent(EventTypes.PARAMS_BATCH_CHANGED, {
+            featureId: featureId,
+            oldParams: oldParams,
+            newParams: params
+        });
+        
+        store.append(event);
+        return feature;
+    }
+    
+    /**
+     * Rename a feature and emit event
+     * @param {string} featureId - Feature ID
+     * @param {string} newName - New name
+     * @param {EventStore} store - Optional EventStore to emit to
+     * @returns {Feature|null} The renamed feature
+     */
+    renameFeatureWithEvent(featureId, newName, store = eventStore) {
+        const feature = this.features.get(featureId);
+        if (!feature) return null;
+        
+        const event = createEvent(EventTypes.FEATURE_RENAMED, {
+            featureId: featureId,
+            oldName: feature.name,
+            newName: newName
+        });
+        
+        store.append(event);
+        return feature;
+    }
+    
+    /**
+     * Toggle feature visibility and emit event
+     * @param {string} featureId - Feature ID
+     * @param {boolean} visible - New visibility state
+     * @param {EventStore} store - Optional EventStore to emit to
+     * @returns {Feature|null} The updated feature
+     */
+    setVisibilityWithEvent(featureId, visible, store = eventStore) {
+        const feature = this.features.get(featureId);
+        if (!feature) return null;
+        
+        const event = createEvent(EventTypes.FEATURE_VISIBILITY_CHANGED, {
+            featureId: featureId,
+            oldVisible: feature.visible,
+            visible: visible
+        });
+        
+        store.append(event);
+        return feature;
+    }
 }
 
 // Global document instance
 export const document = new DocumentModel();
+
+// Re-export event sourcing utilities for convenience
+export { EventTypes, createEvent, eventStore };
