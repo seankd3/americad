@@ -5,6 +5,7 @@
 Ameri-CAD is a professional 3D CAD (Computer-Aided Design) web application built with Three.js. It provides a browser-based 3D modeling environment inspired by Fusion 360, featuring tools for creating primitives, sketching, transforming objects, and navigating 3D space.
 
 **Key Characteristics:**
+
 - Pure frontend application with no backend dependencies
 - Single-page application (SPA) architecture
 - No build process or package manager required
@@ -14,14 +15,14 @@ Ameri-CAD is a professional 3D CAD (Computer-Aided Design) web application built
 
 ## Technology Stack
 
-| Component | Technology | Version/Notes |
-|-----------|------------|---------------|
-| 3D Engine | Three.js | v0.160.0 (via CDN) |
-| Language | JavaScript | ES6+ Modules |
-| Styling | CSS3 | CSS Variables for theming |
-| Icons | Font Awesome | 6.4.0 |
-| Font | Inter | Google Fonts |
-| Module Loading | Import Maps | Native browser support |
+| Component      | Technology   | Version/Notes             |
+| -------------- | ------------ | ------------------------- |
+| 3D Engine      | Three.js     | v0.160.0 (via CDN)        |
+| Language       | JavaScript   | ES6+ Modules              |
+| Styling        | CSS3         | CSS Variables for theming |
+| Icons          | Font Awesome | 6.4.0                     |
+| Font           | Inter        | Google Fonts              |
+| Module Loading | Import Maps  | Native browser support    |
 
 ---
 
@@ -81,28 +82,28 @@ class ExtrudeOperation extends CADOperation { ... }
 
 ```javascript
 const State = {
-    isReady: false,
-    currentTool: 'select',
-    activeObject: null,
-    objects: [],        // All 3D objects in scene
-    sketches: [],       // 2D sketches
-    features: [],       // Feature tree
-    
-    // Three.js instances
-    camera: null,
-    renderer: null,
-    scene: null,
-    controls: null,
-    transformControl: null,
-    
-    // Settings
-    gridSize: 100,
-    snapEnabled: true,
-    shadowsEnabled: false,
-    
-    // Interaction
-    raycaster: new THREE.Raycaster(),
-    mouse: new THREE.Vector2()
+  isReady: false,
+  currentTool: 'select',
+  activeObject: null,
+  objects: [], // All 3D objects in scene
+  sketches: [], // 2D sketches
+  features: [], // Feature tree
+
+  // Three.js instances
+  camera: null,
+  renderer: null,
+  scene: null,
+  controls: null,
+  transformControl: null,
+
+  // Settings
+  gridSize: 100,
+  snapEnabled: true,
+  shadowsEnabled: false,
+
+  // Interaction
+  raycaster: new THREE.Raycaster(),
+  mouse: new THREE.Vector2(),
 };
 ```
 
@@ -129,35 +130,36 @@ Then open `http://localhost:8000` in your browser.
 ## Tool System
 
 Tools are activated via:
+
 1. Clicking toolbar buttons
 2. Keyboard shortcuts
 3. Command bar input
 
 ### Available Tools
 
-| Tool | Shortcut | Description |
-|------|----------|-------------|
-| select | S | Object selection mode |
-| sketch | C | Enter sketch mode |
-| line | L | Draw line in sketch |
-| rectangle | R | Draw rectangle |
-| circle | O | Draw circle |
-| arc | A | Draw arc |
-| extrude | E | Extrude 2D profile |
-| move | M | Move objects |
-| fillet | F | Round edges |
-| chamfer | - | Chamfer edges |
-| mirror | - | Mirror objects |
-| pattern | - | Linear/circular pattern |
+| Tool      | Shortcut | Description             |
+| --------- | -------- | ----------------------- |
+| select    | S        | Object selection mode   |
+| sketch    | C        | Enter sketch mode       |
+| line      | L        | Draw line in sketch     |
+| rectangle | R        | Draw rectangle          |
+| circle    | O        | Draw circle             |
+| arc       | A        | Draw arc                |
+| extrude   | E        | Extrude 2D profile      |
+| move      | M        | Move objects            |
+| fillet    | F        | Round edges             |
+| chamfer   | -        | Chamfer edges           |
+| mirror    | -        | Mirror objects          |
+| pattern   | -        | Linear/circular pattern |
 
 ### Transform Controls (when object selected)
 
-| Key | Mode |
-|-----|------|
-| T | Translate |
-| R | Rotate |
-| G | Scale |
-| W | Toggle World/Local space |
+| Key | Mode                     |
+| --- | ------------------------ |
+| T   | Translate                |
+| R   | Rotate                   |
+| G   | Scale                    |
+| W   | Toggle World/Local space |
 
 ---
 
@@ -165,15 +167,15 @@ Tools are activated via:
 
 Type commands in the command bar at the bottom:
 
-| Command | Action |
-|---------|--------|
-| `box` | Create box primitive |
-| `sphere` | Create sphere |
-| `cylinder` | Create cylinder |
-| `cone` | Create cone |
-| `torus` | Create torus |
-| `clear` | Remove all objects |
-| `help` or `?` | Show help |
+| Command       | Action               |
+| ------------- | -------------------- |
+| `box`         | Create box primitive |
+| `sphere`      | Create sphere        |
+| `cylinder`    | Create cylinder      |
+| `cone`        | Create cone          |
+| `torus`       | Create torus         |
+| `clear`       | Remove all objects   |
+| `help` or `?` | Show help            |
 
 ---
 
@@ -185,14 +187,14 @@ All colors and sizes are defined as CSS custom properties in `:root`:
 
 ```css
 :root {
-    /* Dark theme (default) */
-    --bg-primary: #1a1a1f;
-    --bg-secondary: #252529;
-    --accent-primary: #2196F3;
-    --axis-x: #f44336;
-    --axis-y: #4CAF50;
-    --axis-z: #2196F3;
-    /* ... see styles.css for full list */
+  /* Dark theme (default) */
+  --bg-primary: #1a1a1f;
+  --bg-secondary: #252529;
+  --accent-primary: #2196f3;
+  --axis-x: #f44336;
+  --axis-y: #4caf50;
+  --axis-z: #2196f3;
+  /* ... see styles.css for full list */
 }
 ```
 
@@ -212,13 +214,15 @@ All colors and sizes are defined as CSS custom properties in `:root`:
 ### Adding a New Tool
 
 1. **Add button to HTML** (index.html, left toolbar):
+
 ```html
 <button class="tool-btn" data-tool="newtool" title="New Tool (N)">
-    <i class="fas fa-icon"></i>
+  <i class="fas fa-icon"></i>
 </button>
 ```
 
 2. **Add keyboard shortcut** (app.js, `onKeyDown`):
+
 ```javascript
 case 'n':
     setActiveTool('newtool');
@@ -226,6 +230,7 @@ case 'n':
 ```
 
 3. **Handle tool activation** (app.js, `setActiveTool`):
+
 ```javascript
 case 'newtool':
     DOM.canvas.style.cursor = 'crosshair';
@@ -234,6 +239,7 @@ case 'newtool':
 ```
 
 4. **Handle tool click** (app.js, `handleToolClick`):
+
 ```javascript
 case 'newtool':
     // Implementation
@@ -243,6 +249,7 @@ case 'newtool':
 ### Adding a New Primitive
 
 1. **Add to command system** (`executeCommand`):
+
 ```javascript
 case 'newprimitive':
     createPrimitive('newprimitive');
@@ -250,6 +257,7 @@ case 'newprimitive':
 ```
 
 2. **Implement geometry creation** (`createPrimitive`):
+
 ```javascript
 case 'newprimitive':
     geometry = new THREE.SomeGeometry(params);
@@ -260,14 +268,15 @@ case 'newprimitive':
 
 ## Browser Compatibility
 
-| Browser | Minimum Version | Status |
-|---------|-----------------|--------|
-| Chrome | 90+ | ✅ Full support |
-| Firefox | 88+ | ✅ Full support |
-| Edge | 90+ | ✅ Full support |
-| Safari | 14+ | ✅ Full support |
+| Browser | Minimum Version | Status          |
+| ------- | --------------- | --------------- |
+| Chrome  | 90+             | ✅ Full support |
+| Firefox | 88+             | ✅ Full support |
+| Edge    | 90+             | ✅ Full support |
+| Safari  | 14+             | ✅ Full support |
 
 Requirements:
+
 - WebGL support
 - ES6 Module support
 - Import maps support
@@ -290,16 +299,17 @@ The application exposes a global object for debugging:
 
 ```javascript
 window.AmericaD = {
-    State,           // Access full application state
-    setActiveTool,   // Programmatically change tools
-    setView,         // Change camera view
-    createPrimitive, // Create primitives
-    clearScene,      // Clear all objects
-    zoomToFit        // Zoom to fit all objects
+  State, // Access full application state
+  setActiveTool, // Programmatically change tools
+  setView, // Change camera view
+  createPrimitive, // Create primitives
+  clearScene, // Clear all objects
+  zoomToFit, // Zoom to fit all objects
 };
 ```
 
 Access via browser console:
+
 ```javascript
 // Log current state
 console.log(AmericaD.State);
@@ -320,18 +330,18 @@ AmericaD.setView('top');
 ```javascript
 const geometry = new THREE.BoxGeometry(10, 10, 10);
 const material = new THREE.MeshStandardMaterial({
-    color: 0x808080,
-    metalness: 0.3,
-    roughness: 0.4
+  color: 0x808080,
+  metalness: 0.3,
+  roughness: 0.4,
 });
 const mesh = new THREE.Mesh(geometry, material);
 mesh.position.set(0, 5, 0);
 mesh.castShadow = true;
 mesh.receiveShadow = true;
-mesh.userData = { 
-    type: 'body',
-    name: 'Box1',
-    id: generateId()
+mesh.userData = {
+  type: 'body',
+  name: 'Box1',
+  id: generateId(),
 };
 
 // Add edge highlighting
@@ -348,13 +358,11 @@ State.objects.push(mesh);
 
 ```javascript
 State.raycaster.setFromCamera(State.mouse, State.camera);
-const selectable = State.objects.filter(obj => 
-    obj.type === 'Mesh' || obj.type === 'Group'
-);
+const selectable = State.objects.filter(obj => obj.type === 'Mesh' || obj.type === 'Group');
 const intersects = State.raycaster.intersectObjects(selectable);
 
 if (intersects.length > 0) {
-    selectObject(intersects[0].object);
+  selectObject(intersects[0].object);
 }
 ```
 

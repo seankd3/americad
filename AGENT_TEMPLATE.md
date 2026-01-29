@@ -9,12 +9,15 @@ Use this template when spawning sub-agents for Ameri-CAD development.
 Location: ~/Projects/americad
 
 ### Goal
+
 [Clear description of what needs to be done]
 
 ### Requirements
+
 [Specific requirements and acceptance criteria]
 
 ### Implementation Notes
+
 [Any technical guidance or patterns to follow]
 
 ---
@@ -72,18 +75,21 @@ When complete, provide this EXACT format:
 ## Code Standards
 
 ### Style
+
 - Use `const` by default, `let` when needed, never `var`
 - Use strict equality (`===`)
 - Always use curly braces for if/for/while
 - Follow existing patterns in the codebase
 
 ### Testing
+
 - Test file: `tests/[feature].test.js`
 - Use describe/it blocks
 - Test happy path, edge cases, and error handling
 - Mock external dependencies
 
 ### Commits
+
 ```
 feat(sketch): add spline tool
 fix(kernel): prevent crash on empty boolean
@@ -102,15 +108,18 @@ refactor(ui): simplify property panel
 Location: ~/Projects/americad
 
 ### Goal
+
 Add a command to fillet all edges of a selected cylinder at once.
 
 ### Requirements
+
 - Command: `fillet-circle <radius>`
 - Select cylinder, run command
 - All circular edges get filleted
 - Works with any cylinder orientation
 
 ### Implementation Notes
+
 - Use kernel.fillet() for each edge
 - Get edges via kernel.getEdges()
 - Filter for circular edges (check edge type)

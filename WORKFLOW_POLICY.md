@@ -5,6 +5,7 @@
 ## Pre-Commit Requirements
 
 Every commit MUST pass:
+
 1. **ESLint** - Zero warnings, zero errors
 2. **Prettier** - All files formatted
 3. **Tests** - All tests passing (CI enforced)
@@ -19,12 +20,13 @@ npm test                          # All tests pass
 ## Commit Policy
 
 ### Never Commit Directly to Master
+
 ```bash
 # WRONG
 git commit -m "my changes"
 git push origin master
 
-# RIGHT  
+# RIGHT
 git checkout -b feature/my-feature
 git commit -m "feat: my changes"
 git push origin feature/my-feature
@@ -32,6 +34,7 @@ git push origin feature/my-feature
 ```
 
 ### Commit Message Format (Required)
+
 ```
 type(scope): description
 
@@ -52,21 +55,26 @@ All sub-agents MUST:
 5. **Report in standard format**
 
 ### Required Output Format
+
 ```markdown
 ## Task Complete ✅
 
 ### Files Changed
+
 - `path/file.js` (created/modified) - X lines
 
 ### Tests
+
 - Added N tests in `tests/x.test.js`
 
 ### Verification
+
 - [ ] `npm run lint -- --max-warnings 0` - PASS
 - [ ] `npm test` - X/X passing
 - [ ] `npm run format:check` - PASS
 
 ### Commit
+
 `abc1234` - type(scope): description
 ```
 
@@ -84,21 +92,25 @@ Push → Lint (strict) → Format Check → Tests → Build
 ## Code Quality Standards
 
 ### No Unused Code
+
 - Remove unused variables
 - Remove unused imports
 - Remove dead code paths
 - Prefix intentionally unused params with `_`
 
 ### No Console Debugging
+
 - Remove `console.log` debugging before commit
 - Use proper logging system for production logs
 
 ### Type Safety
+
 - Use strict equality (`===`)
 - Check for null/undefined
 - Validate function inputs
 
 ### Error Handling
+
 - Never swallow errors silently
 - Log errors with context
 - Fail fast on invalid state
@@ -118,6 +130,7 @@ Before approving any code:
 ## Enforcement
 
 These policies are enforced by:
+
 1. **Pre-commit hooks** (Husky + lint-staged)
 2. **CI pipeline** (GitHub Actions)
 3. **Code review** (PR required)
@@ -126,4 +139,4 @@ These policies are enforced by:
 
 ---
 
-*"Quality is not negotiable."*
+_"Quality is not negotiable."_

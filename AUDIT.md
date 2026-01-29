@@ -3,7 +3,7 @@
 **Audited:** 2025-01-29  
 **Auditor:** Claude (via Codex)  
 **Version:** 2.2.0-LA  
-**Scope:** Full codebase review  
+**Scope:** Full codebase review
 
 ---
 
@@ -13,12 +13,12 @@ Ameri-CAD is an ambitious browser-based parametric CAD system with OpenCASCADE.j
 
 ### Key Findings
 
-| Priority | Count | Summary |
-|----------|-------|---------|
-| 🔴 Critical | 3 | Integration gaps that break core functionality |
-| 🟠 High | 5 | Significant issues affecting reliability |
-| 🟡 Medium | 8 | Code quality and maintainability concerns |
-| 🟢 Low | 6 | Polish and optimization opportunities |
+| Priority    | Count | Summary                                        |
+| ----------- | ----- | ---------------------------------------------- |
+| 🔴 Critical | 3     | Integration gaps that break core functionality |
+| 🟠 High     | 5     | Significant issues affecting reliability       |
+| 🟡 Medium   | 8     | Code quality and maintainability concerns      |
+| 🟢 Low      | 6     | Polish and optimization opportunities          |
 
 ### Overall Assessment
 
@@ -27,7 +27,7 @@ Ameri-CAD is an ambitious browser-based parametric CAD system with OpenCASCADE.j
 **Kernel Integration:** 5/10 - Partial implementation, many gaps  
 **Undo/Redo:** 6/10 - Pattern correct, but not wired to kernel operations  
 **Test Coverage:** 4/10 - Tests exist but don't run against actual code  
-**Performance:** 7/10 - Reasonable, some memory concerns  
+**Performance:** 7/10 - Reasonable, some memory concerns
 
 ---
 
@@ -61,22 +61,23 @@ There are **two separate document systems** that don't communicate:
 **Problem:** The `app.js` and command system use the simple Document, while `main.js` uses the full DocumentModel. Features created via the command line never get proper feature tracking.
 
 **Evidence:**
+
 ```javascript
 // app-integration.js (line 34-47)
 class Document {
-    constructor() {
-        this.bodies = new Map();  // Simple key-value store
-        this.nextBodyNum = 1;
-    }
+  constructor() {
+    this.bodies = new Map(); // Simple key-value store
+    this.nextBodyNum = 1;
+  }
 }
 
 // state/document.js (line 125-145)
 export class DocumentModel {
-    constructor() {
-        this.features = new Map();  // Full feature graph
-        this.rootFeatures = [];
-        // ... proper DAG tracking
-    }
+  constructor() {
+    this.features = new Map(); // Full feature graph
+    this.rootFeatures = [];
+    // ... proper DAG tracking
+  }
 }
 ```
 
@@ -87,6 +88,7 @@ export class DocumentModel {
 The `Evaluator` class in `kernel/evaluator.js` is beautifully designed but **never instantiated** in `app.js`. The app uses `app-integration.js` which has its own `addMeshToScene()` function that bypasses the evaluator.
 
 **Evidence:**
+
 ```javascript
 // app.js imports but never uses:
 import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
@@ -118,13 +120,14 @@ import { Evaluator } from './src/kernel/evaluator.js';
 `src/commands/transforms.js` defines `registerTransformCommands()` but it's **never called**.
 
 **Evidence:**
+
 ```javascript
 // app-integration.js line 81-85
 function registerAllCommands() {
-    registerPrimitiveCommands(wrappedKernel);
-    registerBooleanCommands(wrappedKernel);
-    registerGeneralCommands(appContext);
-    // registerTransformCommands() - MISSING!
+  registerPrimitiveCommands(wrappedKernel);
+  registerBooleanCommands(wrappedKernel);
+  registerGeneralCommands(appContext);
+  // registerTransformCommands() - MISSING!
 }
 ```
 
@@ -135,6 +138,7 @@ function registerAllCommands() {
 The `primitives.js` registers `torus` and `wedge` commands that call `kernel.createTorus()` and `kernel.createWedge()`, but these methods don't exist in `bridge.js` or `worker.js`.
 
 **Evidence:**
+
 ```javascript
 // primitives.js line 111
 const result = await kernel.createTorus(params.majorRadius, params.minorRadius, params.center);
@@ -164,6 +168,7 @@ Commands should consistently use async/await or the command system should normal
 #### MEDIUM-2: Duplicate generateId Functions
 
 Three separate ID generators:
+
 1. `src/core/math.js:generateId()` - Uses Math.random().toString(36)
 2. `src/state/document.js:generateId()` - Uses incrementing counter
 3. `src/sketch/sketch-manager.js:generateSketchId()` - Uses counter with prefix
@@ -200,6 +205,7 @@ normals.push(0, 1, 0); // Placeholder ← WRONG!
 All normals are set to `(0, 1, 0)` which causes incorrect lighting. The `meshToThreeGeometry()` calls `geometry.computeVertexNormals()` which helps, but doesn't give proper smooth/hard edge control.
 
 **Fix:** Implement proper normal extraction from OpenCASCADE:
+
 ```javascript
 // Get normals from triangulation properly
 const normalArray = triangulation.get().Normals();
@@ -211,6 +217,7 @@ const normalArray = triangulation.get().Normals();
 The `createWrappedKernel()` in `app-integration.js` only wraps primitive creation methods. Boolean operations are defined in `commands/booleans.js` but call `kernel.boolean()` which doesn't exist - the bridge has `union()`, `subtract()`, `intersect()`.
 
 **Evidence:**
+
 ```javascript
 // booleans.js line 32
 result = await kernel.boolean(result, shapes[i], 'union');  // WRONG
@@ -249,6 +256,7 @@ Only export is implemented. `general.js` has an `import` command that references
 The `CommandManager` only tracks Three.js scene operations. Kernel operations (which are the actual B-Rep modifications) are **not recorded**.
 
 **Evidence:**
+
 ```javascript
 // CreatePrimitiveCommand in history.js
 undo() {
@@ -258,6 +266,7 @@ undo() {
 ```
 
 **Fix:** Each kernel operation needs a corresponding undo that:
+
 1. Removes mesh from scene
 2. Calls `kernel.deleteShape()` to free B-Rep
 3. Updates the Document model
@@ -265,19 +274,21 @@ undo() {
 #### MEDIUM-5: Command System Separate from History
 
 Two parallel systems:
+
 1. `src/core/commands.js` - Command registry and execution
 2. `src/state/history.js` - Undo/redo with Command pattern
 
 These don't integrate. Executing a command via `commands.execute()` doesn't create a history entry.
 
 **Evidence:**
+
 ```javascript
 // commands.js execute() - records to commandHistory (a plain array)
 commandHistory.push({
-    command: cmd.name,
-    params,
-    timestamp: Date.now(),
-    result
+  command: cmd.name,
+  params,
+  timestamp: Date.now(),
+  result,
 });
 
 // But commandManager.execute() is the undo/redo system - separate!
@@ -300,17 +311,17 @@ Tests exist in `/tests/` but have **major issues**:
 
 ### Missing Test Coverage
 
-| Module | Tests Exist | Actually Tested |
-|--------|-------------|-----------------|
-| math.js | ❌ | - |
-| transforms.js | ❌ | - |
-| commands.js | ❌ | - |
-| document.js | ❌ | - |
-| history.js | Partial | Three.js only |
-| kernel/worker.js | ❌ | - |
-| kernel/bridge.js | ❌ | - |
-| constraint-solver.js | ❌ | - |
-| sketch-manager.js | ❌ | - |
+| Module               | Tests Exist | Actually Tested |
+| -------------------- | ----------- | --------------- |
+| math.js              | ❌          | -               |
+| transforms.js        | ❌          | -               |
+| commands.js          | ❌          | -               |
+| document.js          | ❌          | -               |
+| history.js           | Partial     | Three.js only   |
+| kernel/worker.js     | ❌          | -               |
+| kernel/bridge.js     | ❌          | -               |
+| constraint-solver.js | ❌          | -               |
+| sketch-manager.js    | ❌          | -               |
 
 ### Recommendations
 
@@ -343,6 +354,7 @@ const shapes = new Map(); // Grows forever if deleteShape() not called
 #### MEDIUM-8: Sketch Renderer Creates New Materials Per Entity
 
 In `sketch-renderer.js`:
+
 ```javascript
 renderLine(line, sketch) {
     const material = isSelected ? this.materials.selected :
@@ -352,7 +364,7 @@ renderLine(line, sketch) {
 }
 
 renderPoint(point, sketch) {
-    const material = isSelected ? 
+    const material = isSelected ?
         new THREE.PointsMaterial({ ... }) :  // BAD - creates new
         this.materials.point;
 }
@@ -372,60 +384,60 @@ renderPoint(point, sketch) {
 
 ### `/src/core/`
 
-| File | Status | Notes |
-|------|--------|-------|
-| math.js | ✅ Good | Clean pure functions |
-| transforms.js | ✅ Good | Well-documented utilities |
-| commands.js | ⚠️ Medium | Good system, needs history integration |
+| File               | Status      | Notes                                    |
+| ------------------ | ----------- | ---------------------------------------- |
+| math.js            | ✅ Good     | Clean pure functions                     |
+| transforms.js      | ✅ Good     | Well-documented utilities                |
+| commands.js        | ⚠️ Medium   | Good system, needs history integration   |
 | app-integration.js | 🔴 Critical | Wrong Document class, bypasses Evaluator |
 
 ### `/src/state/`
 
-| File | Status | Notes |
-|------|--------|-------|
-| document.js | ✅ Good | Proper feature DAG implementation |
-| history.js | ⚠️ Medium | Pattern correct, not wired to kernel |
-| selection.js | ✅ Good | Clean selection management |
+| File         | Status    | Notes                                |
+| ------------ | --------- | ------------------------------------ |
+| document.js  | ✅ Good   | Proper feature DAG implementation    |
+| history.js   | ⚠️ Medium | Pattern correct, not wired to kernel |
+| selection.js | ✅ Good   | Clean selection management           |
 
 ### `/src/kernel/`
 
-| File | Status | Notes |
-|------|--------|-------|
-| worker.js | ⚠️ Medium | Works but normals broken |
-| bridge.js | ✅ Good | Clean async API |
-| evaluator.js | ✅ Good | Well-designed, but unused |
+| File         | Status    | Notes                     |
+| ------------ | --------- | ------------------------- |
+| worker.js    | ⚠️ Medium | Works but normals broken  |
+| bridge.js    | ✅ Good   | Clean async API           |
+| evaluator.js | ✅ Good   | Well-designed, but unused |
 
 ### `/src/commands/`
 
-| File | Status | Notes |
-|------|--------|-------|
-| primitives.js | ⚠️ Medium | Torus/Wedge don't work |
-| transforms.js | 🔴 Dead | Never registered |
-| booleans.js | 🔴 Broken | Wrong kernel method names |
-| general.js | ⚠️ Medium | Import doesn't work |
+| File          | Status    | Notes                     |
+| ------------- | --------- | ------------------------- |
+| primitives.js | ⚠️ Medium | Torus/Wedge don't work    |
+| transforms.js | 🔴 Dead   | Never registered          |
+| booleans.js   | 🔴 Broken | Wrong kernel method names |
+| general.js    | ⚠️ Medium | Import doesn't work       |
 
 ### `/src/sketch/`
 
-| File | Status | Notes |
-|------|--------|-------|
-| sketch-manager.js | ✅ Good | Full sketch implementation |
-| sketch-renderer.js | ✅ Good | Clean Three.js rendering |
-| constraint-solver.js | ⚠️ Medium | Untested, uses relaxation |
+| File                 | Status    | Notes                      |
+| -------------------- | --------- | -------------------------- |
+| sketch-manager.js    | ✅ Good   | Full sketch implementation |
+| sketch-renderer.js   | ✅ Good   | Clean Three.js rendering   |
+| constraint-solver.js | ⚠️ Medium | Untested, uses relaxation  |
 
 ### `/src/ui/`
 
-| File | Status | Notes |
-|------|--------|-------|
+| File            | Status    | Notes                 |
+| --------------- | --------- | --------------------- |
 | feature-tree.js | ⚠️ Medium | Disconnected from app |
-| command-line.js | ✅ Good | Nice autocomplete |
+| command-line.js | ✅ Good   | Nice autocomplete     |
 
 ### Root Files
 
-| File | Status | Notes |
-|------|--------|-------|
-| app.js | ⚠️ Medium | Monolithic, needs refactoring |
-| main.js | ⚠️ Medium | Duplicate of app.js patterns |
-| crash-guard.js | ✅ Good | Solid recovery system |
+| File           | Status    | Notes                         |
+| -------------- | --------- | ----------------------------- |
+| app.js         | ⚠️ Medium | Monolithic, needs refactoring |
+| main.js        | ⚠️ Medium | Duplicate of app.js patterns  |
+| crash-guard.js | ✅ Good   | Solid recovery system         |
 
 ---
 
@@ -470,8 +482,8 @@ renderPoint(point, sketch) {
 import { DocumentModel } from '../state/document.js';
 
 const appContext = {
-    document: new DocumentModel(),
-    // ...
+  document: new DocumentModel(),
+  // ...
 };
 ```
 
@@ -491,13 +503,13 @@ result = await kernel.union(result, shapes[i]);
 import { registerTransformCommands } from '../commands/transforms.js';
 
 function registerAllCommands() {
-    registerPrimitiveCommands(wrappedKernel);
-    registerBooleanCommands(wrappedKernel);
-    registerTransformCommands(wrappedKernel);  // ADD THIS
-    registerGeneralCommands(appContext);
+  registerPrimitiveCommands(wrappedKernel);
+  registerBooleanCommands(wrappedKernel);
+  registerTransformCommands(wrappedKernel); // ADD THIS
+  registerGeneralCommands(appContext);
 }
 ```
 
 ---
 
-*End of Audit Report*
+_End of Audit Report_

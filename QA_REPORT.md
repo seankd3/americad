@@ -21,12 +21,14 @@ Ameri-CAD is a well-architected parametric CAD system with solid foundational co
 **Files:** `src/state/document.js`, `src/core/app-integration.js`
 
 **Problem:** Two competing document management systems exist:
+
 - `DocumentModel` (feature-tree based, in `state/document.js`) - used by `main.js`
 - `Document` (body-based, in `app-integration.js`) - used by command system
 
 **Impact:** Commands call `context.document.addBody()` but when used via `main.js`, the DocumentModel doesn't have `addBody()` method - it has `addFeature()`. This API mismatch will cause runtime errors when CLI commands are used with the main app.
 
 **Location:**
+
 ```
 src/commands/primitives.js:45  - context.document.addBody(...)
 src/commands/transforms.js:*   - context.document.addBody(...)
@@ -34,6 +36,7 @@ src/commands/sweep.js:*        - context.document.addBody(...)
 ```
 
 **Recommendation:**
+
 - Unify to a single document model
 - Either add `addBody()` as an alias to `DocumentModel.addFeature()`
 - Or refactor commands to use the feature-based API consistently
@@ -45,18 +48,21 @@ src/commands/sweep.js:*        - context.document.addBody(...)
 **File:** `src/kernel/evaluator.js`
 
 **Problem:** The `evaluateFeature()` method has a switch statement for feature types, but several important types are missing:
+
 - `extrude` - ExtrudeFeature exists in document.js but not handled in evaluator
 - `sweep` - SweepFeature exists but not handled
 - `sketch` - SketchFeature exists but not handled
 - `transform` - TransformFeature exists but not handled
 
 **Impact:** Creating these features via the document model will result in:
+
 ```javascript
 console.warn(`[Evaluator] Unknown feature type: extrude`);
 return null;
 ```
 
 **Recommendation:** Add cases for all defined feature types:
+
 ```javascript
 case 'extrude':
     const sketchId = this.kernelIds.get(feature.dependencies[0]);
@@ -83,6 +89,7 @@ recoverFromCrash(data) {
 **Impact:** CrashGuard records commands but recovery never replays them. Users lose work after crashes.
 
 **Recommendation:** Implement command replay from the crash log, similar to undo/redo:
+
 ```javascript
 async recoverFromCrash(data) {
     for (const cmd of data.commands) {
@@ -101,7 +108,7 @@ async recoverFromCrash(data) {
 // TODO: Use BRepGProp_Face for proper surface normals
 nx = 0;
 ny = 0;
-nz = 1;  // Hard-coded fallback!
+nz = 1; // Hard-coded fallback!
 ```
 
 **Impact:** When tessellation doesn't provide normals, all faces render with z-up normals, causing incorrect lighting on angled faces.
@@ -115,18 +122,21 @@ nz = 1;  // Hard-coded fallback!
 **File:** `tests/run-tests.mjs`
 
 **Problem:** The test runner counts `describe()`/`it()` patterns but never actually executes tests. It even admits this:
+
 ```javascript
 // Since tests use browser APIs (Three.js, OpenCASCADE),
 // we can't run them directly in Node.js without mocking.
 // This runner validates test file syntax and structure.
 ```
 
-**Impact:** 
+**Impact:**
+
 - 570 tests exist but 0 are actually verified
 - Tests could be completely broken and CI would pass
 - No protection against regressions
 
 **Recommendation:**
+
 1. Set up Playwright or Puppeteer for browser-based test execution
 2. Add proper mocking for kernel operations
 3. Create a minimal test harness that can run core logic without OpenCASCADE
@@ -144,6 +154,7 @@ nz = 1;  // Hard-coded fallback!
 ```
 
 **Problem:** Package declares CommonJS but all source files use ESM (`import`/`export`). The test runner flags syntax errors on every file with `import`:
+
 ```
 ⚠️ Potential syntax issue: Unexpected identifier 'from'
 ```
@@ -157,13 +168,15 @@ nz = 1;  // Hard-coded fallback!
 **Count:** 50+ instances across source files
 
 **Key Locations:**
+
 - `src/kernel/worker.js` - 4 instances
-- `src/kernel/bridge.js` - 1 instance  
+- `src/kernel/bridge.js` - 1 instance
 - `src/kernel/evaluator.js` - 4 instances
 - `src/main.js` - 15+ instances
 - `src/ui/*.js` - 10+ instances
 
-**Recommendation:** 
+**Recommendation:**
+
 - Replace with a proper logging utility
 - Use debug levels (verbose/info/warn/error)
 - Disable debug logs in production builds
@@ -175,6 +188,7 @@ nz = 1;  // Hard-coded fallback!
 **File:** `tests/holes.test.js`
 
 **Problem:** Uses a custom test framework instead of Mocha/Chai like other tests:
+
 ```javascript
 // Custom assert and runTest functions
 function assert(condition, message) { ... }
@@ -194,9 +208,18 @@ async function runTest(name, testFn) { ... }
 The `deserializeFeature()` function references `SketchFeature` and `ExtrudeFeature` but these aren't imported:
 
 ```javascript
-import { DocumentModel, Feature, BoxFeature, CylinderFeature, SphereFeature, 
-         ConeFeature, BooleanFeature, FilletFeature, ChamferFeature, 
-         TransformFeature } from '../state/document.js';
+import {
+  DocumentModel,
+  Feature,
+  BoxFeature,
+  CylinderFeature,
+  SphereFeature,
+  ConeFeature,
+  BooleanFeature,
+  FilletFeature,
+  ChamferFeature,
+  TransformFeature,
+} from '../state/document.js';
 // Missing: SketchFeature, ExtrudeFeature, SweepFeature
 ```
 
@@ -237,20 +260,20 @@ Measure tool is bound to 'M' key without configuration. Should be part of a conf
 
 ### Test Coverage Summary
 
-| Test File | Tests | Status |
-|-----------|-------|--------|
-| math.test.js | 41 | ✅ Syntax OK (ESM flagged) |
-| primitives.test.js | 25 | ✅ Well-structured |
-| history.test.js | 38 | ✅ Good coverage |
-| boolean.test.js | 40 | ✅ Comprehensive |
-| extrude.test.js | 49 | ✅ Good coverage |
-| file-io.test.js | 61 | ✅ Comprehensive |
-| holes.test.js | 0* | ⚠️ Custom framework |
-| kernel-primitives.test.js | 47 | ✅ Golden file tests |
-| sketch-entities.test.js | 63 | ✅ Good coverage |
-| modal-transform.test.js | 50 | ✅ Syntax OK |
-| viewport-*.test.js | 68 | ✅ Syntax OK |
-| **Total** | **570** | **Need execution** |
+| Test File                 | Tests   | Status                     |
+| ------------------------- | ------- | -------------------------- |
+| math.test.js              | 41      | ✅ Syntax OK (ESM flagged) |
+| primitives.test.js        | 25      | ✅ Well-structured         |
+| history.test.js           | 38      | ✅ Good coverage           |
+| boolean.test.js           | 40      | ✅ Comprehensive           |
+| extrude.test.js           | 49      | ✅ Good coverage           |
+| file-io.test.js           | 61      | ✅ Comprehensive           |
+| holes.test.js             | 0\*     | ⚠️ Custom framework        |
+| kernel-primitives.test.js | 47      | ✅ Golden file tests       |
+| sketch-entities.test.js   | 63      | ✅ Good coverage           |
+| modal-transform.test.js   | 50      | ✅ Syntax OK               |
+| viewport-\*.test.js       | 68      | ✅ Syntax OK               |
+| **Total**                 | **570** | **Need execution**         |
 
 ### Tests That Would Never Fail
 
@@ -267,30 +290,30 @@ None found - tests appear to make proper assertions.
 
 ## Feature Completeness Matrix
 
-| Feature | Implementation | Commands | UI Wired | Tests | Docs |
-|---------|---------------|----------|----------|-------|------|
-| Box | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Cylinder | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Sphere | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Cone | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Torus | ✅ | ✅ | ⚠️ Partial | ⚠️ | ⚠️ |
-| Boolean Union | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Boolean Subtract | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Boolean Intersect | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Fillet | ✅ | ✅ | ⚠️ | ✅ | ⚠️ |
-| Chamfer | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| Extrude | ✅ | ✅ | ⚠️ | ✅ | ⚠️ |
-| Sketch | ⚠️ Partial | ✅ | ⚠️ | ✅ | ⚠️ |
-| Sweep | ✅ | ✅ | ❌ | ⚠️ | ⚠️ |
-| Hole Wizard | ✅ | ✅ | ❌ | ✅* | ⚠️ |
-| Linear Pattern | ✅ | ✅ | ❌ | ❌ | ⚠️ |
-| Circular Pattern | ✅ | ✅ | ❌ | ❌ | ⚠️ |
-| Mirror | ✅ | ✅ | ❌ | ❌ | ⚠️ |
-| STEP Export | ✅ | ✅ | ✅ | ⚠️ | ✅ |
-| STL Export | ✅ | ✅ | ✅ | ⚠️ | ✅ |
-| Save/Load | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Undo/Redo | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Measure Tool | ✅ | ✅ | ✅ | ⚠️ | ⚠️ |
+| Feature           | Implementation | Commands | UI Wired   | Tests | Docs |
+| ----------------- | -------------- | -------- | ---------- | ----- | ---- |
+| Box               | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Cylinder          | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Sphere            | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Cone              | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Torus             | ✅             | ✅       | ⚠️ Partial | ⚠️    | ⚠️   |
+| Boolean Union     | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Boolean Subtract  | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Boolean Intersect | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Fillet            | ✅             | ✅       | ⚠️         | ✅    | ⚠️   |
+| Chamfer           | ✅             | ✅       | ⚠️         | ⚠️    | ⚠️   |
+| Extrude           | ✅             | ✅       | ⚠️         | ✅    | ⚠️   |
+| Sketch            | ⚠️ Partial     | ✅       | ⚠️         | ✅    | ⚠️   |
+| Sweep             | ✅             | ✅       | ❌         | ⚠️    | ⚠️   |
+| Hole Wizard       | ✅             | ✅       | ❌         | ✅\*  | ⚠️   |
+| Linear Pattern    | ✅             | ✅       | ❌         | ❌    | ⚠️   |
+| Circular Pattern  | ✅             | ✅       | ❌         | ❌    | ⚠️   |
+| Mirror            | ✅             | ✅       | ❌         | ❌    | ⚠️   |
+| STEP Export       | ✅             | ✅       | ✅         | ⚠️    | ✅   |
+| STL Export        | ✅             | ✅       | ✅         | ⚠️    | ✅   |
+| Save/Load         | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Undo/Redo         | ✅             | ✅       | ✅         | ✅    | ✅   |
+| Measure Tool      | ✅             | ✅       | ✅         | ⚠️    | ⚠️   |
 
 Legend: ✅ Complete | ⚠️ Partial | ❌ Missing
 
@@ -342,22 +365,26 @@ Legend: ✅ Complete | ⚠️ Partial | ❌ Missing
 ## Recommendations Summary
 
 ### Immediate (This Sprint)
+
 1. ⚠️ Fix evaluator to handle all feature types (extrude, sweep, sketch, transform)
 2. ⚠️ Unify document models or create compatibility layer
 3. ⚠️ Add missing imports to file-format.js
 
 ### Short-term (Next Sprint)
+
 4. Set up proper browser-based test execution
 5. Implement crash recovery command replay
 6. Fix normal calculation fallback in kernel
 
 ### Medium-term
+
 7. Add proper logging utility with levels
 8. Standardize all test files to Mocha/Chai
 9. Add UI for edge selection (fillet/chamfer)
 10. Change package.json to ESM mode
 
 ### Nice-to-have
+
 11. Add configurable keybindings
 12. Complete pattern features (linear/circular) UI
 13. Add missing edge case tests
@@ -367,11 +394,11 @@ Legend: ✅ Complete | ⚠️ Partial | ❌ Missing
 ## Files Needing Immediate Attention
 
 1. **`src/kernel/evaluator.js`** - Add missing feature type handlers
-2. **`src/io/file-format.js`** - Add missing feature imports  
+2. **`src/io/file-format.js`** - Add missing feature imports
 3. **`src/core/app-integration.js`** - Reconcile with DocumentModel
 4. **`src/main.js`** - Implement crash recovery
 5. **`tests/run-tests.mjs`** - Set up actual test execution
 
 ---
 
-*Report generated by automated QA audit. Manual verification recommended for critical paths.*
+_Report generated by automated QA audit. Manual verification recommended for critical paths._

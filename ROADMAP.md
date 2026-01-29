@@ -58,12 +58,12 @@
 
 ## v1.0 Feature Set
 
-| Category | Features |
-|----------|----------|
-| **Primitives** | Box, Cylinder, Sphere, Cone (kernel-native) |
-| **Operations** | Extrude, Booleans, Fillet/Chamfer |
+| Category       | Features                                        |
+| -------------- | ----------------------------------------------- |
+| **Primitives** | Box, Cylinder, Sphere, Cone (kernel-native)     |
+| **Operations** | Extrude, Booleans, Fillet/Chamfer               |
 | **Parametric** | Feature tree, editable dimensions, regeneration |
-| **Export** | STL + STEP + Native JSON |
+| **Export**     | STL + STEP + Native JSON                        |
 
 ## File Structure (Target)
 

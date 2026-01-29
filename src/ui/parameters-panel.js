@@ -1,6 +1,6 @@
 /**
  * Ameri-CAD Parameters Panel
- * 
+ *
  * UI panel for managing parametric expressions.
  * Shows all defined parameters, their expressions, and computed values.
  * Allows editing expressions and highlights circular dependencies.
@@ -12,49 +12,49 @@ import { parameters } from '../state/parameters.js';
  * Parameters Panel - displays and edits parametric expressions
  */
 export class ParametersPanel {
-    constructor(options = {}) {
-        this.container = null;
-        this.store = options.store || parameters;
-        this.onParameterChange = options.onParameterChange || (() => {});
-        
-        // Track editing state
-        this.editingRow = null;
-        this.rows = new Map(); // name → row element
-        
-        this.init();
+  constructor(options = {}) {
+    this.container = null;
+    this.store = options.store || parameters;
+    this.onParameterChange = options.onParameterChange || (() => {});
+
+    // Track editing state
+    this.editingRow = null;
+    this.rows = new Map(); // name → row element
+
+    this.init();
+  }
+
+  /**
+   * Initialize the panel
+   */
+  init() {
+    // Find or create the parameters panel container
+    this.container = document.getElementById('panel-parameters');
+    if (!this.container) {
+      console.warn('[ParametersPanel] Parameters panel container not found');
+      return;
     }
-    
-    /**
-     * Initialize the panel
-     */
-    init() {
-        // Find or create the parameters panel container
-        this.container = document.getElementById('panel-parameters');
-        if (!this.container) {
-            console.warn('[ParametersPanel] Parameters panel container not found');
-            return;
-        }
-        
-        // Clear and create structure
-        this.container.innerHTML = '';
-        this.createStructure();
-        this.addStyles();
-        
-        // Listen for store changes
-        this.store.onChange = (name, value) => {
-            this.refresh();
-            this.onParameterChange(name, value);
-        };
-        
-        // Initial render
-        this.refresh();
-    }
-    
-    /**
-     * Create the panel structure
-     */
-    createStructure() {
-        this.container.innerHTML = `
+
+    // Clear and create structure
+    this.container.innerHTML = '';
+    this.createStructure();
+    this.addStyles();
+
+    // Listen for store changes
+    this.store.onChange = (name, value) => {
+      this.refresh();
+      this.onParameterChange(name, value);
+    };
+
+    // Initial render
+    this.refresh();
+  }
+
+  /**
+   * Create the panel structure
+   */
+  createStructure() {
+    this.container.innerHTML = `
             <div class="params-panel-header">
                 <div class="params-title">
                     <span class="params-icon">ƒ</span>
@@ -96,75 +96,74 @@ export class ParametersPanel {
                 </div>
             </div>
         `;
-        
-        this.bindEvents();
+
+    this.bindEvents();
+  }
+
+  /**
+   * Bind event handlers
+   */
+  bindEvents() {
+    // Add button
+    const addBtn = this.container.querySelector('.params-add-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => this.addNewParameter());
     }
-    
-    /**
-     * Bind event handlers
-     */
-    bindEvents() {
-        // Add button
-        const addBtn = this.container.querySelector('.params-add-btn');
-        if (addBtn) {
-            addBtn.addEventListener('click', () => this.addNewParameter());
-        }
-        
-        // Add first button (in empty state)
-        const addFirstBtn = this.container.querySelector('.params-add-first-btn');
-        if (addFirstBtn) {
-            addFirstBtn.addEventListener('click', () => this.addNewParameter());
-        }
+
+    // Add first button (in empty state)
+    const addFirstBtn = this.container.querySelector('.params-add-first-btn');
+    if (addFirstBtn) {
+      addFirstBtn.addEventListener('click', () => this.addNewParameter());
     }
-    
-    /**
-     * Refresh the parameter list
-     */
-    refresh() {
-        const list = this.container.querySelector('#params-list');
-        const empty = this.container.querySelector('#params-empty');
-        
-        if (!list || !empty) return;
-        
-        const params = this.store.getAll();
-        
-        if (params.length === 0) {
-            list.style.display = 'none';
-            empty.style.display = '';
-            this.container.querySelector('.params-table-header').style.display = 'none';
-            return;
-        }
-        
-        list.style.display = '';
-        empty.style.display = 'none';
-        this.container.querySelector('.params-table-header').style.display = '';
-        
-        // Sort by topological order for intuitive display
-        const order = this.store.getTopologicalOrder();
-        params.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
-        
-        // Render rows
-        list.innerHTML = params.map(param => this.renderRow(param)).join('');
-        
-        // Rebind row events
-        this.bindRowEvents(list);
+  }
+
+  /**
+   * Refresh the parameter list
+   */
+  refresh() {
+    const list = this.container.querySelector('#params-list');
+    const empty = this.container.querySelector('#params-empty');
+
+    if (!list || !empty) return;
+
+    const params = this.store.getAll();
+
+    if (params.length === 0) {
+      list.style.display = 'none';
+      empty.style.display = '';
+      this.container.querySelector('.params-table-header').style.display = 'none';
+      return;
     }
-    
-    /**
-     * Render a single parameter row
-     */
-    renderRow(param) {
-        const hasError = param.error !== null;
-        const isCircular = param.error?.includes('Circular');
-        const deps = param.dependencies.length > 0 
-            ? `data-deps="${param.dependencies.join(', ')}"` 
-            : '';
-        
-        const valueDisplay = hasError
-            ? `<span class="param-error-value" title="${param.error}">ERROR</span>`
-            : `<span class="param-value-num">${this.formatValue(param.value)}</span>`;
-        
-        return `
+
+    list.style.display = '';
+    empty.style.display = 'none';
+    this.container.querySelector('.params-table-header').style.display = '';
+
+    // Sort by topological order for intuitive display
+    const order = this.store.getTopologicalOrder();
+    params.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+
+    // Render rows
+    list.innerHTML = params.map(param => this.renderRow(param)).join('');
+
+    // Rebind row events
+    this.bindRowEvents(list);
+  }
+
+  /**
+   * Render a single parameter row
+   */
+  renderRow(param) {
+    const hasError = param.error !== null;
+    const isCircular = param.error?.includes('Circular');
+    const deps =
+      param.dependencies.length > 0 ? `data-deps="${param.dependencies.join(', ')}"` : '';
+
+    const valueDisplay = hasError
+      ? `<span class="param-error-value" title="${param.error}">ERROR</span>`
+      : `<span class="param-value-num">${this.formatValue(param.value)}</span>`;
+
+    return `
             <div class="param-row ${hasError ? 'has-error' : ''} ${isCircular ? 'circular' : ''}" 
                  data-name="${param.name}" ${deps}>
                 <span class="param-name" title="Click to rename">${param.name}</span>
@@ -176,282 +175,282 @@ export class ParametersPanel {
                 </span>
             </div>
         `;
+  }
+
+  /**
+   * Bind events to parameter rows
+   */
+  bindRowEvents(list) {
+    // Edit expression on click
+    list.querySelectorAll('.param-expression').forEach(el => {
+      el.addEventListener('click', e => {
+        const row = e.target.closest('.param-row');
+        const name = row.dataset.name;
+        this.editExpression(name, row);
+      });
+    });
+
+    // Rename on name click
+    list.querySelectorAll('.param-name').forEach(el => {
+      el.addEventListener('dblclick', e => {
+        const row = e.target.closest('.param-row');
+        const name = row.dataset.name;
+        this.renameName(name, row);
+      });
+    });
+
+    // Edit button
+    list.querySelectorAll('.param-action-btn.edit').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const row = e.target.closest('.param-row');
+        const name = row.dataset.name;
+        this.editExpression(name, row);
+      });
+    });
+
+    // Delete button
+    list.querySelectorAll('.param-action-btn.delete').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const row = e.target.closest('.param-row');
+        const name = row.dataset.name;
+        this.deleteParameter(name);
+      });
+    });
+
+    // Hover to highlight dependencies
+    list.querySelectorAll('.param-row').forEach(row => {
+      row.addEventListener('mouseenter', () => this.highlightDependencies(row));
+      row.addEventListener('mouseleave', () => this.clearHighlights());
+    });
+  }
+
+  /**
+   * Add a new parameter
+   */
+  addNewParameter() {
+    // Generate unique name
+    let index = 1;
+    let name = `param${index}`;
+    while (this.store.has(name)) {
+      index++;
+      name = `param${index}`;
     }
-    
-    /**
-     * Bind events to parameter rows
-     */
-    bindRowEvents(list) {
-        // Edit expression on click
-        list.querySelectorAll('.param-expression').forEach(el => {
-            el.addEventListener('click', (e) => {
-                const row = e.target.closest('.param-row');
-                const name = row.dataset.name;
-                this.editExpression(name, row);
-            });
-        });
-        
-        // Rename on name click
-        list.querySelectorAll('.param-name').forEach(el => {
-            el.addEventListener('dblclick', (e) => {
-                const row = e.target.closest('.param-row');
-                const name = row.dataset.name;
-                this.renameName(name, row);
-            });
-        });
-        
-        // Edit button
-        list.querySelectorAll('.param-action-btn.edit').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const row = e.target.closest('.param-row');
-                const name = row.dataset.name;
-                this.editExpression(name, row);
-            });
-        });
-        
-        // Delete button
-        list.querySelectorAll('.param-action-btn.delete').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const row = e.target.closest('.param-row');
-                const name = row.dataset.name;
-                this.deleteParameter(name);
-            });
-        });
-        
-        // Hover to highlight dependencies
-        list.querySelectorAll('.param-row').forEach(row => {
-            row.addEventListener('mouseenter', () => this.highlightDependencies(row));
-            row.addEventListener('mouseleave', () => this.clearHighlights());
-        });
-    }
-    
-    /**
-     * Add a new parameter
-     */
-    addNewParameter() {
-        // Generate unique name
-        let index = 1;
-        let name = `param${index}`;
-        while (this.store.has(name)) {
-            index++;
-            name = `param${index}`;
+
+    // Add with default value
+    try {
+      this.store.set(name, 0);
+      this.refresh();
+
+      // Focus the expression for editing
+      setTimeout(() => {
+        const row = this.container.querySelector(`[data-name="${name}"]`);
+        if (row) {
+          this.editExpression(name, row);
         }
-        
-        // Add with default value
-        try {
-            this.store.set(name, 0);
-            this.refresh();
-            
-            // Focus the expression for editing
-            setTimeout(() => {
-                const row = this.container.querySelector(`[data-name="${name}"]`);
-                if (row) {
-                    this.editExpression(name, row);
-                }
-            }, 50);
-        } catch (e) {
-            this.showError(e.message);
-        }
+      }, 50);
+    } catch (e) {
+      this.showError(e.message);
     }
-    
-    /**
-     * Edit an expression inline
-     */
-    editExpression(name, row) {
-        const exprEl = row.querySelector('.param-expression');
-        const currentExpr = this.store.getExpression(name);
-        
-        // Replace with input
-        exprEl.innerHTML = `
+  }
+
+  /**
+   * Edit an expression inline
+   */
+  editExpression(name, row) {
+    const exprEl = row.querySelector('.param-expression');
+    const currentExpr = this.store.getExpression(name);
+
+    // Replace with input
+    exprEl.innerHTML = `
             <input type="text" class="param-expr-input" value="${this.escapeHtml(currentExpr)}" />
         `;
-        
-        const input = exprEl.querySelector('input');
-        input.focus();
-        input.select();
-        
-        const save = () => {
-            const newExpr = input.value.trim();
-            if (newExpr === '') {
-                // Delete if empty
-                this.deleteParameter(name);
-            } else {
-                try {
-                    this.store.set(name, newExpr);
-                } catch (e) {
-                    this.showError(e.message);
-                }
-            }
-            this.refresh();
-        };
-        
-        input.addEventListener('blur', save);
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                input.blur();
-            } else if (e.key === 'Escape') {
-                input.removeEventListener('blur', save);
-                this.refresh();
-            }
-        });
-    }
-    
-    /**
-     * Rename a parameter
-     */
-    renameName(name, row) {
-        const nameEl = row.querySelector('.param-name');
-        
-        nameEl.innerHTML = `
+
+    const input = exprEl.querySelector('input');
+    input.focus();
+    input.select();
+
+    const save = () => {
+      const newExpr = input.value.trim();
+      if (newExpr === '') {
+        // Delete if empty
+        this.deleteParameter(name);
+      } else {
+        try {
+          this.store.set(name, newExpr);
+        } catch (e) {
+          this.showError(e.message);
+        }
+      }
+      this.refresh();
+    };
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        input.blur();
+      } else if (e.key === 'Escape') {
+        input.removeEventListener('blur', save);
+        this.refresh();
+      }
+    });
+  }
+
+  /**
+   * Rename a parameter
+   */
+  renameName(name, row) {
+    const nameEl = row.querySelector('.param-name');
+
+    nameEl.innerHTML = `
             <input type="text" class="param-name-input" value="${name}" />
         `;
-        
-        const input = nameEl.querySelector('input');
-        input.focus();
-        input.select();
-        
-        const save = () => {
-            const newName = input.value.trim();
-            if (newName && newName !== name) {
-                try {
-                    this.store.rename(name, newName);
-                } catch (e) {
-                    this.showError(e.message);
-                }
-            }
-            this.refresh();
-        };
-        
-        input.addEventListener('blur', save);
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                input.blur();
-            } else if (e.key === 'Escape') {
-                input.removeEventListener('blur', save);
-                this.refresh();
-            }
-        });
-    }
-    
-    /**
-     * Delete a parameter
-     */
-    deleteParameter(name) {
-        const dependents = this.store.getDependents(name);
-        
-        if (dependents.length > 0) {
-            this.showError(`Cannot delete '${name}': used by ${dependents.join(', ')}`);
-            return;
-        }
-        
+
+    const input = nameEl.querySelector('input');
+    input.focus();
+    input.select();
+
+    const save = () => {
+      const newName = input.value.trim();
+      if (newName && newName !== name) {
         try {
-            this.store.delete(name);
-            this.refresh();
+          this.store.rename(name, newName);
         } catch (e) {
-            this.showError(e.message);
+          this.showError(e.message);
         }
+      }
+      this.refresh();
+    };
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        input.blur();
+      } else if (e.key === 'Escape') {
+        input.removeEventListener('blur', save);
+        this.refresh();
+      }
+    });
+  }
+
+  /**
+   * Delete a parameter
+   */
+  deleteParameter(name) {
+    const dependents = this.store.getDependents(name);
+
+    if (dependents.length > 0) {
+      this.showError(`Cannot delete '${name}': used by ${dependents.join(', ')}`);
+      return;
     }
-    
-    /**
-     * Highlight dependencies of a parameter
-     */
-    highlightDependencies(row) {
-        const name = row.dataset.name;
-        const deps = this.store.getDependencies(name);
-        const dependents = this.store.getDependents(name);
-        
-        // Highlight dependencies (what this uses)
-        for (const dep of deps) {
-            const depRow = this.container.querySelector(`[data-name="${dep}"]`);
-            if (depRow) {
-                depRow.classList.add('highlight-dependency');
-            }
-        }
-        
-        // Highlight dependents (what uses this)
-        for (const dep of dependents) {
-            const depRow = this.container.querySelector(`[data-name="${dep}"]`);
-            if (depRow) {
-                depRow.classList.add('highlight-dependent');
-            }
-        }
+
+    try {
+      this.store.delete(name);
+      this.refresh();
+    } catch (e) {
+      this.showError(e.message);
     }
-    
-    /**
-     * Clear all dependency highlights
-     */
-    clearHighlights() {
-        this.container.querySelectorAll('.param-row').forEach(row => {
-            row.classList.remove('highlight-dependency', 'highlight-dependent');
-        });
+  }
+
+  /**
+   * Highlight dependencies of a parameter
+   */
+  highlightDependencies(row) {
+    const name = row.dataset.name;
+    const deps = this.store.getDependencies(name);
+    const dependents = this.store.getDependents(name);
+
+    // Highlight dependencies (what this uses)
+    for (const dep of deps) {
+      const depRow = this.container.querySelector(`[data-name="${dep}"]`);
+      if (depRow) {
+        depRow.classList.add('highlight-dependency');
+      }
     }
-    
-    /**
-     * Show error message
-     */
-    showError(message) {
-        // Check if error toast already exists
-        let toast = this.container.querySelector('.params-error-toast');
-        if (!toast) {
-            toast = document.createElement('div');
-            toast.className = 'params-error-toast';
-            this.container.appendChild(toast);
-        }
-        
-        toast.textContent = message;
-        toast.classList.add('visible');
-        
-        setTimeout(() => {
-            toast.classList.remove('visible');
-        }, 3000);
+
+    // Highlight dependents (what uses this)
+    for (const dep of dependents) {
+      const depRow = this.container.querySelector(`[data-name="${dep}"]`);
+      if (depRow) {
+        depRow.classList.add('highlight-dependent');
+      }
     }
-    
-    /**
-     * Format a numeric value for display
-     */
-    formatValue(value) {
-        if (typeof value !== 'number' || isNaN(value)) {
-            return '—';
-        }
-        
-        // Check if integer
-        if (Number.isInteger(value)) {
-            return value.toString();
-        }
-        
-        // Format with appropriate precision
-        if (Math.abs(value) < 0.001) {
-            return value.toExponential(3);
-        }
-        
-        return value.toFixed(4).replace(/\.?0+$/, '');
+  }
+
+  /**
+   * Clear all dependency highlights
+   */
+  clearHighlights() {
+    this.container.querySelectorAll('.param-row').forEach(row => {
+      row.classList.remove('highlight-dependency', 'highlight-dependent');
+    });
+  }
+
+  /**
+   * Show error message
+   */
+  showError(message) {
+    // Check if error toast already exists
+    let toast = this.container.querySelector('.params-error-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.className = 'params-error-toast';
+      this.container.appendChild(toast);
     }
-    
-    /**
-     * Escape HTML special characters
-     */
-    escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
+
+    toast.textContent = message;
+    toast.classList.add('visible');
+
+    setTimeout(() => {
+      toast.classList.remove('visible');
+    }, 3000);
+  }
+
+  /**
+   * Format a numeric value for display
+   */
+  formatValue(value) {
+    if (typeof value !== 'number' || isNaN(value)) {
+      return '—';
     }
-    
-    /**
-     * Get the parameter store
-     */
-    getStore() {
-        return this.store;
+
+    // Check if integer
+    if (Number.isInteger(value)) {
+      return value.toString();
     }
-    
-    /**
-     * Add component styles
-     */
-    addStyles() {
-        if (document.getElementById('parameters-panel-styles')) return;
-        
-        const style = document.createElement('style');
-        style.id = 'parameters-panel-styles';
-        style.textContent = `
+
+    // Format with appropriate precision
+    if (Math.abs(value) < 0.001) {
+      return value.toExponential(3);
+    }
+
+    return value.toFixed(4).replace(/\.?0+$/, '');
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  /**
+   * Get the parameter store
+   */
+  getStore() {
+    return this.store;
+  }
+
+  /**
+   * Add component styles
+   */
+  addStyles() {
+    if (document.getElementById('parameters-panel-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'parameters-panel-styles';
+    style.textContent = `
             /* Parameters Panel Header */
             .params-panel-header {
                 display: flex;
@@ -768,9 +767,9 @@ export class ParametersPanel {
                 transform: translateY(0);
             }
         `;
-        
-        document.head.appendChild(style);
-    }
+
+    document.head.appendChild(style);
+  }
 }
 
 /**
@@ -779,14 +778,14 @@ export class ParametersPanel {
 let panelInstance = null;
 
 export function getParametersPanel(options = {}) {
-    if (!panelInstance) {
-        panelInstance = new ParametersPanel(options);
-    }
-    return panelInstance;
+  if (!panelInstance) {
+    panelInstance = new ParametersPanel(options);
+  }
+  return panelInstance;
 }
 
 export function initParametersPanel(options = {}) {
-    return getParametersPanel(options);
+  return getParametersPanel(options);
 }
 
 export default ParametersPanel;

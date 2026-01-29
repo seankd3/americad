@@ -29,6 +29,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation only
@@ -38,6 +39,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `chore`: Maintenance tasks
 
 **Examples:**
+
 ```
 feat(sketch): add spline tool with Catmull-Rom interpolation
 fix(kernel): prevent crash on empty boolean operation
@@ -48,11 +50,13 @@ docs(api): document kernel bridge methods
 ### Before Committing
 
 1. **Run linter:**
+
    ```bash
    npm run lint
    ```
 
 2. **Run tests:**
+
    ```bash
    npm test
    ```
@@ -81,10 +85,10 @@ describe('Feature Name', () => {
   it('should do the expected thing', () => {
     // Arrange
     const input = createTestInput();
-    
+
     // Act
     const result = featureUnderTest(input);
-    
+
     // Assert
     expect(result).to.equal(expectedOutput);
   });
@@ -107,7 +111,9 @@ When spawning sub-agents for development:
 
 ```markdown
 ## MANDATORY CHECKLIST
+
 Before marking complete:
+
 - [ ] Tests written (TDD preferred)
 - [ ] All tests pass: `npm test`
 - [ ] Linter passes: `npm run lint`
@@ -116,7 +122,9 @@ Before marking complete:
 - [ ] Summary includes: files changed, tests added, commit hash
 
 ## Output Format
+
 When complete, provide:
+
 1. Files created/modified (list with line counts)
 2. Tests written (count and names)
 3. Test results (pass/fail)
@@ -147,6 +155,7 @@ When complete, provide:
 Major architecture decisions are documented in `ARCHITECTURE_DECISIONS.md`.
 
 Before making significant changes:
+
 1. Check existing ADRs
 2. Discuss in issue/PR
 3. Consider Council deliberation for complex decisions

@@ -1,7 +1,8 @@
 # Ameri-CAD Integration Test Report
+
 **Date:** 2026-01-29  
 **Version:** 2.0.1-LA  
-**Test Environment:** Chromium (Clawd browser), OCCT 7.0  
+**Test Environment:** Chromium (Clawd browser), OCCT 7.0
 
 ---
 
@@ -13,13 +14,14 @@ The core CAD functionality works, but there are critical bugs that need fixing b
 
 ## 1. App Startup
 
-| Test | Result | Notes |
-|------|--------|-------|
-| App loads without console errors | ✅ PASS | Only favicon.ico 404 (benign) |
-| Kernel initializes (OCCT message) | ✅ PASS | "KERNEL ONLINE (OCCT B-REP)", OCCT 7.0 |
-| UI renders (viewport, panels, feature tree) | ✅ PASS | Full professional CAD UI rendered |
+| Test                                        | Result  | Notes                                  |
+| ------------------------------------------- | ------- | -------------------------------------- |
+| App loads without console errors            | ✅ PASS | Only favicon.ico 404 (benign)          |
+| Kernel initializes (OCCT message)           | ✅ PASS | "KERNEL ONLINE (OCCT B-REP)", OCCT 7.0 |
+| UI renders (viewport, panels, feature tree) | ✅ PASS | Full professional CAD UI rendered      |
 
 **Console Output on Startup:**
+
 ```
 [Ameri-CAD] Application created
 [Ameri-CAD] Starting initialization...
@@ -34,27 +36,28 @@ The core CAD functionality works, but there are critical bugs that need fixing b
 
 ## 2. Primitives (Kernel B-Rep)
 
-| Primitive | Result | Vertices | Notes |
-|-----------|--------|----------|-------|
-| `box 20 20 20` | ✅ PASS | 24 | Clean box geometry |
-| `sphere 15` | ✅ PASS | 774 | Smooth tessellation |
-| `cylinder 10 30` | ✅ PASS | 130 | Proper caps and body |
-| `cone 15 5 25` | ✅ PASS | 335 | Fixed! Working correctly |
-| `torus 20 5` | ⚠️ FIXED | - | Now uses `BRepPrimAPI_MakeTorus_4(Ax2, R1, R2, angle)` |
-| `wedge 20 20 10 5` | ⚠️ FIXED | - | Now uses `BRepPrimAPI_MakeWedge_2(Ax2, dx, dy, dz, ltx)` |
+| Primitive          | Result   | Vertices | Notes                                                    |
+| ------------------ | -------- | -------- | -------------------------------------------------------- |
+| `box 20 20 20`     | ✅ PASS  | 24       | Clean box geometry                                       |
+| `sphere 15`        | ✅ PASS  | 774      | Smooth tessellation                                      |
+| `cylinder 10 30`   | ✅ PASS  | 130      | Proper caps and body                                     |
+| `cone 15 5 25`     | ✅ PASS  | 335      | Fixed! Working correctly                                 |
+| `torus 20 5`       | ⚠️ FIXED | -        | Now uses `BRepPrimAPI_MakeTorus_4(Ax2, R1, R2, angle)`   |
+| `wedge 20 20 10 5` | ⚠️ FIXED | -        | Now uses `BRepPrimAPI_MakeWedge_2(Ax2, dx, dy, dz, ltx)` |
 
 **Fix Applied:** Updated to correct OCCT.js constructor variants:
-- Torus: `_4` variant with axis and sweep angle (2*PI for full torus)
+
+- Torus: `_4` variant with axis and sweep angle (2\*PI for full torus)
 - Wedge: `_2` variant with axis and ltx parameter
 
 ---
 
 ## 3. Lighting/Normals
 
-| Test | Result | Notes |
-|------|--------|-------|
-| Spheres have smooth shading | ✅ PASS | 774 vertices with proper normals |
-| Boxes have flat shading on faces | ✅ PASS | Per-face normals visible |
+| Test                             | Result  | Notes                                |
+| -------------------------------- | ------- | ------------------------------------ |
+| Spheres have smooth shading      | ✅ PASS | 774 vertices with proper normals     |
+| Boxes have flat shading on faces | ✅ PASS | Per-face normals visible             |
 | Lighting correct from all angles | ✅ PASS | View cube rotation confirms lighting |
 
 **Screenshot Description:** The default cube shows proper ambient + directional lighting with visible shading gradients. The view cube in the top-right shows correct face labels and shading.
@@ -63,13 +66,14 @@ The core CAD functionality works, but there are critical bugs that need fixing b
 
 ## 4. Boolean Operations
 
-| Operation | Result | Notes |
-|-----------|--------|-------|
-| `union` | ⚠️ FIXED | Now uses `BRepAlgoAPI_Fuse_3(S1, S2, ProgressRange)` |
-| `subtract` | ⚠️ FIXED | Now uses `BRepAlgoAPI_Cut_3(S1, S2, ProgressRange)` |
+| Operation   | Result   | Notes                                                  |
+| ----------- | -------- | ------------------------------------------------------ |
+| `union`     | ⚠️ FIXED | Now uses `BRepAlgoAPI_Fuse_3(S1, S2, ProgressRange)`   |
+| `subtract`  | ⚠️ FIXED | Now uses `BRepAlgoAPI_Cut_3(S1, S2, ProgressRange)`    |
 | `intersect` | ⚠️ FIXED | Now uses `BRepAlgoAPI_Common_3(S1, S2, ProgressRange)` |
 
 **Fix Applied:** OCCT 7.x constructor variants:
+
 - `_1`: Builder pattern (0 params)
 - `_2`: Uses existing PaveFiller (1 param)
 - `_3`: Classic two-shape + progress range (3 params) ← Now using this
@@ -78,10 +82,10 @@ The core CAD functionality works, but there are critical bugs that need fixing b
 
 ## 5. Fillet/Chamfer
 
-| Operation | Result | Vertices | Notes |
-|-----------|--------|----------|-------|
-| `filletall 2` | ✅ PASS | 536 | Rounds all edges correctly |
-| `chamferall 2` | ✅ PASS | 96 | Bevels all edges correctly |
+| Operation      | Result  | Vertices | Notes                      |
+| -------------- | ------- | -------- | -------------------------- |
+| `filletall 2`  | ✅ PASS | 536      | Rounds all edges correctly |
+| `chamferall 2` | ✅ PASS | 96       | Bevels all edges correctly |
 
 Fillet and chamfer operations work perfectly! The kernel properly iterates through all edges and applies the modifications.
 
@@ -89,11 +93,11 @@ Fillet and chamfer operations work perfectly! The kernel properly iterates throu
 
 ## 6. Undo/Redo
 
-| Test | Result | Notes |
-|------|--------|-------|
-| Ctrl+Z removes object | ⚠️ PARTIAL | Cannot test due to selection loop |
-| Ctrl+Shift+Z restores | ⚠️ PARTIAL | Cannot test due to selection loop |
-| Multiple cycles work | ⚠️ PARTIAL | API exists: `undo()`, `redo()` available |
+| Test                  | Result     | Notes                                    |
+| --------------------- | ---------- | ---------------------------------------- |
+| Ctrl+Z removes object | ⚠️ PARTIAL | Cannot test due to selection loop        |
+| Ctrl+Shift+Z restores | ⚠️ PARTIAL | Cannot test due to selection loop        |
+| Multiple cycles work  | ⚠️ PARTIAL | API exists: `undo()`, `redo()` available |
 
 **Blocker:** Selection loop bug prevents testing via UI. The undo/redo functions exist and appear properly implemented.
 
@@ -101,11 +105,11 @@ Fillet and chamfer operations work perfectly! The kernel properly iterates throu
 
 ## 7. Feature Tree
 
-| Test | Result | Notes |
-|------|--------|-------|
-| Tree shows created objects | ⚠️ PARTIAL | Feature tree UI renders |
-| Click tree → select viewport | ❌ FAIL | **CRITICAL BUG**: Infinite loop |
-| Click viewport → sync tree | ❌ FAIL | **CRITICAL BUG**: Infinite loop |
+| Test                            | Result      | Notes                            |
+| ------------------------------- | ----------- | -------------------------------- |
+| Tree shows created objects      | ⚠️ PARTIAL  | Feature tree UI renders          |
+| Click tree → select viewport    | ❌ FAIL     | **CRITICAL BUG**: Infinite loop  |
+| Click viewport → sync tree      | ❌ FAIL     | **CRITICAL BUG**: Infinite loop  |
 | Delete from tree removes object | ⚠️ UNTESTED | Cannot test due to selection bug |
 
 ### Critical Bug: Selection Infinite Loop
@@ -113,11 +117,13 @@ Fillet and chamfer operations work perfectly! The kernel properly iterates throu
 **Location:** `app.js` lines 877-883 and `src/ui/feature-tree.js`
 
 **Root Cause:**
+
 1. `selectObject()` calls `featureTreeUI.selectFeature(id)`
 2. `featureTreeUI.onFeatureSelect` callback calls `selectObject(mesh)`
 3. This creates an infinite recursion → `Maximum call stack size exceeded`
 
 **Error:**
+
 ```javascript
 RangeError: Maximum call stack size exceeded
     at SelectionManager.select
@@ -128,20 +134,21 @@ RangeError: Maximum call stack size exceeded
 ```
 
 **Fix:** Add a guard flag to prevent re-entry:
+
 ```javascript
 let _selectingObject = false;
 function selectObject(object) {
-    if (_selectingObject) return;
-    _selectingObject = true;
-    try {
-        selectionManager.select(object, transformControl, System.transformMode);
-        updateProperties();
-        if (featureTreeUI && object?.userData?.id) {
-            featureTreeUI.selectFeature(object.userData.id);
-        }
-    } finally {
-        _selectingObject = false;
+  if (_selectingObject) return;
+  _selectingObject = true;
+  try {
+    selectionManager.select(object, transformControl, System.transformMode);
+    updateProperties();
+    if (featureTreeUI && object?.userData?.id) {
+      featureTreeUI.selectFeature(object.userData.id);
     }
+  } finally {
+    _selectingObject = false;
+  }
 }
 ```
 
@@ -149,22 +156,23 @@ function selectObject(object) {
 
 ## 8. File I/O
 
-| Test | Result | Notes |
-|------|--------|-------|
-| Ctrl+S saves .americad file | ⚠️ UNTESTED | Function exists: `saveDocument()` |
-| Ctrl+O opens file picker | ⚠️ UNTESTED | Function exists: `openDocument()` |
-| Loading restores geometry | ⚠️ UNTESTED | Cannot verify due to selection bug |
+| Test                        | Result      | Notes                              |
+| --------------------------- | ----------- | ---------------------------------- |
+| Ctrl+S saves .americad file | ⚠️ UNTESTED | Function exists: `saveDocument()`  |
+| Ctrl+O opens file picker    | ⚠️ UNTESTED | Function exists: `openDocument()`  |
+| Loading restores geometry   | ⚠️ UNTESTED | Cannot verify due to selection bug |
 
 ---
 
 ## 9. Export
 
-| Test | Result | Notes |
-|------|--------|-------|
-| `export step` | ❌ FAIL | Shape tracking issue: "Shape not found" |
-| `export stl` | ⚠️ FIXED | Added fallback for missing `SetASCIIMode` method |
+| Test          | Result   | Notes                                            |
+| ------------- | -------- | ------------------------------------------------ |
+| `export step` | ❌ FAIL  | Shape tracking issue: "Shape not found"          |
+| `export stl`  | ⚠️ FIXED | Added fallback for missing `SetASCIIMode` method |
 
 **Issues:**
+
 1. **STEP Export:** The kernel creates shapes but doesn't persist them in the shape map for later export. Need to store shape references.
 2. **STL Export:** ⚠️ FIXED - Added graceful fallback when `SetASCIIMode` is unavailable (uses binary mode instead).
 
@@ -173,17 +181,21 @@ function selectObject(object) {
 ## Summary of Bugs Found
 
 ### Critical (Blockers for v1.0)
+
 1. **Selection Infinite Loop** - Makes app partially unusable when clicking objects
 
 ### Fixed ✅
+
 2. ~~**Boolean Operations Broken**~~ - Fixed by using `_3` constructor variants with ProgressRange
-3. ~~**Torus/Wedge Primitives**~~ - Fixed by using correct constructor variants (_4 and _2)
-5. ~~**STL Export**~~ - Fixed with graceful fallback for SetASCIIMode
+3. ~~**Torus/Wedge Primitives**~~ - Fixed by using correct constructor variants (\_4 and \_2)
+4. ~~**STL Export**~~ - Fixed with graceful fallback for SetASCIIMode
 
 ### High Priority
+
 4. **STEP Export** - Shape not persisted for export
 
 ### Medium Priority
+
 6. **Excessive Console Logging** - "SELECTED: BODY_003" logged hundreds of times per keystroke
 
 ---

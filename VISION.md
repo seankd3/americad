@@ -5,13 +5,15 @@
 ## From Fusion 360 (Precision CAD)
 
 ### Parametric Modeling
+
 - [x] Feature-based timeline/history
 - [x] Sketch constraints (H/V/dimension)
 - [ ] Fully constrained sketches (over/under-constrained warnings)
 - [ ] Design intent preservation
-- [ ] Parameters & expressions (width = height * 2)
+- [ ] Parameters & expressions (width = height \* 2)
 
 ### Manufacturing Features
+
 - [x] Basic primitives
 - [x] Boolean operations
 - [x] Fillet/chamfer
@@ -22,6 +24,7 @@
 - [ ] Rib/web features
 
 ### Precision Tools
+
 - [x] Dimension constraints
 - [x] Measure tool
 - [ ] Geometric tolerances (GD&T)
@@ -30,12 +33,14 @@
 - [ ] Interference detection
 
 ### Assembly Mode
+
 - [ ] Components & assemblies
 - [ ] Joint constraints (rigid, revolute, slider, etc.)
 - [ ] Motion study
 - [ ] Exploded views
 
 ### Output
+
 - [x] STEP export
 - [x] STL export
 - [ ] Drawing mode (2D views from 3D)
@@ -46,6 +51,7 @@
 ## From Blender (Architecture & UX)
 
 ### Interaction Model
+
 - [ ] Modal editing (G=grab, R=rotate, S=scale + axis lock)
 - [ ] Numeric input during transforms (G X 10 = move 10 on X)
 - [ ] Pie menus for quick tool access
@@ -53,6 +59,7 @@
 - [ ] Customizable keyboard shortcuts
 
 ### Viewport
+
 - [x] Smooth 60 FPS navigation
 - [ ] Multiple viewports (quad view)
 - [ ] Orthographic presets (Front/Top/Right)
@@ -60,6 +67,7 @@
 - [ ] Viewport shading modes (wireframe, solid, rendered)
 
 ### Non-Destructive Workflow
+
 - [x] Feature tree / modifier stack
 - [x] Parametric regeneration
 - [ ] Feature suppression (temporarily disable)
@@ -67,6 +75,7 @@
 - [ ] Feature patterns (reference existing patterns)
 
 ### UI/UX
+
 - [x] Property panel
 - [x] Feature tree (Outliner)
 - [ ] Collapsible/dockable panels
@@ -75,12 +84,14 @@
 - [ ] Splash screen with recent files
 
 ### Extensibility
+
 - [ ] Python scripting API
 - [ ] Add-on/plugin architecture
 - [ ] Custom tool creation
 - [ ] Macro recording
 
 ### Polish
+
 - [x] Undo/redo
 - [ ] Named undo steps ("Undo: Create Box")
 - [ ] Auto-save with versioning
@@ -100,11 +111,11 @@
 ## Target Users
 
 - Mechanical engineers
-- Product designers  
+- Product designers
 - Makers/hobbyists
 - Students learning CAD
 - Anyone who wants professional CAD without the subscription
 
 ---
 
-*"Fusion's precision, Blender's soul."*
+_"Fusion's precision, Blender's soul."_

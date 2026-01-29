@@ -1,7 +1,7 @@
 /**
  * Ameri-CAD Mass Properties Panel
- * 
- * Displays mass properties (volume, surface area, center of gravity, 
+ *
+ * Displays mass properties (volume, surface area, center of gravity,
  * moments of inertia, etc.) for selected geometry.
  * Similar to Fusion 360's Mass Properties feature.
  */
@@ -10,40 +10,40 @@
  * Mass Properties Panel - Displays calculated mass properties for selection
  */
 export class MassPropertiesPanel {
-    constructor(options = {}) {
-        this.container = null;
-        this.kernel = options.kernel || null;
-        this.onDensityChange = options.onDensityChange || (() => {});
-        
-        this.currentShapeId = null;
-        this.currentData = null;
-        this.density = 1.0; // Default density: 1.0 g/cm³ (water/generic plastic)
-        
-        // Section collapse states
-        this.collapsedSections = new Set();
-        
-        this.visible = false;
-        this.init();
-    }
-    
-    /**
-     * Initialize the panel
-     */
-    init() {
-        this.createPanel();
-        this.addStyles();
-        this.hide();
-    }
-    
-    /**
-     * Create the panel DOM structure
-     */
-    createPanel() {
-        this.container = document.createElement('div');
-        this.container.id = 'mass-properties-panel';
-        this.container.className = 'mass-properties-panel floating-panel';
-        
-        this.container.innerHTML = `
+  constructor(options = {}) {
+    this.container = null;
+    this.kernel = options.kernel || null;
+    this.onDensityChange = options.onDensityChange || (() => {});
+
+    this.currentShapeId = null;
+    this.currentData = null;
+    this.density = 1.0; // Default density: 1.0 g/cm³ (water/generic plastic)
+
+    // Section collapse states
+    this.collapsedSections = new Set();
+
+    this.visible = false;
+    this.init();
+  }
+
+  /**
+   * Initialize the panel
+   */
+  init() {
+    this.createPanel();
+    this.addStyles();
+    this.hide();
+  }
+
+  /**
+   * Create the panel DOM structure
+   */
+  createPanel() {
+    this.container = document.createElement('div');
+    this.container.id = 'mass-properties-panel';
+    this.container.className = 'mass-properties-panel floating-panel';
+
+    this.container.innerHTML = `
             <div class="panel-header">
                 <span class="panel-title">⚖️ MASS PROPERTIES</span>
                 <div class="panel-controls">
@@ -198,297 +198,303 @@ export class MassPropertiesPanel {
                 </div>
             </div>
         `;
-        
-        document.body.appendChild(this.container);
-        this.bindEvents();
+
+    document.body.appendChild(this.container);
+    this.bindEvents();
+  }
+
+  /**
+   * Bind event handlers
+   */
+  bindEvents() {
+    // Close button
+    this.container.querySelector('.close-btn').addEventListener('click', () => {
+      this.hide();
+    });
+
+    // Copy button
+    this.container.querySelector('.copy-btn').addEventListener('click', () => {
+      this.copyToClipboard();
+    });
+
+    // Density input
+    const densityInput = this.container.querySelector('#mp-density');
+    densityInput.addEventListener('input', () => {
+      this.density = parseFloat(densityInput.value) || 1.0;
+      this.recalculate();
+    });
+
+    // Quick material buttons
+    this.container.querySelectorAll('.quick-materials button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const density = parseFloat(btn.dataset.density);
+        this.density = density;
+        densityInput.value = density;
+        this.recalculate();
+      });
+    });
+
+    // Section collapse toggles
+    this.container.querySelectorAll('.section-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const section = header.closest('.mp-section');
+        const sectionName = section.dataset.section;
+        this.toggleSection(sectionName, section);
+      });
+    });
+
+    // Make panel draggable
+    this.makeDraggable();
+  }
+
+  /**
+   * Toggle section collapse state
+   */
+  toggleSection(sectionName, sectionEl) {
+    const isCollapsed = this.collapsedSections.has(sectionName);
+    const body = sectionEl.querySelector('.section-body');
+    const icon = sectionEl.querySelector('.section-collapse-icon');
+
+    if (isCollapsed) {
+      this.collapsedSections.delete(sectionName);
+      body.style.display = '';
+      icon.textContent = '▼';
+      sectionEl.classList.remove('collapsed');
+    } else {
+      this.collapsedSections.add(sectionName);
+      body.style.display = 'none';
+      icon.textContent = '▶';
+      sectionEl.classList.add('collapsed');
     }
-    
-    /**
-     * Bind event handlers
-     */
-    bindEvents() {
-        // Close button
-        this.container.querySelector('.close-btn').addEventListener('click', () => {
-            this.hide();
-        });
-        
-        // Copy button
-        this.container.querySelector('.copy-btn').addEventListener('click', () => {
-            this.copyToClipboard();
-        });
-        
-        // Density input
-        const densityInput = this.container.querySelector('#mp-density');
-        densityInput.addEventListener('input', () => {
-            this.density = parseFloat(densityInput.value) || 1.0;
-            this.recalculate();
-        });
-        
-        // Quick material buttons
-        this.container.querySelectorAll('.quick-materials button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const density = parseFloat(btn.dataset.density);
-                this.density = density;
-                densityInput.value = density;
-                this.recalculate();
-            });
-        });
-        
-        // Section collapse toggles
-        this.container.querySelectorAll('.section-header').forEach(header => {
-            header.addEventListener('click', () => {
-                const section = header.closest('.mp-section');
-                const sectionName = section.dataset.section;
-                this.toggleSection(sectionName, section);
-            });
-        });
-        
-        // Make panel draggable
-        this.makeDraggable();
+  }
+
+  /**
+   * Make the panel draggable
+   */
+  makeDraggable() {
+    const header = this.container.querySelector('.panel-header');
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+
+    header.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'BUTTON') return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = this.container.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      header.style.cursor = 'grabbing';
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      this.container.style.left = `${startLeft + dx}px`;
+      this.container.style.top = `${startTop + dy}px`;
+      this.container.style.right = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+      header.style.cursor = 'grab';
+    });
+  }
+
+  /**
+   * Show the panel
+   */
+  show() {
+    this.container.style.display = 'block';
+    this.visible = true;
+  }
+
+  /**
+   * Hide the panel
+   */
+  hide() {
+    this.container.style.display = 'none';
+    this.visible = false;
+  }
+
+  /**
+   * Toggle visibility
+   */
+  toggle() {
+    if (this.visible) {
+      this.hide();
+    } else {
+      this.show();
     }
-    
-    /**
-     * Toggle section collapse state
-     */
-    toggleSection(sectionName, sectionEl) {
-        const isCollapsed = this.collapsedSections.has(sectionName);
-        const body = sectionEl.querySelector('.section-body');
-        const icon = sectionEl.querySelector('.section-collapse-icon');
-        
-        if (isCollapsed) {
-            this.collapsedSections.delete(sectionName);
-            body.style.display = '';
-            icon.textContent = '▼';
-            sectionEl.classList.remove('collapsed');
-        } else {
-            this.collapsedSections.add(sectionName);
-            body.style.display = 'none';
-            icon.textContent = '▶';
-            sectionEl.classList.add('collapsed');
-        }
+  }
+
+  /**
+   * Check if panel is visible
+   */
+  isVisible() {
+    return this.visible;
+  }
+
+  /**
+   * Set the kernel bridge reference
+   */
+  setKernel(kernel) {
+    this.kernel = kernel;
+  }
+
+  /**
+   * Calculate and display mass properties for a shape
+   * @param {string} shapeId - Kernel shape ID
+   * @param {number} density - Optional density override
+   */
+  async calculate(shapeId, density = null) {
+    if (!this.kernel) {
+      console.error('[MassPropertiesPanel] No kernel set');
+      return;
     }
-    
-    /**
-     * Make the panel draggable
-     */
-    makeDraggable() {
-        const header = this.container.querySelector('.panel-header');
-        let isDragging = false;
-        let startX, startY, startLeft, startTop;
-        
-        header.addEventListener('mousedown', (e) => {
-            if (e.target.tagName === 'BUTTON') return;
-            isDragging = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            const rect = this.container.getBoundingClientRect();
-            startLeft = rect.left;
-            startTop = rect.top;
-            header.style.cursor = 'grabbing';
-        });
-        
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            this.container.style.left = `${startLeft + dx}px`;
-            this.container.style.top = `${startTop + dy}px`;
-            this.container.style.right = 'auto';
-        });
-        
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-            header.style.cursor = 'grab';
-        });
+
+    this.currentShapeId = shapeId;
+    if (density !== null) {
+      this.density = density;
+      this.container.querySelector('#mp-density').value = density;
     }
-    
-    /**
-     * Show the panel
-     */
-    show() {
-        this.container.style.display = 'block';
-        this.visible = true;
+
+    // Show loading state
+    this.container.querySelector('#mp-loading').style.display = 'flex';
+    this.container.querySelector('#mp-empty').style.display = 'none';
+    this.container.querySelector('#mp-content').style.display = 'none';
+
+    try {
+      // Call kernel to get mass properties
+      this.currentData = await this.kernel.getMassProperties(shapeId, this.density);
+      this.displayData(this.currentData);
+    } catch (error) {
+      console.error('[MassPropertiesPanel] Calculation error:', error);
+      this.showEmpty('Calculation failed: ' + error.message);
     }
-    
-    /**
-     * Hide the panel
-     */
-    hide() {
-        this.container.style.display = 'none';
-        this.visible = false;
+  }
+
+  /**
+   * Recalculate with current shape and new density
+   */
+  async recalculate() {
+    if (!this.currentShapeId || !this.kernel) return;
+    await this.calculate(this.currentShapeId);
+  }
+
+  /**
+   * Display the calculated data
+   */
+  displayData(data) {
+    this.container.querySelector('#mp-loading').style.display = 'none';
+    this.container.querySelector('#mp-empty').style.display = 'none';
+    this.container.querySelector('#mp-content').style.display = 'block';
+
+    // Mass & Volume
+    this.container.querySelector('#mp-mass').textContent = this.formatMass(data.mass);
+    this.container.querySelector('#mp-volume').textContent = this.formatVolume(
+      data.volume,
+      data.volumeCm3
+    );
+    this.container.querySelector('#mp-surface-area').textContent = this.formatArea(
+      data.surfaceArea,
+      data.surfaceAreaCm2
+    );
+
+    // Bounding Box
+    const dims = data.boundingBox.dimensions;
+    this.container.querySelector('#mp-bbox-x').textContent = `${dims.x.toFixed(3)} mm`;
+    this.container.querySelector('#mp-bbox-y').textContent = `${dims.y.toFixed(3)} mm`;
+    this.container.querySelector('#mp-bbox-z').textContent = `${dims.z.toFixed(3)} mm`;
+
+    // Center of Gravity
+    const cog = data.centerOfGravity;
+    this.container.querySelector('#mp-cog-x').textContent = `${cog.x.toFixed(4)} mm`;
+    this.container.querySelector('#mp-cog-y').textContent = `${cog.y.toFixed(4)} mm`;
+    this.container.querySelector('#mp-cog-z').textContent = `${cog.z.toFixed(4)} mm`;
+
+    // Moments of Inertia
+    const moi = data.momentsOfInertia;
+    this.container.querySelector('#mp-ixx').textContent = this.formatInertia(moi.Ixx);
+    this.container.querySelector('#mp-iyy').textContent = this.formatInertia(moi.Iyy);
+    this.container.querySelector('#mp-izz').textContent = this.formatInertia(moi.Izz);
+    this.container.querySelector('#mp-ixy').textContent = this.formatInertia(moi.Ixy);
+    this.container.querySelector('#mp-ixz').textContent = this.formatInertia(moi.Ixz);
+    this.container.querySelector('#mp-iyz').textContent = this.formatInertia(moi.Iyz);
+  }
+
+  /**
+   * Show empty state with optional message
+   */
+  showEmpty(message = null) {
+    this.container.querySelector('#mp-loading').style.display = 'none';
+    this.container.querySelector('#mp-content').style.display = 'none';
+    const emptyEl = this.container.querySelector('#mp-empty');
+    emptyEl.style.display = 'flex';
+
+    if (message) {
+      emptyEl.querySelector('.empty-hint').textContent = message;
     }
-    
-    /**
-     * Toggle visibility
-     */
-    toggle() {
-        if (this.visible) {
-            this.hide();
-        } else {
-            this.show();
-        }
+  }
+
+  /**
+   * Clear the panel
+   */
+  clear() {
+    this.currentShapeId = null;
+    this.currentData = null;
+    this.showEmpty();
+  }
+
+  /**
+   * Format mass for display
+   */
+  formatMass(grams) {
+    if (grams >= 1000) {
+      return `${(grams / 1000).toFixed(4)} kg`;
     }
-    
-    /**
-     * Check if panel is visible
-     */
-    isVisible() {
-        return this.visible;
+    return `${grams.toFixed(4)} g`;
+  }
+
+  /**
+   * Format volume for display
+   */
+  formatVolume(mm3, cm3) {
+    if (cm3 >= 1) {
+      return `${cm3.toFixed(4)} cm³`;
     }
-    
-    /**
-     * Set the kernel bridge reference
-     */
-    setKernel(kernel) {
-        this.kernel = kernel;
+    return `${mm3.toFixed(4)} mm³`;
+  }
+
+  /**
+   * Format area for display
+   */
+  formatArea(mm2, cm2) {
+    if (cm2 >= 1) {
+      return `${cm2.toFixed(4)} cm²`;
     }
-    
-    /**
-     * Calculate and display mass properties for a shape
-     * @param {string} shapeId - Kernel shape ID
-     * @param {number} density - Optional density override
-     */
-    async calculate(shapeId, density = null) {
-        if (!this.kernel) {
-            console.error('[MassPropertiesPanel] No kernel set');
-            return;
-        }
-        
-        this.currentShapeId = shapeId;
-        if (density !== null) {
-            this.density = density;
-            this.container.querySelector('#mp-density').value = density;
-        }
-        
-        // Show loading state
-        this.container.querySelector('#mp-loading').style.display = 'flex';
-        this.container.querySelector('#mp-empty').style.display = 'none';
-        this.container.querySelector('#mp-content').style.display = 'none';
-        
-        try {
-            // Call kernel to get mass properties
-            this.currentData = await this.kernel.getMassProperties(shapeId, this.density);
-            this.displayData(this.currentData);
-        } catch (error) {
-            console.error('[MassPropertiesPanel] Calculation error:', error);
-            this.showEmpty('Calculation failed: ' + error.message);
-        }
+    return `${mm2.toFixed(4)} mm²`;
+  }
+
+  /**
+   * Format inertia values (scientific notation for large values)
+   */
+  formatInertia(value) {
+    if (Math.abs(value) >= 1e6 || (Math.abs(value) < 0.01 && value !== 0)) {
+      return value.toExponential(4);
     }
-    
-    /**
-     * Recalculate with current shape and new density
-     */
-    async recalculate() {
-        if (!this.currentShapeId || !this.kernel) return;
-        await this.calculate(this.currentShapeId);
-    }
-    
-    /**
-     * Display the calculated data
-     */
-    displayData(data) {
-        this.container.querySelector('#mp-loading').style.display = 'none';
-        this.container.querySelector('#mp-empty').style.display = 'none';
-        this.container.querySelector('#mp-content').style.display = 'block';
-        
-        // Mass & Volume
-        this.container.querySelector('#mp-mass').textContent = this.formatMass(data.mass);
-        this.container.querySelector('#mp-volume').textContent = this.formatVolume(data.volume, data.volumeCm3);
-        this.container.querySelector('#mp-surface-area').textContent = this.formatArea(data.surfaceArea, data.surfaceAreaCm2);
-        
-        // Bounding Box
-        const dims = data.boundingBox.dimensions;
-        this.container.querySelector('#mp-bbox-x').textContent = `${dims.x.toFixed(3)} mm`;
-        this.container.querySelector('#mp-bbox-y').textContent = `${dims.y.toFixed(3)} mm`;
-        this.container.querySelector('#mp-bbox-z').textContent = `${dims.z.toFixed(3)} mm`;
-        
-        // Center of Gravity
-        const cog = data.centerOfGravity;
-        this.container.querySelector('#mp-cog-x').textContent = `${cog.x.toFixed(4)} mm`;
-        this.container.querySelector('#mp-cog-y').textContent = `${cog.y.toFixed(4)} mm`;
-        this.container.querySelector('#mp-cog-z').textContent = `${cog.z.toFixed(4)} mm`;
-        
-        // Moments of Inertia
-        const moi = data.momentsOfInertia;
-        this.container.querySelector('#mp-ixx').textContent = this.formatInertia(moi.Ixx);
-        this.container.querySelector('#mp-iyy').textContent = this.formatInertia(moi.Iyy);
-        this.container.querySelector('#mp-izz').textContent = this.formatInertia(moi.Izz);
-        this.container.querySelector('#mp-ixy').textContent = this.formatInertia(moi.Ixy);
-        this.container.querySelector('#mp-ixz').textContent = this.formatInertia(moi.Ixz);
-        this.container.querySelector('#mp-iyz').textContent = this.formatInertia(moi.Iyz);
-    }
-    
-    /**
-     * Show empty state with optional message
-     */
-    showEmpty(message = null) {
-        this.container.querySelector('#mp-loading').style.display = 'none';
-        this.container.querySelector('#mp-content').style.display = 'none';
-        const emptyEl = this.container.querySelector('#mp-empty');
-        emptyEl.style.display = 'flex';
-        
-        if (message) {
-            emptyEl.querySelector('.empty-hint').textContent = message;
-        }
-    }
-    
-    /**
-     * Clear the panel
-     */
-    clear() {
-        this.currentShapeId = null;
-        this.currentData = null;
-        this.showEmpty();
-    }
-    
-    /**
-     * Format mass for display
-     */
-    formatMass(grams) {
-        if (grams >= 1000) {
-            return `${(grams / 1000).toFixed(4)} kg`;
-        }
-        return `${grams.toFixed(4)} g`;
-    }
-    
-    /**
-     * Format volume for display
-     */
-    formatVolume(mm3, cm3) {
-        if (cm3 >= 1) {
-            return `${cm3.toFixed(4)} cm³`;
-        }
-        return `${mm3.toFixed(4)} mm³`;
-    }
-    
-    /**
-     * Format area for display
-     */
-    formatArea(mm2, cm2) {
-        if (cm2 >= 1) {
-            return `${cm2.toFixed(4)} cm²`;
-        }
-        return `${mm2.toFixed(4)} mm²`;
-    }
-    
-    /**
-     * Format inertia values (scientific notation for large values)
-     */
-    formatInertia(value) {
-        if (Math.abs(value) >= 1e6 || (Math.abs(value) < 0.01 && value !== 0)) {
-            return value.toExponential(4);
-        }
-        return value.toFixed(4);
-    }
-    
-    /**
-     * Copy mass properties to clipboard as text
-     */
-    async copyToClipboard() {
-        if (!this.currentData) return;
-        
-        const data = this.currentData;
-        const text = `
+    return value.toFixed(4);
+  }
+
+  /**
+   * Copy mass properties to clipboard as text
+   */
+  async copyToClipboard() {
+    if (!this.currentData) return;
+
+    const data = this.currentData;
+    const text = `
 MASS PROPERTIES
 ===============
 Density: ${data.density} g/cm³
@@ -516,35 +522,37 @@ Ixy: ${this.formatInertia(data.momentsOfInertia.Ixy)}
 Ixz: ${this.formatInertia(data.momentsOfInertia.Ixz)}
 Iyz: ${this.formatInertia(data.momentsOfInertia.Iyz)}
 `.trim();
-        
-        try {
-            await navigator.clipboard.writeText(text);
-            // Show brief feedback
-            const copyBtn = this.container.querySelector('.copy-btn');
-            const original = copyBtn.textContent;
-            copyBtn.textContent = '✓';
-            setTimeout(() => { copyBtn.textContent = original; }, 1000);
-        } catch (e) {
-            console.error('[MassPropertiesPanel] Copy failed:', e);
-        }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      // Show brief feedback
+      const copyBtn = this.container.querySelector('.copy-btn');
+      const original = copyBtn.textContent;
+      copyBtn.textContent = '✓';
+      setTimeout(() => {
+        copyBtn.textContent = original;
+      }, 1000);
+    } catch (e) {
+      console.error('[MassPropertiesPanel] Copy failed:', e);
     }
-    
-    /**
-     * Get current mass properties data
-     */
-    getData() {
-        return this.currentData;
-    }
-    
-    /**
-     * Add component styles
-     */
-    addStyles() {
-        if (document.getElementById('mass-properties-panel-styles')) return;
-        
-        const style = document.createElement('style');
-        style.id = 'mass-properties-panel-styles';
-        style.textContent = `
+  }
+
+  /**
+   * Get current mass properties data
+   */
+  getData() {
+    return this.currentData;
+  }
+
+  /**
+   * Add component styles
+   */
+  addStyles() {
+    if (document.getElementById('mass-properties-panel-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'mass-properties-panel-styles';
+    style.textContent = `
             .mass-properties-panel {
                 position: fixed;
                 top: 100px;
@@ -825,9 +833,9 @@ Iyz: ${this.formatInertia(data.momentsOfInertia.Iyz)}
                 text-align: center;
             }
         `;
-        
-        document.head.appendChild(style);
-    }
+
+    document.head.appendChild(style);
+  }
 }
 
 /**
@@ -836,14 +844,14 @@ Iyz: ${this.formatInertia(data.momentsOfInertia.Iyz)}
 let panelInstance = null;
 
 export function getMassPropertiesPanel(options = {}) {
-    if (!panelInstance) {
-        panelInstance = new MassPropertiesPanel(options);
-    }
-    return panelInstance;
+  if (!panelInstance) {
+    panelInstance = new MassPropertiesPanel(options);
+  }
+  return panelInstance;
 }
 
 export function initMassPropertiesPanel(options = {}) {
-    return getMassPropertiesPanel(options);
+  return getMassPropertiesPanel(options);
 }
 
 export default MassPropertiesPanel;
