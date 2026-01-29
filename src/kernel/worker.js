@@ -637,6 +637,136 @@ function createCircleWire(center, radius, normal = { x: 0, y: 0, z: 1 }) {
 }
 
 /**
+ * Create a line wire (straight path between two points)
+ * @param {{x,y,z}} start - Start point
+ * @param {{x,y,z}} end - End point
+ * @returns {{shape: TopoDS_Wire, id: string}}
+ */
+function createLineWire(start, end) {
+    const p1 = new oc.gp_Pnt_3(start.x, start.y, start.z);
+    const p2 = new oc.gp_Pnt_3(end.x, end.y, end.z);
+    
+    // Create edge from two points
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_3(p1, p2);
+    if (!edgeMaker.IsDone()) {
+        throw new Error('Failed to create line edge');
+    }
+    
+    // Create wire from edge
+    const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+    if (!wireMaker.IsDone()) {
+        throw new Error('Failed to create line wire');
+    }
+    
+    const wire = wireMaker.Wire();
+    
+    return {
+        shape: wire,
+        id: getTopoId(wire),
+        type: 'wire'
+    };
+}
+
+/**
+ * Create an arc wire (three-point arc)
+ * @param {{x,y,z}} start - Start point
+ * @param {{x,y,z}} mid - Point on arc (middle)
+ * @param {{x,y,z}} end - End point
+ * @returns {{shape: TopoDS_Wire, id: string}}
+ */
+function createArcWire(start, mid, end) {
+    const p1 = new oc.gp_Pnt_3(start.x, start.y, start.z);
+    const p2 = new oc.gp_Pnt_3(mid.x, mid.y, mid.z);
+    const p3 = new oc.gp_Pnt_3(end.x, end.y, end.z);
+    
+    // Create arc using GC_MakeArcOfCircle (three-point arc)
+    const arcMaker = new oc.GC_MakeArcOfCircle_4(p1, p2, p3);
+    if (!arcMaker.IsDone()) {
+        throw new Error('Failed to create arc - points may be collinear');
+    }
+    
+    // Get the arc curve
+    const arcCurve = arcMaker.Value();
+    
+    // Create edge from arc
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_24(arcCurve);
+    if (!edgeMaker.IsDone()) {
+        throw new Error('Failed to create arc edge');
+    }
+    
+    // Create wire from edge
+    const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+    if (!wireMaker.IsDone()) {
+        throw new Error('Failed to create arc wire');
+    }
+    
+    const wire = wireMaker.Wire();
+    
+    return {
+        shape: wire,
+        id: getTopoId(wire),
+        type: 'wire'
+    };
+}
+
+/**
+ * Create a helix wire (spiral path)
+ * @param {number} radius - Helix radius
+ * @param {number} pitch - Distance between turns
+ * @param {number} height - Total height of helix
+ * @param {{x,y,z}} center - Center point at base
+ * @returns {{shape: TopoDS_Wire, id: string}}
+ */
+function createHelixWire(radius, pitch, height, center = { x: 0, y: 0, z: 0 }) {
+    // Number of turns
+    const turns = height / pitch;
+    
+    // Create a cylindrical surface for the helix
+    const axis = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(center.x, center.y, center.z),
+        new oc.gp_Dir_4(0, 0, 1)
+    );
+    
+    // Create the helix using a parametric approach with Geom_CylindricalSurface
+    const cylSurface = new oc.Geom_CylindricalSurface_1(axis, radius);
+    
+    // Create a 2D line on the surface parameters (u, v) that maps to helix
+    // u is the angle (0 to 2*PI*turns), v maps to height
+    const line2d = new oc.gp_Lin2d_2(
+        new oc.gp_Pnt2d_3(0, 0),
+        new oc.gp_Dir2d_4(2 * Math.PI, pitch)
+    );
+    
+    const geomLine2d = new oc.Geom2d_Line_2(line2d);
+    
+    // Create edge on surface
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge_30(
+        new oc.Handle_Geom2d_Curve_2(geomLine2d),
+        new oc.Handle_Geom_Surface_2(cylSurface),
+        0,
+        Math.sqrt(Math.pow(2 * Math.PI * turns, 2) + Math.pow(height, 2))
+    );
+    
+    if (!edgeMaker.IsDone()) {
+        throw new Error('Failed to create helix edge');
+    }
+    
+    // Create wire from edge
+    const wireMaker = new oc.BRepBuilderAPI_MakeWire_2(edgeMaker.Edge());
+    if (!wireMaker.IsDone()) {
+        throw new Error('Failed to create helix wire');
+    }
+    
+    const wire = wireMaker.Wire();
+    
+    return {
+        shape: wire,
+        id: getTopoId(wire),
+        type: 'wire'
+    };
+}
+
+/**
  * Create a rectangular face on a plane
  * @param {number} width - Width (X dimension in sketch space)
  * @param {number} height - Height (Y dimension in sketch space)
@@ -748,6 +878,51 @@ function extrudeSketchProfile(profile, height, plane = 'xy') {
     const extruded = extrudeProfile(face.shape, direction, height);
     
     return extruded;
+}
+
+/**
+ * Revolve a sketch profile around an axis (from sketch geometry data)
+ * @param {Object} profile - Profile data from sketch
+ * @param {Object} axis - Revolution axis { origin: {x,y,z}, direction: {x,y,z} }
+ * @param {number} angleDegrees - Revolution angle in degrees (default 360)
+ * @param {string} plane - Sketch plane
+ * @returns {{shape: TopoDS_Shape, id: string, mesh: Object}}
+ */
+function revolveSketchProfile(profile, axis, angleDegrees = 360, plane = 'xy') {
+    let face;
+    
+    if (profile.type === 'rectangle') {
+        face = createRectangleFace(profile.width, profile.height, {
+            x: profile.center.x,
+            y: profile.center.y,
+            z: 0 // Sketch is at origin
+        }, plane);
+    } else if (profile.type === 'circle') {
+        face = createCircleFace(profile.radius, {
+            x: profile.center.x,
+            y: profile.center.y,
+            z: 0
+        }, plane);
+    } else if (profile.type === 'polygon' && profile.points) {
+        // Convert 2D points to 3D based on plane
+        const points3d = profile.points.map(p => {
+            switch (plane) {
+                case 'xy': return { x: p.x, y: p.y, z: 0 };
+                case 'xz': return { x: p.x, y: 0, z: p.y };
+                case 'yz': return { x: 0, y: p.y, z: p.x };
+                default: return { x: p.x, y: p.y, z: 0 };
+            }
+        });
+        const wire = createWireFromPolygon(points3d);
+        face = createFaceFromWire(wire.shape);
+    } else {
+        throw new Error(`Unsupported profile type: ${profile.type}`);
+    }
+    
+    // Revolve the face
+    const revolved = revolveProfile(face.shape, axis, angleDegrees);
+    
+    return revolved;
 }
 
 /**
@@ -907,6 +1082,40 @@ function sweepProfile(profile, path) {
 }
 
 /**
+ * Mirror a shape across a plane
+ * @param {TopoDS_Shape} shape - Shape to mirror
+ * @param {Array} planeOrigin - [x, y, z] point on the mirror plane
+ * @param {Array} planeNormal - [nx, ny, nz] normal vector of the mirror plane
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function mirrorShape(shape, planeOrigin, planeNormal) {
+    // Create the mirror plane coordinate system
+    const ax2 = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(planeOrigin[0], planeOrigin[1], planeOrigin[2]),
+        new oc.gp_Dir_4(planeNormal[0], planeNormal[1], planeNormal[2])
+    );
+    
+    // Create mirror transformation
+    const trsf = new oc.gp_Trsf_1();
+    trsf.SetMirror_3(ax2);
+    
+    // Apply transformation (copy = true for new shape)
+    const transformer = new oc.BRepBuilderAPI_Transform_2(shape, trsf, true);
+    
+    if (!transformer.IsDone()) {
+        throw new Error('Mirror transformation failed');
+    }
+    
+    const mirroredShape = transformer.Shape();
+    
+    return {
+        shape: mirroredShape,
+        id: getTopoId(mirroredShape),
+        type: 'mirror'
+    };
+}
+
+/**
  * Export to STEP format (ISO 10303-21)
  * Uses AP214 (Automotive Design) schema for maximum compatibility
  */
@@ -1055,6 +1264,56 @@ function exportSTL(shape, ascii = true) {
     }
     
     return content;
+}
+
+/**
+ * Create a circular pattern of a shape around an axis
+ * @param {TopoDS_Shape} shape - Shape to pattern
+ * @param {[number, number, number]} axisOrigin - Center of rotation [x, y, z]
+ * @param {[number, number, number]} axisDirection - Axis direction [dx, dy, dz]
+ * @param {number} count - Number of copies (including original)
+ * @param {number} angle - Total angle to span in radians (default: 2*PI for full circle)
+ * @returns {{shape: TopoDS_Compound, id: string, type: string, copies: number}}
+ */
+function createCircularPattern(shape, axisOrigin, axisDirection, count, angle = 2 * Math.PI) {
+    if (count < 2) {
+        throw new Error('Circular pattern requires at least 2 copies');
+    }
+    
+    // Calculate angle step - for a full pattern, divide by count to include original position
+    // For partial patterns, we want count instances spanning the angle
+    const angleStep = angle / count;
+    
+    // Build a compound of all copies
+    const builder = new oc.BRep_Builder();
+    const compound = new oc.TopoDS_Compound();
+    builder.MakeCompound(compound);
+    
+    // Create the axis for rotation
+    const axis = new oc.gp_Ax1_2(
+        new oc.gp_Pnt_3(axisOrigin[0], axisOrigin[1], axisOrigin[2]),
+        new oc.gp_Dir_4(axisDirection[0], axisDirection[1], axisDirection[2])
+    );
+    
+    // Create copies at each rotation angle
+    for (let i = 0; i < count; i++) {
+        const trsf = new oc.gp_Trsf_1();
+        trsf.SetRotation_1(axis, angleStep * i);
+        
+        // Transform the shape
+        const transformer = new oc.BRepBuilderAPI_Transform_2(shape, trsf, true);
+        const transformedShape = transformer.Shape();
+        
+        // Add to compound
+        builder.Add(compound, transformedShape);
+    }
+    
+    return {
+        shape: compound,
+        id: getTopoId(compound),
+        type: 'circularPattern',
+        copies: count
+    };
 }
 
 /**
@@ -1237,6 +1496,14 @@ self.onmessage = async function(e) {
                 result = { id: sketchExtruded.id, mesh: sketchExtrudeMesh };
                 break;
                 
+            case 'revolveSketchProfile':
+                // Revolve directly from sketch profile data (no pre-existing shape required)
+                const sketchRevolved = revolveSketchProfile(params.profile, params.axis, params.angle, params.plane);
+                shapes.set(sketchRevolved.id, sketchRevolved.shape);
+                const sketchRevolveMesh = tessellate(sketchRevolved.shape);
+                result = { id: sketchRevolved.id, mesh: sketchRevolveMesh };
+                break;
+                
             case 'createWireFromPolygon':
                 const polyWire = createWireFromPolygon(params.points);
                 shapes.set(polyWire.id, polyWire.shape);
@@ -1247,6 +1514,24 @@ self.onmessage = async function(e) {
                 const circWire = createCircleWire(params.center, params.radius, params.normal);
                 shapes.set(circWire.id, circWire.shape);
                 result = { id: circWire.id };
+                break;
+                
+            case 'createLineWire':
+                const lineWire = createLineWire(params.start, params.end);
+                shapes.set(lineWire.id, lineWire.shape);
+                result = { id: lineWire.id };
+                break;
+                
+            case 'createArcWire':
+                const arcWire = createArcWire(params.start, params.mid, params.end);
+                shapes.set(arcWire.id, arcWire.shape);
+                result = { id: arcWire.id };
+                break;
+                
+            case 'createHelixWire':
+                const helixWire = createHelixWire(params.radius, params.pitch, params.height, params.center);
+                shapes.set(helixWire.id, helixWire.shape);
+                result = { id: helixWire.id };
                 break;
                 
             case 'createFaceFromWire':
@@ -1287,6 +1572,15 @@ self.onmessage = async function(e) {
                 shapes.set(swept.id, swept.shape);
                 const sweepMesh = tessellate(swept.shape);
                 result = { id: swept.id, mesh: sweepMesh };
+                break;
+                
+            case 'mirrorShape':
+                const shapeMir = shapes.get(params.shapeId);
+                if (!shapeMir) throw new Error(`Shape not found: ${params.shapeId}`);
+                const mirrored = mirrorShape(shapeMir, params.planeOrigin, params.planeNormal);
+                shapes.set(mirrored.id, mirrored.shape);
+                const mirrorMesh = tessellate(mirrored.shape);
+                result = { id: mirrored.id, mesh: mirrorMesh };
                 break;
                 
             case 'exportSTEP':
@@ -1331,6 +1625,25 @@ self.onmessage = async function(e) {
                 };
                 break;
                 
+            case 'circularPattern':
+                const patternShape = shapes.get(params.shapeId);
+                if (!patternShape) throw new Error(`Shape not found: ${params.shapeId}`);
+                const patternResult = createCircularPattern(
+                    patternShape,
+                    params.axisOrigin || [0, 0, 0],
+                    params.axisDirection || [0, 0, 1],
+                    params.count,
+                    params.angle !== undefined ? params.angle : 2 * Math.PI
+                );
+                shapes.set(patternResult.id, patternResult.shape);
+                const patternMesh = tessellate(patternResult.shape);
+                result = { 
+                    id: patternResult.id, 
+                    mesh: patternMesh, 
+                    copies: patternResult.copies 
+                };
+                break;
+                
             case 'getVolume':
                 const volShape = shapes.get(params.id);
                 result = { volume: calculateVolume(volShape) };
@@ -1345,6 +1658,45 @@ self.onmessage = async function(e) {
                 shapes.delete(params.id);
                 result = { success: true };
                 break;
+                
+            case 'linearPattern': {
+                const shape = shapes.get(params.shapeId);
+                if (!shape) throw new Error(`Shape not found: ${params.shapeId}`);
+                
+                const { direction, count, spacing } = params;
+                // direction: [dx, dy, dz] normalized
+                // count: number of copies (including original)
+                // spacing: distance between copies
+                
+                // Create compound of translated copies
+                const compound = new oc.TopoDS_Compound();
+                const builder = new oc.BRep_Builder();
+                builder.MakeCompound(compound);
+                
+                for (let i = 0; i < count; i++) {
+                    const trsf = new oc.gp_Trsf_1();
+                    trsf.SetTranslation_1(new oc.gp_Vec_4(
+                        direction[0] * spacing * i,
+                        direction[1] * spacing * i,
+                        direction[2] * spacing * i
+                    ));
+                    const transformer = new oc.BRepBuilderAPI_Transform_2(shape, trsf, true);
+                    const copy = transformer.Shape();
+                    builder.Add(compound, copy);
+                }
+                
+                const patternId = getTopoId(compound);
+                shapes.set(patternId, compound);
+                const patternMesh = tessellate(compound);
+                result = { 
+                    id: patternId, 
+                    mesh: patternMesh,
+                    count,
+                    spacing,
+                    direction
+                };
+                break;
+            }
                 
             default:
                 throw new Error(`Unknown action: ${action}`);

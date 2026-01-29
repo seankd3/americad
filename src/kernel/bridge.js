@@ -286,6 +286,53 @@ export class KernelBridge {
     }
     
     /**
+     * Create a line wire (straight path)
+     * @param {{x,y,z}} start - Start point
+     * @param {{x,y,z}} end - End point
+     * @returns {Promise<{id: string}>}
+     */
+    async createLineWire(start, end) {
+        await this.init();
+        return this._call('createLineWire', { start, end });
+    }
+    
+    /**
+     * Create an arc wire (three-point arc path)
+     * @param {{x,y,z}} start - Start point
+     * @param {{x,y,z}} mid - Middle point on arc
+     * @param {{x,y,z}} end - End point
+     * @returns {Promise<{id: string}>}
+     */
+    async createArcWire(start, mid, end) {
+        await this.init();
+        return this._call('createArcWire', { start, mid, end });
+    }
+    
+    /**
+     * Create a helix wire (spiral path)
+     * @param {number} radius - Helix radius
+     * @param {number} pitch - Distance between turns
+     * @param {number} height - Total height
+     * @param {{x,y,z}} center - Center point at base
+     * @returns {Promise<{id: string}>}
+     */
+    async createHelixWire(radius, pitch, height, center = { x: 0, y: 0, z: 0 }) {
+        await this.init();
+        return this._call('createHelixWire', { radius, pitch, height, center });
+    }
+    
+    /**
+     * Create a face from a wire
+     * @param {string} wireId - Wire ID
+     * @param {boolean} planar - Whether to make planar face (default: true)
+     * @returns {Promise<{id: string}>}
+     */
+    async createFaceFromWire(wireId, planar = true) {
+        await this.init();
+        return this._call('createFaceFromWire', { wireId, planar });
+    }
+    
+    /**
      * Revolve a profile around an axis
      * @param {string} profileId - Profile (face/wire) ID
      * @param {{origin: {x,y,z}, direction: {x,y,z}}} axis - Revolution axis
@@ -295,6 +342,19 @@ export class KernelBridge {
     async revolve(profileId, axis, angle) {
         await this.init();
         return this._call('revolve', { profileId, axis, angle });
+    }
+    
+    /**
+     * Revolve a sketch profile directly (from sketch geometry data)
+     * @param {Object} profile - Profile data with type, dimensions, center
+     * @param {{origin: {x,y,z}, direction: {x,y,z}}} axis - Revolution axis
+     * @param {number} angle - Revolution angle in degrees (default 360)
+     * @param {string} plane - Sketch plane ('xy', 'xz', 'yz')
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async revolveSketchProfile(profile, axis, angle = 360, plane = 'xy') {
+        await this.init();
+        return this._call('revolveSketchProfile', { profile, axis, angle, plane });
     }
     
     /**
@@ -331,6 +391,61 @@ export class KernelBridge {
         return this._call('sweep', { profileId, pathId });
     }
     
+    /**
+     * Create a circular pattern of a shape around an axis
+     * @param {string} shapeId - Shape ID to pattern
+     * @param {number} count - Number of copies (including original)
+     * @param {number} angleDegrees - Total angle to span in degrees (default: 360)
+     * @param {[number, number, number]} axisOrigin - Center of rotation [x, y, z] (default: [0, 0, 0])
+     * @param {[number, number, number]} axisDirection - Axis direction [dx, dy, dz] (default: [0, 0, 1] = Z-axis)
+     * @returns {Promise<{id: string, mesh: Object, copies: number}>}
+     */
+    async circularPattern(shapeId, count, angleDegrees = 360, axisOrigin = [0, 0, 0], axisDirection = [0, 0, 1]) {
+        await this.init();
+        const angleRadians = angleDegrees * Math.PI / 180;
+        return this._call('circularPattern', { 
+            shapeId, 
+            count, 
+            angle: angleRadians,
+            axisOrigin,
+            axisDirection
+        });
+    }
+    
+    /**
+     * Mirror a shape across a plane
+     * @param {string} shapeId - Shape ID to mirror
+     * @param {string} plane - Mirror plane: 'xy', 'xz', or 'yz'
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async mirror(shapeId, plane) {
+        await this.init();
+        
+        // Convert plane name to origin and normal
+        // All planes pass through origin (0,0,0)
+        const planeOrigin = [0, 0, 0];
+        let planeNormal;
+        
+        switch (plane.toLowerCase()) {
+            case 'xy':
+                // XY plane has normal pointing in Z direction
+                planeNormal = [0, 0, 1];
+                break;
+            case 'xz':
+                // XZ plane has normal pointing in Y direction
+                planeNormal = [0, 1, 0];
+                break;
+            case 'yz':
+                // YZ plane has normal pointing in X direction
+                planeNormal = [1, 0, 0];
+                break;
+            default:
+                throw new Error(`Unknown mirror plane: ${plane}. Use 'xy', 'xz', or 'yz'`);
+        }
+        
+        return this._call('mirrorShape', { shapeId, planeOrigin, planeNormal });
+    }
+    
     // ==================== Additional Primitives ====================
     
     /**
@@ -349,6 +464,21 @@ export class KernelBridge {
     async createWedge(dx, dy, dz, ltx = 0, center = { x: 0, y: 0, z: 0 }) {
         await this.init();
         return this._call('createWedge', { dx, dy, dz, ltx, center });
+    }
+    
+    // ==================== Patterns ====================
+    
+    /**
+     * Create a linear pattern of copies along a direction
+     * @param {string} shapeId - Shape ID to pattern
+     * @param {number[]} direction - Direction vector [dx, dy, dz] (will be normalized)
+     * @param {number} count - Number of copies (including original)
+     * @param {number} spacing - Distance between copies
+     * @returns {Promise<{id: string, mesh: Object, count: number, spacing: number, direction: number[]}>}
+     */
+    async linearPattern(shapeId, direction, count, spacing) {
+        await this.init();
+        return this._call('linearPattern', { shapeId, direction, count, spacing });
     }
     
     // ==================== Export ====================

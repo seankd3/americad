@@ -156,10 +156,10 @@ export function registerTransformCommands(kernel) {
         }
     });
     
-    // ARRAY - Create array of copies
+    // ARRAY - Create array of copies (legacy - creates separate shapes)
     registerCommand('array', {
-        aliases: ['pattern', 'repeat'],
-        description: 'Create a linear or circular array of copies',
+        aliases: ['repeat'],
+        description: 'Create separate copies in a pattern (use "pattern linear" for B-Rep compound)',
         category: 'transform',
         params: [
             { name: 'count', type: 'int', required: true, description: 'Number of copies' },
@@ -189,6 +189,89 @@ export function registerTransformCommands(kernel) {
                     if (context.document && result.id) {
                         context.document.addBody(result.id, result);
                     }
+                }
+            }
+            
+            return results;
+        }
+    });
+    
+    // PATTERN LINEAR - Create linear pattern as B-Rep compound
+    registerCommand('pattern', {
+        aliases: ['pat'],
+        description: 'Create patterns: pattern linear <count> <spacing> [axis]',
+        category: 'transform',
+        params: [
+            { name: 'type', type: 'string', required: true, description: 'Pattern type: linear' },
+            { name: 'count', type: 'int', required: true, description: 'Number of copies (including original)' },
+            { name: 'spacing', type: 'number', required: true, description: 'Distance between copies' },
+            { name: 'axis', type: 'string', required: false, default: 'x', description: 'Direction: x, y, z, or custom vector' }
+        ],
+        validate(params, context) {
+            if (!context.selection?.length) return 'Nothing selected';
+            if (params.type.toLowerCase() !== 'linear') {
+                return `Unknown pattern type: ${params.type}. Supported: linear`;
+            }
+            if (params.count < 1) return 'Count must be at least 1';
+            if (params.count > 1000) return 'Count too large (max 1000)';
+            if (params.spacing <= 0) return 'Spacing must be positive';
+            return true;
+        },
+        async execute(params, context) {
+            const results = [];
+            
+            // Parse direction from axis parameter
+            let direction;
+            const axisLower = params.axis.toLowerCase();
+            
+            if (axisLower === 'x') {
+                direction = [1, 0, 0];
+            } else if (axisLower === 'y') {
+                direction = [0, 1, 0];
+            } else if (axisLower === 'z') {
+                direction = [0, 0, 1];
+            } else if (axisLower === '-x') {
+                direction = [-1, 0, 0];
+            } else if (axisLower === '-y') {
+                direction = [0, -1, 0];
+            } else if (axisLower === '-z') {
+                direction = [0, 0, -1];
+            } else {
+                // Try to parse as vector "x,y,z"
+                const parts = params.axis.split(',').map(p => parseFloat(p.trim()));
+                if (parts.length === 3 && parts.every(p => !isNaN(p))) {
+                    // Normalize the vector
+                    const len = Math.sqrt(parts[0]**2 + parts[1]**2 + parts[2]**2);
+                    if (len < 1e-10) {
+                        throw new Error('Direction vector cannot be zero');
+                    }
+                    direction = [parts[0]/len, parts[1]/len, parts[2]/len];
+                } else {
+                    throw new Error(`Invalid axis: ${params.axis}. Use x, y, z, -x, -y, -z, or x,y,z vector`);
+                }
+            }
+            
+            for (const id of context.selection) {
+                const result = await kernel.linearPattern(
+                    id,
+                    direction,
+                    params.count,
+                    params.spacing
+                );
+                results.push(result);
+                
+                // Add pattern result to document
+                if (context.document && result.id) {
+                    context.document.addBody(result.id, {
+                        ...result,
+                        type: 'linearPattern',
+                        sourceId: id,
+                        params: {
+                            count: params.count,
+                            spacing: params.spacing,
+                            direction
+                        }
+                    });
                 }
             }
             

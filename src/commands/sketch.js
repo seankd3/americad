@@ -136,6 +136,32 @@ export function registerSketchCommands(context) {
         }
     });
     
+    // REVOLVE - Revolve sketch profiles around an axis
+    registerCommand('revolve', {
+        aliases: ['rev', 'spin', 'lathe'],
+        description: 'Revolve sketch profile around an axis (like a lathe)',
+        category: 'sketch',
+        params: [
+            { name: 'angle', type: 'number', required: false, default: 360, description: 'Revolution angle in degrees' },
+            { name: 'axis', type: 'string', required: false, default: 'y', description: 'Revolution axis (x, y, z)' }
+        ],
+        validate(params) {
+            if (params.angle <= 0 || params.angle > 360) return 'Angle must be between 0 and 360';
+            const validAxes = ['x', 'y', 'z'];
+            if (params.axis && !validAxes.includes(params.axis.toLowerCase())) {
+                return `Invalid axis: ${params.axis}. Use x, y, or z`;
+            }
+            return true;
+        },
+        async execute(params, ctx) {
+            if (ctx.revolveSketch) {
+                await ctx.revolveSketch(params.angle, params.axis || 'y');
+                return { success: true, angle: params.angle, axis: params.axis };
+            }
+            return { success: false, error: 'Revolve not available' };
+        }
+    });
+    
     // GRID - Toggle or set grid size
     registerCommand('grid', {
         description: 'Toggle grid or set grid size',
