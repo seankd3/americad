@@ -2371,6 +2371,13 @@ async function executeCommand(cmd) {
         return;
     }
     
+    if (['revolve', 'rev', 'spin', 'lathe'].includes(action)) {
+        const angle = parseFloat(args[0]) || 360;
+        const axis = args[1] || 'y';
+        await revolveSketch(angle, axis);
+        return;
+    }
+    
     if (action === 'exit' || action === 'finish') {
         if (System.inSketchMode) {
             exitSketchMode();

@@ -15,6 +15,7 @@ import { registerBooleanCommands } from '../commands/booleans.js';
 import { registerGeneralCommands } from '../commands/general.js';
 import { registerExportCommands } from '../commands/export.js';
 import { registerSweepCommands } from '../commands/sweep.js';
+import { registerTransformCommands } from '../commands/transforms.js';
 
 // Application context - shared state between commands
 const appContext = {
@@ -27,11 +28,29 @@ const appContext = {
     scene: null,
     THREE: null,
     
+    // Sweep state tracking
+    _lastProfile: null,
+    _lastPath: null,
+    
     // Callbacks for app integration
     onBodyCreated: null,
     onBodyDeleted: null,
     onSelectionChanged: null,
-    log: console.log
+    log: console.log,
+    
+    // Sweep helpers
+    setLastProfile(id) {
+        appContext._lastProfile = id;
+    },
+    getLastProfile() {
+        return appContext._lastProfile;
+    },
+    setLastPath(id) {
+        appContext._lastPath = id;
+    },
+    getLastPath() {
+        return appContext._lastPath;
+    }
 };
 
 /**
@@ -181,6 +200,57 @@ function createWrappedKernel() {
             }
             const result = await appContext.kernel.createCone(radius1, radius2, height, center);
             return addMeshToScene(result, 'cone', { radius1, radius2, height, center });
+        },
+        
+        // Sweep-related methods
+        async createLineWire(start, end) {
+            if (!appContext.kernel?.isReady()) {
+                throw new Error('Kernel not ready');
+            }
+            return await appContext.kernel.createLineWire(start, end);
+        },
+        
+        async createArcWire(start, mid, end) {
+            if (!appContext.kernel?.isReady()) {
+                throw new Error('Kernel not ready');
+            }
+            return await appContext.kernel.createArcWire(start, mid, end);
+        },
+        
+        async createHelixWire(radius, pitch, height, center) {
+            if (!appContext.kernel?.isReady()) {
+                throw new Error('Kernel not ready');
+            }
+            return await appContext.kernel.createHelixWire(radius, pitch, height, center);
+        },
+        
+        async createCircleWire(center, radius, normal) {
+            if (!appContext.kernel?.isReady()) {
+                throw new Error('Kernel not ready');
+            }
+            return await appContext.kernel.createCircleWire(center, radius, normal);
+        },
+        
+        async createWireFromPolygon(points) {
+            if (!appContext.kernel?.isReady()) {
+                throw new Error('Kernel not ready');
+            }
+            return await appContext.kernel.createWireFromPolygon(points);
+        },
+        
+        async createFaceFromWire(wireId, planar) {
+            if (!appContext.kernel?.isReady()) {
+                throw new Error('Kernel not ready');
+            }
+            return await appContext.kernel.createFaceFromWire(wireId, planar);
+        },
+        
+        async sweep(profileId, pathId) {
+            if (!appContext.kernel?.isReady()) {
+                throw new Error('Kernel not ready');
+            }
+            const result = await appContext.kernel.sweep(profileId, pathId);
+            return addMeshToScene(result, 'sweep', { profileId, pathId });
         }
     };
 }

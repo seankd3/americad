@@ -5,11 +5,14 @@
  */
 
 import { registerCommand } from '../core/commands.js';
+import { kernel as kernelBridge } from '../kernel/bridge.js';
 
 /**
  * Register all transform commands
  */
 export function registerTransformCommands(kernel) {
+    // Use the kernel bridge directly for transforms
+    const krnl = kernelBridge;
     
     // MOVE - Move selected objects
     registerCommand('move', {
@@ -120,31 +123,37 @@ export function registerTransformCommands(kernel) {
             const plane = params.plane.toLowerCase();
             
             for (const id of context.selection) {
-                // Get original mesh info for document tracking
-                const originalBody = context.document?.features?.get(id);
+                // Get original body info
+                const originalBody = context.document?.bodies?.get(id) || 
+                                    context.document?.getBody?.(id);
+                const originalName = originalBody?.name || 'Shape';
                 
-                // Mirror the shape
-                const result = await kernel.mirror(id, plane);
+                // Mirror the shape using kernel bridge
+                const result = await krnl.mirror(id, plane);
                 
                 if (params.keep) {
                     // Keep original, add mirrored as new body
-                    if (context.document && result.id) {
+                    if (context.document?.addBody) {
                         context.document.addBody(result.id, {
                             ...result,
                             type: 'mirror',
-                            name: `${originalBody?.name || 'Shape'}_mirrored`
+                            name: `${originalName}_mirrored`
                         });
                     }
                 } else {
                     // Replace original with mirrored
-                    // Remove old shape from kernel and document
-                    await kernel.deleteShape(id);
-                    if (context.document) {
-                        context.document.removeFeature(id);
+                    // Remove old shape from kernel
+                    await krnl.deleteShape(id);
+                    
+                    // Update document: remove old, add new
+                    if (context.document?.removeBody) {
+                        context.document.removeBody(id);
+                    }
+                    if (context.document?.addBody) {
                         context.document.addBody(result.id, {
                             ...result,
                             type: 'mirror',
-                            name: originalBody?.name || 'Mirrored'
+                            name: originalName
                         });
                     }
                 }

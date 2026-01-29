@@ -209,6 +209,18 @@ export class ExtrudeFeature extends Feature {
 }
 
 /**
+ * Sweep feature - sweeps a profile along a path
+ */
+export class SweepFeature extends Feature {
+    constructor(profileId, pathId, params = {}) {
+        super('sweep', {
+            ...params
+        });
+        this.dependencies = [profileId, pathId];
+    }
+}
+
+/**
  * Document Model - manages the feature tree
  */
 export class DocumentModel {
