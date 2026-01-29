@@ -7,6 +7,7 @@ import { kernel, meshToThreeGeometry, downloadFile } from './kernel/bridge.js';
 import { DocumentModel, BoxFeature, CylinderFeature, SphereFeature, ConeFeature, BooleanFeature } from './state/document.js';
 import { Evaluator } from './kernel/evaluator.js';
 import { FeatureTreeUI, addFeatureTreeStyles } from './ui/feature-tree.js';
+import { ParamEditor, editFeature, hasEditableParams } from './ui/param-editor.js';
 import { commandManager } from './state/history.js';
 import { CrashGuard } from './crash-guard.js';
 import { meshToSTL, meshToSTLBinary, mergeMeshesToSTL, geometryToMeshData, downloadSTL, getSTLStats } from './io/stl-export.js';
@@ -314,15 +315,32 @@ export class AmericaD {
     
     /**
      * Edit feature parameters
+     * Opens a modal dialog to edit the feature's dimensions
      */
     editFeature(featureId) {
         const feature = this.document.getFeature(featureId);
         if (!feature) return;
         
-        // Show parameter dialog (placeholder)
-        console.log('[Ameri-CAD] Edit feature:', feature.name, feature.params);
+        // Check if feature has editable parameters
+        if (!hasEditableParams(feature.type)) {
+            console.log(`[Ameri-CAD] Feature '${feature.name}' has no editable parameters`);
+            return;
+        }
         
-        // TODO: Show modal with parameter inputs
+        console.log('[Ameri-CAD] Opening parameter editor for:', feature.name);
+        
+        // Open the parameter editor modal
+        editFeature(feature, 
+            // onApply callback
+            async (id, newParams) => {
+                console.log('[Ameri-CAD] Applying parameter changes:', newParams);
+                await this.updateFeature(id, newParams);
+            },
+            // onCancel callback
+            () => {
+                console.log('[Ameri-CAD] Parameter edit cancelled');
+            }
+        );
     }
     
     /**

@@ -5,6 +5,7 @@
  */
 
 import { registerCommand, listCommands, help as getHelp } from '../core/commands.js';
+import { hasEditableParams } from '../ui/param-editor.js';
 
 /**
  * Register all general commands
@@ -80,6 +81,52 @@ export function registerGeneralCommands(app) {
             }
             context.selection.length = 0;
             return `Deleted ${count} object(s)`;
+        }
+    });
+    
+    // EDIT - Edit feature parameters
+    registerCommand('edit', {
+        aliases: ['modify', 'params', 'properties'],
+        description: 'Edit parameters of selected feature or specified feature by ID',
+        category: 'general',
+        params: [
+            { name: 'featureId', type: 'string', required: false, description: 'Feature ID to edit (default: selected)' }
+        ],
+        execute(params, context) {
+            // Determine which feature to edit
+            let featureId = params.featureId;
+            
+            if (!featureId) {
+                // Use selected feature
+                if (context.app?.selectedFeatureId) {
+                    featureId = context.app.selectedFeatureId;
+                } else if (context.selection?.length === 1) {
+                    featureId = context.selection[0];
+                } else if (context.selection?.length > 1) {
+                    return 'Multiple features selected. Specify one or select a single feature.';
+                } else {
+                    return 'No feature selected. Select a feature or specify an ID.';
+                }
+            }
+            
+            // Get the feature
+            const feature = context.document?.getFeature?.(featureId) || context.app?.document?.getFeature?.(featureId);
+            if (!feature) {
+                return `Feature not found: ${featureId}`;
+            }
+            
+            // Check if feature has editable parameters
+            if (!hasEditableParams(feature.type)) {
+                return `Feature '${feature.name}' (${feature.type}) has no editable parameters`;
+            }
+            
+            // Open the parameter editor
+            if (context.app?.editFeature) {
+                context.app.editFeature(featureId);
+                return `Opening parameter editor for ${feature.name}...`;
+            }
+            
+            return `Cannot edit feature: app context not available`;
         }
     });
     
