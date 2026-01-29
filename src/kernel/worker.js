@@ -1,6 +1,8 @@
 /**
  * Ameri-CAD Geometry Kernel Worker
  * Runs OpenCASCADE.js in a Web Worker for non-blocking B-Rep operations
+ * 
+ * Supports zero-copy mesh transfer via SharedArrayBuffer when available.
  */
 
 // OpenCASCADE.js will be loaded dynamically
@@ -10,6 +12,66 @@ let initialized = false;
 // Topology ID counter for stable references
 let nextTopoId = 1;
 const topoIdMap = new Map(); // OCCT shape hash -> stable ID
+
+// SharedArrayBuffer support for zero-copy mesh transfer
+let useSAB = false;
+let sharedViews = null;
+// sharedViews = { vertices: Float32Array, normals: Float32Array, indices: Uint32Array, meta: Int32Array }
+// meta layout: [0]=vertexCount, [1]=indexCount, [2]=ready flag, [3]=error
+
+/**
+ * Initialize shared buffers for zero-copy mesh transfer
+ * Called from main thread after OCCT init
+ */
+function initSharedBuffers(buffers) {
+    try {
+        sharedViews = {
+            vertices: new Float32Array(buffers.vertices),
+            normals: new Float32Array(buffers.normals),
+            indices: new Uint32Array(buffers.indices),
+            meta: new Int32Array(buffers.meta)
+        };
+        useSAB = true;
+        console.log('[Kernel] SharedArrayBuffer mode initialized:', {
+            vertexCapacity: sharedViews.vertices.length / 3,
+            indexCapacity: sharedViews.indices.length
+        });
+        return { success: true };
+    } catch (e) {
+        console.error('[Kernel] Failed to init SharedArrayBuffers:', e);
+        useSAB = false;
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * Write tessellation data to shared buffers (zero-copy path)
+ * Returns counts for main thread to read the data
+ */
+function writeMeshToSAB(mesh) {
+    const vertexCount = mesh.vertices.length / 3;
+    const indexCount = mesh.indices.length;
+    
+    // Check capacity
+    if (vertexCount > sharedViews.vertices.length / 3) {
+        throw new Error(`Mesh too large: ${vertexCount} vertices exceeds capacity ${sharedViews.vertices.length / 3}`);
+    }
+    if (indexCount > sharedViews.indices.length) {
+        throw new Error(`Mesh too large: ${indexCount} indices exceeds capacity ${sharedViews.indices.length}`);
+    }
+    
+    // Write mesh data to shared buffers
+    sharedViews.vertices.set(mesh.vertices);
+    sharedViews.normals.set(mesh.normals);
+    sharedViews.indices.set(mesh.indices);
+    
+    // Update metadata
+    Atomics.store(sharedViews.meta, 0, vertexCount);
+    Atomics.store(sharedViews.meta, 1, indexCount);
+    Atomics.store(sharedViews.meta, 2, 1); // ready flag
+    
+    return { vertexCount, indexCount };
+}
 
 /**
  * Initialize OpenCASCADE.js
@@ -1876,6 +1938,10 @@ self.onmessage = async function(e) {
                 result = await initKernel();
                 break;
             
+            case 'initSharedBuffers':
+                result = initSharedBuffers(params.buffers);
+                break;
+            
             case 'debug':
                 // List available constructor variants for a class
                 if (!oc) {
@@ -2328,15 +2394,30 @@ self.onmessage = async function(e) {
                 throw new Error(`Unknown action: ${action}`);
         }
         
-        // Transfer arrays for performance
-        const transfer = [];
-        if (result?.mesh) {
-            transfer.push(result.mesh.vertices.buffer);
-            transfer.push(result.mesh.normals.buffer);
-            transfer.push(result.mesh.indices.buffer);
+        // Handle mesh transfer based on SAB availability
+        if (result?.mesh && useSAB) {
+            // Zero-copy path: write to SharedArrayBuffer
+            const { vertexCount, indexCount } = writeMeshToSAB(result.mesh);
+            
+            // Send only metadata (mesh data is in shared buffers)
+            const sabResult = { ...result };
+            delete sabResult.mesh; // Don't send mesh data
+            sabResult.vertexCount = vertexCount;
+            sabResult.indexCount = indexCount;
+            sabResult.faceIds = result.mesh.faceIds; // Keep topology info
+            
+            self.postMessage({ id, success: true, result: sabResult, meshReady: true });
+        } else {
+            // Legacy path: transfer arrays via postMessage
+            const transfer = [];
+            if (result?.mesh) {
+                transfer.push(result.mesh.vertices.buffer);
+                transfer.push(result.mesh.normals.buffer);
+                transfer.push(result.mesh.indices.buffer);
+            }
+            
+            self.postMessage({ id, success: true, result }, transfer);
         }
-        
-        self.postMessage({ id, success: true, result }, transfer);
         
     } catch (error) {
         self.postMessage({ id, success: false, error: error.message });

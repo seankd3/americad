@@ -1,7 +1,19 @@
 /**
  * Ameri-CAD Kernel Bridge
  * Main thread interface to the OpenCASCADE Web Worker
+ * 
+ * Supports zero-copy mesh transfer via SharedArrayBuffer when cross-origin
+ * isolation is enabled (COOP/COEP headers required).
  */
+
+// SharedArrayBuffer configuration
+// Conservative defaults - expandable for complex models
+const SAB_CONFIG = {
+    MAX_VERTICES: 2_000_000,    // 2M vertices (covers most CAD models)
+    MAX_INDICES: 6_000_000,     // 6M indices (triangles * 3)
+    VERTEX_STRIDE: 3,           // x, y, z
+    NORMAL_STRIDE: 3            // nx, ny, nz
+};
 
 export class KernelBridge {
     constructor() {
@@ -11,9 +23,74 @@ export class KernelBridge {
         this.initialized = false;
         this.initPromise = null;
         
+        // SharedArrayBuffer support
+        this.useSAB = false;
+        this.sharedBuffers = null;
+        this.sharedViews = null;
+        
         // Event listeners
         this.onProgress = null;
         this.onError = null;
+    }
+    
+    /**
+     * Check if SharedArrayBuffer is available (requires COOP/COEP headers)
+     */
+    static checkSABSupport() {
+        try {
+            // Check if SAB is available and functional
+            if (typeof SharedArrayBuffer === 'undefined') return false;
+            
+            // Test actual creation (some browsers block this)
+            const test = new SharedArrayBuffer(8);
+            return test.byteLength === 8;
+        } catch (e) {
+            return false;
+        }
+    }
+    
+    /**
+     * Initialize shared buffers for zero-copy mesh transfer
+     */
+    _initSharedBuffers() {
+        if (!KernelBridge.checkSABSupport()) {
+            console.warn('[KernelBridge] SharedArrayBuffer not available - using postMessage fallback');
+            return false;
+        }
+        
+        try {
+            const vertexBytes = SAB_CONFIG.MAX_VERTICES * SAB_CONFIG.VERTEX_STRIDE * 4; // Float32
+            const normalBytes = SAB_CONFIG.MAX_VERTICES * SAB_CONFIG.NORMAL_STRIDE * 4; // Float32
+            const indexBytes = SAB_CONFIG.MAX_INDICES * 4; // Uint32
+            const metaBytes = 64; // Metadata: counts, status, etc.
+            
+            this.sharedBuffers = {
+                vertices: new SharedArrayBuffer(vertexBytes),
+                normals: new SharedArrayBuffer(normalBytes),
+                indices: new SharedArrayBuffer(indexBytes),
+                meta: new SharedArrayBuffer(metaBytes)
+            };
+            
+            // Create typed array views for main thread reading
+            this.sharedViews = {
+                vertices: new Float32Array(this.sharedBuffers.vertices),
+                normals: new Float32Array(this.sharedBuffers.normals),
+                indices: new Uint32Array(this.sharedBuffers.indices),
+                meta: new Int32Array(this.sharedBuffers.meta)
+                // meta layout: [0]=vertexCount, [1]=indexCount, [2]=ready flag, [3]=error
+            };
+            
+            console.log('[KernelBridge] SharedArrayBuffer initialized:', {
+                vertexCapacity: SAB_CONFIG.MAX_VERTICES,
+                indexCapacity: SAB_CONFIG.MAX_INDICES,
+                totalBytes: (vertexBytes + normalBytes + indexBytes + metaBytes) / 1024 / 1024 + 'MB'
+            });
+            
+            return true;
+        } catch (e) {
+            console.error('[KernelBridge] Failed to create SharedArrayBuffers:', e);
+            return false;
+        }
     }
     
     /**
@@ -29,7 +106,20 @@ export class KernelBridge {
                 
                 // Handle messages from worker
                 this.worker.onmessage = (e) => {
-                    const { id, success, result, error } = e.data;
+                    const { id, success, result, error, meshReady } = e.data;
+                    
+                    // Handle SharedArrayBuffer mesh-ready signal
+                    if (meshReady && this.useSAB) {
+                        const handler = this.pending.get(id);
+                        if (handler) {
+                            this.pending.delete(id);
+                            // Read mesh from shared buffers
+                            const mesh = this._readMeshFromSAB(result.vertexCount, result.indexCount);
+                            mesh.faceIds = result.faceIds; // Preserve topology info
+                            handler.resolve({ ...result, mesh });
+                        }
+                        return;
+                    }
                     
                     const handler = this.pending.get(id);
                     if (handler) {
@@ -47,9 +137,20 @@ export class KernelBridge {
                     if (this.onError) this.onError(e);
                 };
                 
-                // Initialize OCCT
+                // Try to initialize SharedArrayBuffer
+                this.useSAB = this._initSharedBuffers();
+                
+                // Initialize OCCT first
                 this._call('init')
-                    .then(() => {
+                    .then(async () => {
+                        // If SAB is available, initialize worker with shared buffers
+                        if (this.useSAB) {
+                            await this._call('initSharedBuffers', {
+                                buffers: this.sharedBuffers
+                            });
+                            console.log('[KernelBridge] SharedArrayBuffer mode active - zero-copy mesh transfer enabled');
+                        }
+                        
                         this.initialized = true;
                         console.log('[KernelBridge] Kernel initialized');
                         resolve(true);
@@ -62,6 +163,21 @@ export class KernelBridge {
         });
         
         return this.initPromise;
+    }
+    
+    /**
+     * Read mesh data from SharedArrayBuffers
+     * Creates sliced copies for Three.js (SAB views can't be used directly)
+     */
+    _readMeshFromSAB(vertexCount, indexCount) {
+        const views = this.sharedViews;
+        
+        // Create copies for Three.js (BufferAttribute needs owned arrays)
+        const vertices = new Float32Array(views.vertices.buffer, 0, vertexCount * 3).slice();
+        const normals = new Float32Array(views.normals.buffer, 0, vertexCount * 3).slice();
+        const indices = new Uint32Array(views.indices.buffer, 0, indexCount).slice();
+        
+        return { vertices, normals, indices };
     }
     
     /**

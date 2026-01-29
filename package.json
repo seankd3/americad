@@ -1,7 +1,7 @@
 {
   "name": "americad",
   "version": "1.0.0",
-  "description": "``` VER 2.0.1-LA // UNRESTRICTED Space Grade / HiRel / RadHard 3D CAD Platform ```",
+  "description": "Ameri-CAD: Professional parametric CAD combining Fusion 360's precision with Blender's architecture",
   "main": "app.js",
   "type": "module",
   "directories": {
@@ -12,15 +12,28 @@
     "test": "npx playwright test",
     "test:count": "node tests/run-tests.mjs",
     "test:browser": "open tests/runner.html || xdg-open tests/runner.html",
+    "test:sab": "open http://localhost:8080/tests/sab-runner.html || xdg-open http://localhost:8080/tests/sab-runner.html",
     "serve": "python3 -m http.server 8080",
-    "lint": "echo 'No linter configured yet'"
+    "serve:sab": "node serve-coop.js",
+    "lint": "eslint src/ app.js --ext .js,.mjs",
+    "lint:fix": "eslint src/ app.js --ext .js,.mjs --fix",
+    "format": "prettier --write 'src/**/*.js' 'app.js' '*.json' '*.md'",
+    "format:check": "prettier --check 'src/**/*.js' 'app.js'",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Sean-Kenneth-Doherty/americad.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "cad",
+    "parametric",
+    "3d",
+    "modeling",
+    "opencascade",
+    "threejs"
+  ],
+  "author": "Sean Doherty",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/Sean-Kenneth-Doherty/americad/issues"
@@ -34,6 +47,7 @@
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
+    "globals": "^17.2.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.1"

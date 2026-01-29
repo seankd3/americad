@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SharedArrayBuffer Mesh Transfer Tests</title>
+    <style>
+        body {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            margin: 0;
+        }
+        h1 {
+            color: #e8b13f;
+            border-bottom: 2px solid #e8b13f;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.info { background: #16213e; border-left: 4px solid #4a9eff; }
+        .status.success { background: #0f3320; border-left: 4px solid #4ade80; }
+        .status.error { background: #3f1010; border-left: 4px solid #f87171; }
+        .status.warning { background: #3f3010; border-left: 4px solid #fbbf24; }
+        
+        pre {
+            background: #0d0d1a;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        
+        #console {
+            min-height: 400px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .check { color: #4ade80; }
+        .cross { color: #f87171; }
+        .info-text { color: #4a9eff; }
+        
+        button {
+            background: #e8b13f;
+            border: none;
+            color: #1a1a2e;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #f5c757;
+        }
+    </style>
+</head>
+<body>
+    <h1>SharedArrayBuffer Mesh Transfer Tests</h1>
+    
+    <div id="sab-status" class="status info">Checking SharedArrayBuffer support...</div>
+    
+    <div style="margin: 20px 0;">
+        <button onclick="runTests()">Run Tests</button>
+        <button onclick="clearConsole()">Clear Console</button>
+    </div>
+    
+    <pre id="console"></pre>
+    
+    <script type="module">
+        import { runTests } from './sab-mesh-transfer.test.js';
+        import { KernelBridge } from '../src/kernel/bridge.js';
+        
+        // Check SAB support immediately
+        const sabSupported = KernelBridge.checkSABSupport();
+        const statusEl = document.getElementById('sab-status');
+        
+        if (sabSupported) {
+            statusEl.className = 'status success';
+            statusEl.innerHTML = '✓ SharedArrayBuffer is available! Zero-copy mesh transfer enabled.';
+        } else {
+            statusEl.className = 'status warning';
+            statusEl.innerHTML = `
+                ⚠️ SharedArrayBuffer not available<br><br>
+                To enable zero-copy mesh transfer, serve with COOP/COEP headers:<br>
+                <code>node serve-coop.js</code><br><br>
+                Tests will run in fallback mode (postMessage with transfer).
+            `;
+        }
+        
+        // Console capture
+        const consoleEl = document.getElementById('console');
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        function formatMessage(args) {
+            return args.map(a => {
+                if (typeof a === 'object') {
+                    return JSON.stringify(a, null, 2);
+                }
+                return String(a);
+            }).join(' ');
+        }
+        
+        function addLine(text, className = '') {
+            const line = document.createElement('span');
+            line.className = className;
+            
+            // Color coding for test results
+            text = text.replace(/✓/g, '<span class="check">✓</span>');
+            text = text.replace(/✗/g, '<span class="cross">✗</span>');
+            text = text.replace(/⚠️/g, '<span style="color:#fbbf24">⚠️</span>');
+            
+            line.innerHTML = text + '\n';
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+        
+        console.log = (...args) => {
+            originalLog.apply(console, args);
+            addLine(formatMessage(args));
+        };
+        
+        console.error = (...args) => {
+            originalError.apply(console, args);
+            addLine(formatMessage(args), 'cross');
+        };
+        
+        console.warn = (...args) => {
+            originalWarn.apply(console, args);
+            addLine(formatMessage(args), 'info-text');
+        };
+        
+        // Make runTests available globally
+        window.runTests = async () => {
+            consoleEl.innerHTML = '';
+            try {
+                await runTests();
+            } catch (e) {
+                console.error('Test runner error:', e);
+            }
+        };
+        
+        window.clearConsole = () => {
+            consoleEl.innerHTML = '';
+        };
+        
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(window.runTests, 500);
+        });
+    </script>
+</body>
+</html>
