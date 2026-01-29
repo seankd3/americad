@@ -18,18 +18,19 @@ async function initKernel() {
     if (initialized) return { success: true };
     
     try {
-        // Import OpenCASCADE.js from CDN
-        // Note: This is a large WASM file (~30MB), loaded once at startup
-        importScripts('https://cdn.jsdelivr.net/npm/opencascade.js@2.0.0-beta.1/dist/opencascade.full.js');
+        // Import OpenCASCADE.js from local lib folder
+        // This is a ~63MB WASM file, loaded once at startup
+        importScripts('/lib/opencascade/opencascade.wasm.js');
         
         // Initialize the WASM module
         oc = await opencascade({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/opencascade.js@2.0.0-beta.1/dist/${file}`
+            locateFile: (file) => `/lib/opencascade/${file}`
         });
         
         initialized = true;
-        console.log('[Kernel] OpenCASCADE initialized');
-        return { success: true };
+        console.log('[Kernel] OpenCASCADE initialized successfully');
+        console.log('[Kernel] OCCT Version:', oc.OSD_VERSION_MAJOR, oc.OSD_VERSION_MINOR);
+        return { success: true, version: `${oc.OSD_VERSION_MAJOR}.${oc.OSD_VERSION_MINOR}` };
     } catch (error) {
         console.error('[Kernel] Failed to initialize:', error);
         return { success: false, error: error.message };
