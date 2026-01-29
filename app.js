@@ -873,23 +873,39 @@ function createFallbackPrimitive(type, options = {}) {
 // ========================================
 // SELECTION (delegates to SelectionManager)
 // ========================================
+let isSelectingObject = false; // Guard against selectObject ↔ featureTreeUI.selectFeature infinite loop
+
 function selectObject(object) {
-    selectionManager.select(object, transformControl, System.transformMode);
-    updateProperties();
+    if (isSelectingObject) return; // Prevent re-entry from tree callback
+    isSelectingObject = true;
     
-    // Sync selection with feature tree
-    if (featureTreeUI && object?.userData?.id) {
-        featureTreeUI.selectFeature(object.userData.id);
+    try {
+        selectionManager.select(object, transformControl, System.transformMode);
+        updateProperties();
+        
+        // Sync selection with feature tree (won't trigger callback loop due to guard)
+        if (featureTreeUI && object?.userData?.id) {
+            featureTreeUI.selectFeature(object.userData.id);
+        }
+    } finally {
+        isSelectingObject = false;
     }
 }
 
 function deselectObject() {
-    selectionManager.deselect(transformControl);
+    if (isSelectingObject) return; // Prevent re-entry
+    isSelectingObject = true;
     
-    // Clear feature tree selection
-    if (featureTreeUI) {
-        featureTreeUI.selectedFeatureId = null;
-        featureTreeUI.render();
+    try {
+        selectionManager.deselect(transformControl);
+        
+        // Clear feature tree selection
+        if (featureTreeUI) {
+            featureTreeUI.selectedFeatureId = null;
+            featureTreeUI.render();
+        }
+    } finally {
+        isSelectingObject = false;
     }
 }
 
