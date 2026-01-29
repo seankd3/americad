@@ -10,6 +10,8 @@
   },
   "scripts": {
     "test": "npx playwright test",
+    "test:coverage": "c8 --reporter=text --reporter=html npx playwright test",
+    "coverage:report": "c8 report --reporter=text-lcov > coverage.lcov",
     "test:count": "node tests/run-tests.mjs",
     "test:browser": "open tests/runner.html || xdg-open tests/runner.html",
     "test:sab": "open http://localhost:8080/tests/sab-runner.html || xdg-open http://localhost:8080/tests/sab-runner.html",
