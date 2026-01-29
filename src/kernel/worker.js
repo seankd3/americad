@@ -2553,6 +2553,167 @@ function createHoleTool(holeType, params) {
 }
 
 /**
+ * Create a splitting plane (large face) for split operations
+ * @param {[number, number, number]} origin - Point on the plane
+ * @param {[number, number, number]} normal - Normal vector of the plane
+ * @param {number} size - Half-size of the plane (default: 1000mm for "infinite")
+ * @returns {{shape: TopoDS_Face, id: string, type: string}}
+ */
+function createSplitPlane(origin, normal, size = 1000) {
+  // Create gp_Pln from origin and normal
+  const pln = new oc.gp_Pln_3(
+    new oc.gp_Pnt_3(origin[0], origin[1], origin[2]),
+    new oc.gp_Dir_4(normal[0], normal[1], normal[2])
+  );
+
+  // Make a large rectangular face from the plane
+  // BRepBuilderAPI_MakeFace_8: (gp_Pln, UMin, UMax, VMin, VMax)
+  const faceMaker = new oc.BRepBuilderAPI_MakeFace_8(pln, -size, size, -size, size);
+
+  if (!faceMaker.IsDone()) {
+    throw new Error('Failed to create split plane');
+  }
+
+  const face = faceMaker.Face();
+
+  return {
+    shape: face,
+    id: getTopoId(face),
+    type: 'splitPlane',
+  };
+}
+
+/**
+ * Split a solid body using a plane, face, or surface as the cutting tool
+ * Uses BOPAlgo_Splitter for robust splitting
+ * @param {TopoDS_Shape} shape - The solid body to split
+ * @param {TopoDS_Shape} tool - The splitting tool (plane/face/surface)
+ * @returns {{pieces: Array<{shapeId: string, mesh: Object, volume: number}>}}
+ */
+function splitBody(shape, tool) {
+  // Create the splitter algorithm
+  const splitter = new oc.BOPAlgo_Splitter_1();
+
+  // Add the shape as the argument (the body to split)
+  splitter.AddArgument(shape);
+
+  // Add the tool (the splitting plane/face)
+  splitter.AddTool(tool);
+
+  // Set tolerances and options
+  splitter.SetFuzzyValue(1e-7);
+  splitter.SetNonDestructive(true);
+
+  // Perform the split operation
+  splitter.Perform();
+
+  // Check for errors
+  if (splitter.HasErrors()) {
+    throw new Error('Split operation failed - tool may not intersect the body');
+  }
+
+  // Get the result shape (compound of all pieces)
+  const result = splitter.Shape();
+
+  // Extract individual solids from the result
+  const pieces = [];
+  const explorer = new oc.TopExp_Explorer_2(
+    result,
+    oc.TopAbs_ShapeEnum.TopAbs_SOLID,
+    oc.TopAbs_ShapeEnum.TopAbs_SHAPE
+  );
+
+  while (explorer.More()) {
+    const solid = oc.TopoDS.Solid_1(explorer.Current());
+    const pieceId = getTopoId(solid);
+
+    // Store the piece in shapes map
+    shapes.set(pieceId, solid);
+
+    // Calculate volume of this piece
+    const props = new oc.GProp_GProps_1();
+    oc.BRepGProp.VolumeProperties_1(solid, props, true, true, true);
+    const volume = props.Mass();
+
+    // Tessellate for visualization
+    const mesh = tessellate(solid);
+
+    pieces.push({
+      shapeId: pieceId,
+      mesh,
+      volume,
+    });
+
+    explorer.Next();
+  }
+
+  // If no solids found, the split may not have intersected
+  if (pieces.length === 0) {
+    throw new Error('Split produced no solid bodies - plane may not intersect the body');
+  }
+
+  return { pieces };
+}
+
+/**
+ * Split a body with a predefined plane (XY, XZ, YZ or custom)
+ * @param {TopoDS_Shape} shape - The solid body to split
+ * @param {string} planeName - 'xy', 'xz', 'yz', or 'custom'
+ * @param {{origin?: [number,number,number], normal?: [number,number,number], offset?: number}} options
+ * @returns {{pieces: Array<{shapeId: string, mesh: Object, volume: number}>}}
+ */
+function splitWithPlane(shape, planeName, options = {}) {
+  let origin = options.origin || [0, 0, 0];
+  let normal;
+
+  // Determine normal based on plane name
+  switch (planeName.toLowerCase()) {
+    case 'xy':
+      normal = [0, 0, 1]; // Z normal
+      break;
+    case 'xz':
+      normal = [0, 1, 0]; // Y normal
+      break;
+    case 'yz':
+      normal = [1, 0, 0]; // X normal
+      break;
+    case 'custom':
+      if (!options.normal) {
+        throw new Error('Custom plane requires normal vector');
+      }
+      normal = options.normal;
+      break;
+    default:
+      throw new Error(`Unknown plane: ${planeName}. Use 'xy', 'xz', 'yz', or 'custom'`);
+  }
+
+  // Apply offset if specified (move origin along normal)
+  if (options.offset) {
+    const len = Math.sqrt(normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2);
+    origin = [
+      origin[0] + (normal[0] / len) * options.offset,
+      origin[1] + (normal[1] / len) * options.offset,
+      origin[2] + (normal[2] / len) * options.offset,
+    ];
+  }
+
+  // Get bounding box to size the plane appropriately
+  const bbox = getBoundingBox(shape);
+  const diagonal = Math.sqrt(
+    Math.pow(bbox.max.x - bbox.min.x, 2) +
+      Math.pow(bbox.max.y - bbox.min.y, 2) +
+      Math.pow(bbox.max.z - bbox.min.z, 2)
+  );
+  const planeSize = diagonal * 2; // Ensure plane is large enough
+
+  // Create the splitting plane
+  const plane = createSplitPlane(origin, normal, planeSize);
+
+  // Perform the split
+  return splitBody(shape, plane.shape);
+}
+
+/**
  * Detect interference (overlap) between bodies
  * Uses BRepAlgoAPI_Common to find intersection volumes
  * @param {Array<string>} shapeIds - Array of shape IDs to check
@@ -3305,6 +3466,47 @@ self.onmessage = async function (e) {
           mesh: toolMesh,
           type: toolResult.type,
         };
+        break;
+      }
+
+      // ==================== Split Operations ====================
+
+      case 'createSplitPlane': {
+        const planeResult = createSplitPlane(
+          params.origin || [0, 0, 0],
+          params.normal || [0, 0, 1],
+          params.size || 1000
+        );
+        shapes.set(planeResult.id, planeResult.shape);
+        result = {
+          id: planeResult.id,
+          type: 'splitPlane',
+        };
+        break;
+      }
+
+      case 'splitBody': {
+        const shapeToSplit = shapes.get(params.shapeId);
+        if (!shapeToSplit) throw new Error(`Shape not found: ${params.shapeId}`);
+
+        const toolShape = shapes.get(params.toolId);
+        if (!toolShape) throw new Error(`Tool shape not found: ${params.toolId}`);
+
+        const splitResult = splitBody(shapeToSplit, toolShape);
+        result = splitResult;
+        break;
+      }
+
+      case 'splitWithPlane': {
+        const shapeToSplit = shapes.get(params.shapeId);
+        if (!shapeToSplit) throw new Error(`Shape not found: ${params.shapeId}`);
+
+        const splitResult = splitWithPlane(shapeToSplit, params.plane, {
+          origin: params.origin,
+          normal: params.normal,
+          offset: params.offset,
+        });
+        result = splitResult;
         break;
       }
 

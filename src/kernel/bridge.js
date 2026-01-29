@@ -573,6 +573,34 @@ export class KernelBridge {
     return this._call('shell', { shapeId, faceIds, thickness, faceSelection });
   }
 
+  // ==================== Offset Operations ====================
+
+  /**
+   * Offset a wire (2D sketch offset)
+   * Creates parallel curves at specified distance from input wire
+   * @param {string} wireId - Wire ID to offset
+   * @param {number} distance - Offset distance (positive = outward, negative = inward)
+   * @param {string} mode - 'single' (one direction) or 'both' (both directions)
+   * @returns {Promise<{id: string, type: string}>}
+   */
+  async offsetWire(wireId, distance, mode = 'single') {
+    await this.init();
+    return this._call('offsetWire', { wireId, distance, mode });
+  }
+
+  /**
+   * Offset faces of a solid (3D face offset / thicken)
+   * Moves selected faces by a distance while maintaining solid integrity
+   * @param {string} shapeId - Solid shape ID
+   * @param {number} distance - Offset distance (positive = outward, negative = inward)
+   * @param {string[]|null} faceIds - Specific face IDs to offset (null = all faces)
+   * @returns {Promise<{id: string, mesh: Object, facesModified: number}>}
+   */
+  async offsetFaces(shapeId, distance, faceIds = null) {
+    await this.init();
+    return this._call('offsetFaces', { shapeId, distance, faceIds });
+  }
+
   /**
    * Get all face IDs and properties for a shape
    * @param {string} shapeId - Shape ID
@@ -907,6 +935,80 @@ export class KernelBridge {
   async detectInterference(shapeIds) {
     await this.init();
     return this._call('detectInterference', { shapeIds });
+  }
+
+  // ==================== Split Operations ====================
+
+  /**
+   * Create a splitting plane (large face for split operations)
+   * @param {[number, number, number]} origin - Point on the plane
+   * @param {[number, number, number]} normal - Normal vector of the plane
+   * @param {number} size - Half-size of the plane (default: 1000mm)
+   * @returns {Promise<{id: string, type: string}>}
+   */
+  async createSplitPlane(origin = [0, 0, 0], normal = [0, 0, 1], size = 1000) {
+    await this.init();
+    return this._call('createSplitPlane', { origin, normal, size });
+  }
+
+  /**
+   * Split a solid body using another shape (plane/face/surface) as the cutting tool
+   * @param {string} shapeId - ID of the solid body to split
+   * @param {string} toolId - ID of the splitting tool (plane/face/surface)
+   * @returns {Promise<{pieces: Array<{shapeId: string, mesh: Object, volume: number}>}>}
+   */
+  async splitBody(shapeId, toolId) {
+    await this.init();
+    return this._call('splitBody', { shapeId, toolId });
+  }
+
+  /**
+   * Split a body with a standard or custom plane
+   * Convenience method that creates the splitting plane automatically
+   * @param {string} shapeId - ID of the solid body to split
+   * @param {string} plane - Plane name: 'xy', 'xz', 'yz', or 'custom'
+   * @param {Object} options - Additional options
+   * @param {[number, number, number]} options.origin - Plane origin (default: [0,0,0])
+   * @param {[number, number, number]} options.normal - Custom plane normal (required for 'custom')
+   * @param {number} options.offset - Offset distance along plane normal
+   * @returns {Promise<{pieces: Array<{shapeId: string, mesh: Object, volume: number}>}>}
+   */
+  async splitWithPlane(shapeId, plane = 'xy', options = {}) {
+    await this.init();
+    return this._call('splitWithPlane', {
+      shapeId,
+      plane,
+      origin: options.origin,
+      normal: options.normal,
+      offset: options.offset,
+    });
+  }
+
+  /**
+   * Split a body using a face from another shape (extended to infinite)
+   * @param {string} shapeId - ID of the solid body to split
+   * @param {string} faceShapeId - ID of the shape containing the face
+   * @param {string} faceId - Topology ID of the specific face to use
+   * @returns {Promise<{pieces: Array<{shapeId: string, mesh: Object, volume: number}>}>}
+   */
+  async splitWithFace(shapeId, faceShapeId, faceId) {
+    await this.init();
+    // Get face info to extract plane parameters
+    const facesInfo = await this._call('getFaces', { shapeId: faceShapeId });
+    const faceInfo = facesInfo.faces.find(f => f.id === faceId);
+
+    if (!faceInfo) {
+      throw new Error(`Face ${faceId} not found in shape ${faceShapeId}`);
+    }
+
+    // Create a split plane based on face centroid and normal
+    const planeResult = await this.createSplitPlane(
+      [faceInfo.centroid.x, faceInfo.centroid.y, faceInfo.centroid.z],
+      [faceInfo.normal.x, faceInfo.normal.y, faceInfo.normal.z]
+    );
+
+    // Perform the split
+    return this.splitBody(shapeId, planeResult.id);
   }
 
   // ==================== Management ====================
