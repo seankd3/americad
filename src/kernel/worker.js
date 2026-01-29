@@ -1668,12 +1668,24 @@ function getFaces(shape) {
 
 /**
  * Loft between multiple profiles
+ * Creates a solid or surface by connecting cross-sectional profiles
+ * @param {Array<TopoDS_Shape>} profiles - Array of wire, vertex, or face profiles
+ * @param {boolean} solid - Create solid (true) or surface (false)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
  */
 function loftProfiles(profiles, solid = true) {
+  // Validate minimum profiles
+  if (!profiles || profiles.length < 2) {
+    throw new Error('Loft requires at least 2 profiles');
+  }
+
   const loft = new oc.BRepOffsetAPI_ThruSections(solid, false, 1e-6);
 
   // Add each profile as a wire/vertex
   for (const profile of profiles) {
+    if (!profile) {
+      throw new Error('Loft received null or undefined profile');
+    }
     // Check if it's a wire or vertex
     const shapeType = profile.ShapeType();
     if (shapeType === oc.TopAbs_ShapeEnum.TopAbs_WIRE) {
