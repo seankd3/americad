@@ -389,6 +389,17 @@ self.onmessage = async function(e) {
             case 'init':
                 result = await initKernel();
                 break;
+            
+            case 'debug':
+                // List available constructor variants for a class
+                if (!oc) {
+                    result = { error: 'Kernel not initialized' };
+                    break;
+                }
+                const query = params?.query || 'MakeBox';
+                const found = Object.keys(oc).filter(k => k.includes(query)).sort();
+                result = { query, found };
+                break;
                 
             case 'createBox':
                 const box = createBox(params.width, params.height, params.depth, params.center);
