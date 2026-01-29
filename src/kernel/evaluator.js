@@ -260,6 +260,13 @@ export class Evaluator {
     }
     
     /**
+     * Get kernel ID for a feature
+     */
+    getKernelId(featureId) {
+        return this.kernelIds.get(featureId);
+    }
+    
+    /**
      * Set feature visibility
      */
     setVisibility(featureId, visible) {

@@ -1709,3 +1709,96 @@ body {
   background: var(--accent-primary);
   pointer-events: none;
 }
+
+/* ========================================
+   SKETCH MODE STYLES
+   ======================================== */
+
+/* Sketch mode active indicator on tool buttons */
+.tool-btn.sketch-active {
+  border-color: var(--status-ok);
+  box-shadow: 0 0 8px rgba(71, 255, 158, 0.3);
+}
+
+/* Exit sketch button */
+.sketch-exit-btn {
+  background: var(--status-ok) !important;
+  color: var(--bg-100) !important;
+  font-weight: var(--font-bold);
+  padding: var(--space-1) var(--space-3) !important;
+  border-radius: var(--radius-sm);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.sketch-exit-btn:hover {
+  background: var(--accent-quaternary) !important;
+  transform: scale(1.02);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(71, 255, 158, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(71, 255, 158, 0.8);
+  }
+}
+
+/* Sketch mode status indicator */
+body.sketch-mode .status-indicator {
+  background-color: var(--status-ok) !important;
+  animation: blink 1s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Sketch toolbar highlight */
+body.sketch-mode .tool-palette .tool-section:nth-child(5) {
+  background: rgba(71, 255, 158, 0.1);
+  border-radius: var(--radius-sm);
+  margin: var(--space-1);
+  padding: var(--space-1);
+}
+
+/* Sketch plane selection modal (future enhancement) */
+.plane-selector {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.plane-option {
+  flex: 1;
+  padding: var(--space-4);
+  background: var(--bg-300);
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-md);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.plane-option:hover {
+  border-color: var(--accent-secondary);
+  background: var(--bg-400);
+}
+
+.plane-option.selected {
+  border-color: var(--accent-primary);
+  background: rgba(232, 177, 63, 0.1);
+}
+
+.plane-option .plane-icon {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-2);
+}
+
+.plane-option .plane-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

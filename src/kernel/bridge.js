@@ -129,6 +129,32 @@ export class KernelBridge {
     // ==================== Boolean Operations ====================
     
     /**
+     * Unified boolean operation dispatcher
+     * @param {string} targetId - Target shape ID
+     * @param {string} toolId - Tool shape ID
+     * @param {string} type - Operation type: 'union', 'subtract', 'intersect'
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async boolean(targetId, toolId, type) {
+        await this.init();
+        switch (type) {
+            case 'union':
+            case 'add':
+            case 'fuse':
+                return this._call('booleanUnion', { id1: targetId, id2: toolId });
+            case 'subtract':
+            case 'cut':
+            case 'difference':
+                return this._call('booleanSubtract', { id1: targetId, id2: toolId });
+            case 'intersect':
+            case 'common':
+                return this._call('booleanIntersect', { id1: targetId, id2: toolId });
+            default:
+                throw new Error(`Unknown boolean type: ${type}`);
+        }
+    }
+    
+    /**
      * Union two shapes
      * @returns {Promise<{id: string, mesh: Object}>}
      */
@@ -164,6 +190,93 @@ export class KernelBridge {
     async fillet(shapeId, edgeIds, radius) {
         await this.init();
         return this._call('fillet', { shapeId, edgeIds, radius });
+    }
+    
+    /**
+     * Apply chamfer to edges
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async chamfer(shapeId, edgeIds, distance) {
+        await this.init();
+        return this._call('chamfer', { shapeId, edgeIds, distance });
+    }
+    
+    /**
+     * Extrude a profile along a direction
+     * @param {string} profileId - Profile (face/wire) ID
+     * @param {{x,y,z}} direction - Extrusion direction vector
+     * @param {number} distance - Extrusion distance
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async extrude(profileId, direction, distance) {
+        await this.init();
+        return this._call('extrude', { profileId, direction, distance });
+    }
+    
+    /**
+     * Revolve a profile around an axis
+     * @param {string} profileId - Profile (face/wire) ID
+     * @param {{origin: {x,y,z}, direction: {x,y,z}}} axis - Revolution axis
+     * @param {number} angle - Revolution angle in degrees
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async revolve(profileId, axis, angle) {
+        await this.init();
+        return this._call('revolve', { profileId, axis, angle });
+    }
+    
+    /**
+     * Shell a solid (hollow it out)
+     * @param {string} shapeId - Solid shape ID
+     * @param {string[]} faceIds - Faces to remove (for open shell)
+     * @param {number} thickness - Wall thickness
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async shell(shapeId, faceIds, thickness) {
+        await this.init();
+        return this._call('shell', { shapeId, faceIds, thickness });
+    }
+    
+    /**
+     * Loft between multiple profiles
+     * @param {string[]} profileIds - Array of profile IDs
+     * @param {boolean} solid - Create solid (vs surface)
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async loft(profileIds, solid = true) {
+        await this.init();
+        return this._call('loft', { profileIds, solid });
+    }
+    
+    /**
+     * Sweep a profile along a path
+     * @param {string} profileId - Profile shape ID
+     * @param {string} pathId - Path curve ID
+     * @returns {Promise<{id: string, mesh: Object}>}
+     */
+    async sweep(profileId, pathId) {
+        await this.init();
+        return this._call('sweep', { profileId, pathId });
+    }
+    
+    // ==================== Additional Primitives ====================
+    
+    /**
+     * Create a torus primitive
+     * @returns {Promise<{id: string, mesh: Object, params: Object}>}
+     */
+    async createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
+        await this.init();
+        return this._call('createTorus', { majorRadius, minorRadius, center });
+    }
+    
+    /**
+     * Create a wedge primitive
+     * @returns {Promise<{id: string, mesh: Object, params: Object}>}
+     */
+    async createWedge(dx, dy, dz, ltx = 0, center = { x: 0, y: 0, z: 0 }) {
+        await this.init();
+        return this._call('createWedge', { dx, dy, dz, ltx, center });
     }
     
     // ==================== Export ====================

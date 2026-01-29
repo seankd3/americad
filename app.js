@@ -22,6 +22,10 @@ import { commandManager, CreatePrimitiveCommand, DeleteCommand, TransformCommand
 import { initializeSystem, executeCommand as execCmd, isKernelReady, getCommandSuggestions } from './src/core/app-integration.js';
 import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
 
+// Sketch system
+import { sketchManager, SketchMode } from './src/sketch/sketch-manager.js';
+import { SketchRenderer } from './src/sketch/sketch-renderer.js';
+
 // ========================================
 // SYSTEM STATE
 // ========================================
@@ -58,6 +62,11 @@ const System = {
     mouse: new THREE.Vector2(),
     raycaster: new THREE.Raycaster(),
     
+    // Sketch Mode State
+    inSketchMode: false,
+    activeSketch: null,
+    sketchPlane: 'xy',
+    
     // Stats
     fps: 60,
     frameCount: 0,
@@ -74,6 +83,7 @@ const System = {
 // ========================================
 let scene, camera, renderer, controls, transformControl;
 let gridHelper, axesHelper;
+let sketchRenderer; // For 2D sketch visualization
 
 // ========================================
 // DOM REFERENCES
@@ -337,6 +347,30 @@ async function initThreeJS() {
     
     setupLighting();
     setupGridAndAxes();
+    
+    // Initialize sketch renderer
+    sketchRenderer = new SketchRenderer(scene);
+    
+    // Set up sketch manager callbacks
+    sketchManager.onSketchUpdate = (sketch, previewEntity) => {
+        if (sketchRenderer && sketch) {
+            sketchRenderer.renderSketch(sketch, sketchManager.selectedEntities);
+            if (previewEntity) {
+                sketchRenderer.renderPreview(previewEntity, sketch);
+            }
+        }
+    };
+    
+    sketchManager.onModeChange = (mode, sketch) => {
+        const modeEl = document.getElementById('tool-mode');
+        if (modeEl) {
+            if (mode === SketchMode.NONE) {
+                modeEl.textContent = 'SELECT';
+            } else {
+                modeEl.textContent = `SKETCH: ${mode.toUpperCase()}`;
+            }
+        }
+    };
 }
 
 function drawFallbackCanvas() {
@@ -697,6 +731,34 @@ function redo() {
 // TOOLS & TRANSFORM
 // ========================================
 function setTool(tool) {
+    // Handle sketch mode entry
+    if (tool === 'sketch') {
+        if (!System.inSketchMode) {
+            enterSketchMode('xy'); // Default to XY plane
+        }
+        return;
+    }
+    
+    // Handle sketch tools when in sketch mode
+    if (System.inSketchMode) {
+        const sketchToolMap = {
+            'line': SketchMode.LINE,
+            'rectangle': SketchMode.RECTANGLE,
+            'circle': SketchMode.CIRCLE,
+            'select': SketchMode.SELECT
+        };
+        
+        if (sketchToolMap[tool]) {
+            setSketchTool(sketchToolMap[tool]);
+            System.tool = tool;
+            
+            document.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tool === tool);
+            });
+            return;
+        }
+    }
+    
     System.tool = tool;
     
     document.querySelectorAll('.tool-btn').forEach(btn => {
@@ -790,6 +852,315 @@ function setRenderMode(mode) {
                 break;
         }
     });
+}
+
+// ========================================
+// SKETCH MODE
+// ========================================
+
+/**
+ * Enter sketch mode on a plane
+ */
+function enterSketchMode(plane = 'xy') {
+    if (System.inSketchMode) {
+        log('ALREADY IN SKETCH MODE', 'warn');
+        return;
+    }
+    
+    // Create or get a sketch
+    const sketchName = `SKETCH_${String(System.sketches.length + 1).padStart(3, '0')}`;
+    const sketch = sketchManager.createSketch(sketchName, plane);
+    System.sketches.push(sketch);
+    System.activeSketch = sketch;
+    System.inSketchMode = true;
+    System.sketchPlane = plane;
+    
+    // Enter sketch editing
+    sketchManager.enterSketch(sketch);
+    sketchRenderer.enterSketch(sketch);
+    
+    // Set camera to view the plane
+    setSketchView(plane);
+    
+    // Hide 3D grid, show sketch grid
+    if (gridHelper) gridHelper.visible = false;
+    
+    // Disable orbit controls rotation (only pan/zoom in sketch mode)
+    if (controls) {
+        controls.enableRotate = false;
+    }
+    
+    // Update UI
+    updateSketchUI(true);
+    
+    log(`SKETCH MODE: ${plane.toUpperCase()} PLANE`, 'success');
+}
+
+/**
+ * Exit sketch mode
+ */
+function exitSketchMode() {
+    if (!System.inSketchMode) return;
+    
+    const sketch = System.activeSketch;
+    
+    // Exit sketch editing
+    sketchManager.exitSketch();
+    sketchRenderer.exitSketch();
+    
+    System.inSketchMode = false;
+    System.activeSketch = null;
+    
+    // Restore 3D view
+    if (gridHelper) gridHelper.visible = System.grid;
+    
+    // Re-enable orbit controls
+    if (controls) {
+        controls.enableRotate = true;
+    }
+    
+    // Update UI
+    updateSketchUI(false);
+    
+    // Reset to select tool
+    setTool('select');
+    
+    log('EXITED SKETCH MODE', 'info');
+    
+    return sketch;
+}
+
+/**
+ * Set camera view for sketch plane
+ */
+function setSketchView(plane) {
+    if (!camera || !controls) return;
+    
+    const distance = 100;
+    const target = controls.target.clone();
+    
+    switch (plane) {
+        case 'xy':
+            // Look down Z axis
+            camera.position.set(target.x, target.y, target.z + distance);
+            camera.up.set(0, 1, 0);
+            break;
+        case 'xz':
+            // Look down Y axis (top view)
+            camera.position.set(target.x, target.y + distance, target.z);
+            camera.up.set(0, 0, -1);
+            break;
+        case 'yz':
+            // Look down X axis (right view)
+            camera.position.set(target.x + distance, target.y, target.z);
+            camera.up.set(0, 1, 0);
+            break;
+    }
+    
+    camera.lookAt(target);
+    controls.update();
+}
+
+/**
+ * Update UI for sketch mode
+ */
+function updateSketchUI(inSketch) {
+    // Update tool buttons visibility
+    const sketchTools = document.querySelectorAll('[data-tool="line"], [data-tool="rectangle"], [data-tool="circle"]');
+    sketchTools.forEach(btn => {
+        btn.classList.toggle('sketch-active', inSketch);
+    });
+    
+    // Add/remove exit sketch button
+    let exitBtn = document.getElementById('exit-sketch-btn');
+    
+    if (inSketch) {
+        if (!exitBtn) {
+            // Create exit button in viewport toolbar
+            const toolbar = document.querySelector('.viewport-toolbar .toolbar-left-group');
+            if (toolbar) {
+                exitBtn = document.createElement('button');
+                exitBtn.id = 'exit-sketch-btn';
+                exitBtn.className = 'view-btn sketch-exit-btn';
+                exitBtn.textContent = '✓ FINISH SKETCH';
+                exitBtn.style.backgroundColor = 'var(--success)';
+                exitBtn.style.color = 'var(--bg-100)';
+                exitBtn.style.marginLeft = '10px';
+                exitBtn.addEventListener('click', exitSketchMode);
+                toolbar.appendChild(exitBtn);
+            }
+        }
+    } else {
+        if (exitBtn) {
+            exitBtn.remove();
+        }
+    }
+    
+    // Update status bar
+    const statusItem = document.querySelector('.status-left .status-item:first-child span:last-child');
+    if (statusItem) {
+        statusItem.textContent = inSketch ? 'SKETCH MODE' : 'SYSTEM READY';
+    }
+}
+
+/**
+ * Set sketch drawing mode
+ */
+function setSketchTool(mode) {
+    if (!System.inSketchMode) {
+        log('ENTER SKETCH MODE FIRST', 'warn');
+        return;
+    }
+    
+    sketchManager.setMode(mode);
+    
+    // Update canvas cursor
+    if (DOM.canvas) {
+        DOM.canvas.style.cursor = mode === SketchMode.SELECT ? 'default' : 'crosshair';
+    }
+    
+    log(`SKETCH TOOL: ${mode.toUpperCase()}`, 'info');
+}
+
+/**
+ * Extrude the active sketch
+ */
+async function extrudeSketch(height) {
+    if (!System.activeSketch && System.sketches.length === 0) {
+        log('NO SKETCH TO EXTRUDE', 'error');
+        return;
+    }
+    
+    // Get the sketch to extrude
+    const sketch = System.activeSketch || System.sketches[System.sketches.length - 1];
+    
+    // Exit sketch mode if still in it
+    if (System.inSketchMode) {
+        exitSketchMode();
+    }
+    
+    // Find closed profiles (rectangles, circles, or closed line chains)
+    const profiles = findClosedProfiles(sketch);
+    
+    if (profiles.length === 0) {
+        log('NO CLOSED PROFILES TO EXTRUDE', 'error');
+        return;
+    }
+    
+    log(`EXTRUDING ${profiles.length} PROFILE(S) BY ${height}MM...`, 'info');
+    
+    // Extrude each profile
+    for (const profile of profiles) {
+        await extrudeProfile(profile, sketch, height);
+    }
+}
+
+/**
+ * Find closed profiles in a sketch
+ */
+function findClosedProfiles(sketch) {
+    const profiles = [];
+    
+    // Rectangles are always closed profiles
+    for (const rect of sketch.rectangles.values()) {
+        profiles.push({
+            type: 'rectangle',
+            entity: rect,
+            points: rect.points.map(p => ({ x: p.x, y: p.y }))
+        });
+    }
+    
+    // Circles are closed profiles
+    for (const circle of sketch.circles.values()) {
+        profiles.push({
+            type: 'circle',
+            entity: circle,
+            center: { x: circle.center.x, y: circle.center.y },
+            radius: circle.radius
+        });
+    }
+    
+    // TODO: Find closed chains of lines
+    
+    return profiles;
+}
+
+/**
+ * Extrude a profile into a 3D body
+ */
+async function extrudeProfile(profile, sketch, height) {
+    const plane = sketch.plane;
+    
+    if (profile.type === 'rectangle') {
+        // Get rectangle dimensions and position
+        const pts = profile.points;
+        const width = Math.abs(pts[1].x - pts[0].x);
+        const depth = Math.abs(pts[3].y - pts[0].y);
+        
+        // Calculate center in world coordinates
+        const centerX = (pts[0].x + pts[2].x) / 2;
+        const centerY = (pts[0].y + pts[2].y) / 2;
+        
+        let position;
+        let size;
+        
+        // Convert based on sketch plane
+        switch (plane) {
+            case 'xy':
+                position = [centerX, centerY, height / 2];
+                size = [width, depth, height];
+                break;
+            case 'xz':
+                position = [centerX, height / 2, centerY];
+                size = [width, height, depth];
+                break;
+            case 'yz':
+                position = [height / 2, centerY, centerX];
+                size = [height, depth, width];
+                break;
+            default:
+                position = [centerX, centerY, height / 2];
+                size = [width, depth, height];
+        }
+        
+        await createPrimitive('box', {
+            size,
+            position,
+            name: `EXTRUDE_${String(System.objects.length + 1).padStart(3, '0')}`
+        });
+        
+        log(`EXTRUDED: BOX ${width.toFixed(1)} x ${depth.toFixed(1)} x ${height}`, 'success');
+    }
+    else if (profile.type === 'circle') {
+        const radius = profile.radius;
+        const cx = profile.center.x;
+        const cy = profile.center.y;
+        
+        let position;
+        
+        switch (plane) {
+            case 'xy':
+                position = [cx, cy, height / 2];
+                break;
+            case 'xz':
+                position = [cx, height / 2, cy];
+                break;
+            case 'yz':
+                position = [height / 2, cy, cx];
+                break;
+            default:
+                position = [cx, cy, height / 2];
+        }
+        
+        await createPrimitive('cylinder', {
+            radius,
+            height,
+            position,
+            name: `EXTRUDE_${String(System.objects.length + 1).padStart(3, '0')}`
+        });
+        
+        log(`EXTRUDED: CYLINDER R${radius.toFixed(1)} x H${height}`, 'success');
+    }
 }
 
 function zoomToFit() {
@@ -1185,6 +1556,15 @@ function onMouseDown(e) {
     System.mouse = updateMouseCoords(e, DOM.canvas);
     System.isDragging = true;
     
+    // Handle sketch mode clicks
+    if (System.inSketchMode && e.button === 0) {
+        const worldPoint = getSketchPlaneIntersection(System.mouse);
+        if (worldPoint) {
+            sketchManager.handleClick(worldPoint);
+        }
+        return;
+    }
+    
     if (e.button === 0 && System.tool === 'select') {
         const hit = performRaycast(System.mouse, camera, System.raycaster, System.objects);
         if (hit) {
@@ -1195,10 +1575,60 @@ function onMouseDown(e) {
     }
 }
 
+/**
+ * Get intersection point with sketch plane
+ */
+function getSketchPlaneIntersection(mouse) {
+    if (!System.activeSketch) return null;
+    
+    // Create a plane at the origin based on sketch plane
+    const plane = new THREE.Plane();
+    
+    switch (System.sketchPlane) {
+        case 'xy':
+            plane.setFromNormalAndCoplanarPoint(
+                new THREE.Vector3(0, 0, 1),
+                new THREE.Vector3(0, 0, 0)
+            );
+            break;
+        case 'xz':
+            plane.setFromNormalAndCoplanarPoint(
+                new THREE.Vector3(0, 1, 0),
+                new THREE.Vector3(0, 0, 0)
+            );
+            break;
+        case 'yz':
+            plane.setFromNormalAndCoplanarPoint(
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 0, 0)
+            );
+            break;
+    }
+    
+    System.raycaster.setFromCamera(mouse, camera);
+    const intersection = new THREE.Vector3();
+    
+    if (System.raycaster.ray.intersectPlane(plane, intersection)) {
+        return intersection;
+    }
+    
+    return null;
+}
+
 function onMouseMove(e) {
     if (!System.ready) return;
     
     System.mouse = updateMouseCoords(e, DOM.canvas);
+    
+    // Handle sketch mode mouse move (for preview)
+    if (System.inSketchMode) {
+        const worldPoint = getSketchPlaneIntersection(System.mouse);
+        if (worldPoint) {
+            sketchManager.handleMove(worldPoint);
+            updateCursorDisplay(worldPoint);
+        }
+        return;
+    }
     
     const worldPos = getWorldPosition(System.mouse, camera, System.raycaster, System.objects);
     if (worldPos) updateCursorDisplay(worldPos);
@@ -1289,8 +1719,23 @@ function onKeyDown(e) {
                 deleteSelected();
                 break;
             case 'escape':
-                deselectObject();
-                closeModals();
+                if (System.inSketchMode) {
+                    // Cancel current sketch operation or exit sketch mode
+                    if (sketchManager.tempPoints.length > 0) {
+                        sketchManager.cancel();
+                        log('SKETCH OPERATION CANCELLED', 'info');
+                    } else {
+                        exitSketchMode();
+                    }
+                } else {
+                    deselectObject();
+                    closeModals();
+                }
+                break;
+            case 'enter':
+                if (System.inSketchMode) {
+                    sketchManager.finish();
+                }
                 break;
             case '1':
                 setView('front');
@@ -1389,6 +1834,26 @@ async function executeCommand(cmd) {
         return;
     }
     
+    // Sketch commands
+    if (action === 'sketch') {
+        const plane = args[0] || 'xy';
+        enterSketchMode(plane);
+        return;
+    }
+    
+    if (['extrude', 'ext'].includes(action)) {
+        const height = parseFloat(args[0]) || 20;
+        await extrudeSketch(height);
+        return;
+    }
+    
+    if (action === 'exit' || action === 'finish') {
+        if (System.inSketchMode) {
+            exitSketchMode();
+            return;
+        }
+    }
+    
     // Other commands
     switch(action) {
         case '?':
@@ -1464,6 +1929,13 @@ function showHelp() {
 ╔═══════════════════════════════════════════════════════════╗
 ║                    Ameri-CAD COMMANDS                     ║
 ╠═══════════════════════════════════════════════════════════╣
+║ SKETCH MODE:                                              ║
+║   sketch [plane]       Enter sketch (xy/xz/yz)            ║
+║   exit / finish        Exit sketch mode                   ║
+║   extrude [height]     Extrude sketch profile             ║
+║                                                           ║
+║ WORKFLOW: sketch → draw → exit → extrude 20              ║
+╠═══════════════════════════════════════════════════════════╣
 ║ PRIMITIVES (uses real B-Rep kernel when available):       ║
 ║   box [w] [h] [d]      Create box (e.g., "box 20 10 30")  ║
 ║   sphere [r]           Create sphere (e.g., "sphere 15")  ║
@@ -1482,9 +1954,13 @@ function showHelp() {
 ║   kernel               Show kernel status                 ║
 ╠═══════════════════════════════════════════════════════════╣
 ║ KEYBOARD SHORTCUTS:                                       ║
+║   C         Enter sketch mode                             ║
+║   L         Line tool (in sketch)                         ║
+║   R         Rectangle tool (in sketch)                    ║
+║   O         Circle tool (in sketch)                       ║
+║   Esc       Cancel / Exit sketch                          ║
+║   Enter     Finish current operation                      ║
 ║   \`         Focus command line                           ║
-║   Tab       Autocomplete command                          ║
-║   ↑/↓       Command history                               ║
 ║   1-4       View: Front/Top/Right/Iso                     ║
 ║   F         Zoom to fit                                   ║
 ║   Delete    Remove selected                               ║
@@ -1668,6 +2144,8 @@ window.AmericaD = {
     controls,
     selectionManager,
     commandManager,
+    sketchManager,
+    sketchRenderer,
     createPrimitive,
     setTool,
     setView,
@@ -1679,5 +2157,8 @@ window.AmericaD = {
     zoomToFit,
     clearScene,
     exportScene,
+    enterSketchMode,
+    exitSketchMode,
+    extrudeSketch,
     log
 };

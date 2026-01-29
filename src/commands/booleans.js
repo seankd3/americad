@@ -103,7 +103,8 @@ export function registerBooleanCommands(kernel) {
         description: 'Add fillet (rounded edge) to selected edges',
         category: 'feature',
         params: [
-            { name: 'radius', type: 'number', required: true, description: 'Fillet radius' }
+            { name: 'radius', type: 'number', required: true, description: 'Fillet radius' },
+            { name: 'shapeId', type: 'string', required: false, description: 'Parent shape ID (auto-detected from selection)' }
         ],
         validate(params, context) {
             if (!context.selection?.length) return 'Select edges to fillet';
@@ -111,7 +112,16 @@ export function registerBooleanCommands(kernel) {
             return true;
         },
         async execute(params, context) {
-            const result = await kernel.fillet(context.selection, params.radius);
+            // Selection format: either shapeId directly selected, or edges with parent shapeId
+            // Extract shapeId from selection context or params
+            const shapeId = params.shapeId || context.selectedShapeId || context.selection[0]?.shapeId;
+            const edgeIds = context.selectedEdgeIds || context.selection;
+            
+            if (!shapeId) {
+                throw new Error('Cannot determine parent shape for fillet. Select a shape first.');
+            }
+            
+            const result = await kernel.fillet(shapeId, edgeIds, params.radius);
             return result;
         }
     });
@@ -122,7 +132,8 @@ export function registerBooleanCommands(kernel) {
         description: 'Add chamfer (angled edge) to selected edges',
         category: 'feature',
         params: [
-            { name: 'distance', type: 'number', required: true, description: 'Chamfer distance' }
+            { name: 'distance', type: 'number', required: true, description: 'Chamfer distance' },
+            { name: 'shapeId', type: 'string', required: false, description: 'Parent shape ID (auto-detected from selection)' }
         ],
         validate(params, context) {
             if (!context.selection?.length) return 'Select edges to chamfer';
@@ -130,7 +141,15 @@ export function registerBooleanCommands(kernel) {
             return true;
         },
         async execute(params, context) {
-            const result = await kernel.chamfer(context.selection, params.distance);
+            // Extract shapeId from selection context or params
+            const shapeId = params.shapeId || context.selectedShapeId || context.selection[0]?.shapeId;
+            const edgeIds = context.selectedEdgeIds || context.selection;
+            
+            if (!shapeId) {
+                throw new Error('Cannot determine parent shape for chamfer. Select a shape first.');
+            }
+            
+            const result = await kernel.chamfer(shapeId, edgeIds, params.distance);
             return result;
         }
     });
@@ -142,14 +161,32 @@ export function registerBooleanCommands(kernel) {
         category: 'feature',
         params: [
             { name: 'distance', type: 'number', required: true, description: 'Extrusion distance' },
-            { name: 'direction', type: 'string', required: false, default: 'normal', description: 'Direction: normal, x, y, z' }
+            { name: 'direction', type: 'string', required: false, default: 'normal', description: 'Direction: normal, x, y, z, or {x,y,z} vector' }
         ],
         validate(params, context) {
             if (!context.selection?.length) return 'Select a face or sketch to extrude';
             return true;
         },
         async execute(params, context) {
-            const result = await kernel.extrude(context.selection[0], params.distance, params.direction);
+            const profileId = context.selection[0];
+            
+            // Parse direction - can be 'normal', axis name, or vector object
+            let direction;
+            if (params.direction === 'normal') {
+                direction = { x: 0, y: 0, z: 1 }; // Default, kernel should compute from face normal
+            } else if (params.direction === 'x') {
+                direction = { x: 1, y: 0, z: 0 };
+            } else if (params.direction === 'y') {
+                direction = { x: 0, y: 1, z: 0 };
+            } else if (params.direction === 'z') {
+                direction = { x: 0, y: 0, z: 1 };
+            } else if (typeof params.direction === 'object') {
+                direction = params.direction;
+            } else {
+                direction = { x: 0, y: 0, z: 1 };
+            }
+            
+            const result = await kernel.extrude(profileId, direction, params.distance);
             return result;
         }
     });
@@ -169,7 +206,23 @@ export function registerBooleanCommands(kernel) {
             return true;
         },
         async execute(params, context) {
-            const result = await kernel.revolve(context.selection[0], params.angle, params.axis);
+            const profileId = context.selection[0];
+            
+            // Parse axis
+            let axis;
+            if (params.axis === 'x') {
+                axis = { origin: { x: 0, y: 0, z: 0 }, direction: { x: 1, y: 0, z: 0 } };
+            } else if (params.axis === 'y') {
+                axis = { origin: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 1, z: 0 } };
+            } else if (params.axis === 'z') {
+                axis = { origin: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 1 } };
+            } else if (typeof params.axis === 'object') {
+                axis = params.axis;
+            } else {
+                axis = { origin: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 1, z: 0 } };
+            }
+            
+            const result = await kernel.revolve(profileId, axis, params.angle);
             return result;
         }
     });
@@ -180,7 +233,8 @@ export function registerBooleanCommands(kernel) {
         description: 'Hollow out a solid, optionally removing faces',
         category: 'feature',
         params: [
-            { name: 'thickness', type: 'number', required: true, description: 'Wall thickness' }
+            { name: 'thickness', type: 'number', required: true, description: 'Wall thickness' },
+            { name: 'faceIds', type: 'array', required: false, default: [], description: 'Faces to remove (open shell)' }
         ],
         validate(params, context) {
             if (!context.selection?.length) return 'Select a solid to shell';
@@ -188,7 +242,10 @@ export function registerBooleanCommands(kernel) {
             return true;
         },
         async execute(params, context) {
-            const result = await kernel.shell(context.selection[0], params.thickness);
+            const shapeId = context.selection[0];
+            const faceIds = params.faceIds || context.selectedFaceIds || [];
+            
+            const result = await kernel.shell(shapeId, faceIds, params.thickness);
             return result;
         }
     });
@@ -208,7 +265,8 @@ export function registerBooleanCommands(kernel) {
             return true;
         },
         async execute(params, context) {
-            const result = await kernel.loft(context.selection, params.solid);
+            const profileIds = context.selection;
+            const result = await kernel.loft(profileIds, params.solid);
             return result;
         }
     });

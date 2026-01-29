@@ -75,8 +75,17 @@ export class AmericaD {
         this.treeUI.onFeatureRename = (id, name) => this.renameFeature(id, name);
         
         // Set up crash recovery
-        CrashGuard.onRecover = (data) => this.recoverFromCrash(data);
         CrashGuard.init();
+        
+        // Check for crash recovery on startup
+        if (CrashGuard.hasRecoveryData()) {
+            CrashGuard.promptRecovery().then((shouldRecover) => {
+                if (shouldRecover) {
+                    const data = CrashGuard.getRecoveryData();
+                    this.recoverFromCrash(data);
+                }
+            });
+        }
         
         console.log('[Ameri-CAD] Initialization complete');
     }
@@ -116,7 +125,7 @@ export class AmericaD {
             await this.evaluator.evaluateFeature(feature.id);
         }
         
-        CrashGuard.log({ action: 'create', type: 'box', featureId: feature.id });
+        CrashGuard.recordCommand({ type: 'CREATE_PRIMITIVE', data: { action: 'create', primitiveType: 'box', featureId: feature.id } });
         
         return feature;
     }
@@ -138,7 +147,7 @@ export class AmericaD {
             await this.evaluator.evaluateFeature(feature.id);
         }
         
-        CrashGuard.log({ action: 'create', type: 'cylinder', featureId: feature.id });
+        CrashGuard.recordCommand({ type: 'CREATE_PRIMITIVE', data: { action: 'create', primitiveType: 'cylinder', featureId: feature.id } });
         
         return feature;
     }
@@ -159,7 +168,7 @@ export class AmericaD {
             await this.evaluator.evaluateFeature(feature.id);
         }
         
-        CrashGuard.log({ action: 'create', type: 'sphere', featureId: feature.id });
+        CrashGuard.recordCommand({ type: 'CREATE_PRIMITIVE', data: { action: 'create', primitiveType: 'sphere', featureId: feature.id } });
         
         return feature;
     }
@@ -182,7 +191,7 @@ export class AmericaD {
             await this.evaluator.evaluateFeature(feature.id);
         }
         
-        CrashGuard.log({ action: 'create', type: 'cone', featureId: feature.id });
+        CrashGuard.recordCommand({ type: 'CREATE_PRIMITIVE', data: { action: 'create', primitiveType: 'cone', featureId: feature.id } });
         
         return feature;
     }
@@ -201,7 +210,7 @@ export class AmericaD {
             await this.evaluator.evaluateFeature(feature.id);
         }
         
-        CrashGuard.log({ action: 'boolean', operation: 'union', featureId: feature.id });
+        CrashGuard.recordCommand({ type: 'BOOLEAN_OP', data: { action: 'boolean', operation: 'union', featureId: feature.id } });
         
         return feature;
     }
@@ -220,7 +229,7 @@ export class AmericaD {
             await this.evaluator.evaluateFeature(feature.id);
         }
         
-        CrashGuard.log({ action: 'boolean', operation: 'subtract', featureId: feature.id });
+        CrashGuard.recordCommand({ type: 'BOOLEAN_OP', data: { action: 'boolean', operation: 'subtract', featureId: feature.id } });
         
         return feature;
     }
@@ -239,7 +248,7 @@ export class AmericaD {
             await this.evaluator.evaluateFeature(feature.id);
         }
         
-        CrashGuard.log({ action: 'boolean', operation: 'intersect', featureId: feature.id });
+        CrashGuard.recordCommand({ type: 'BOOLEAN_OP', data: { action: 'boolean', operation: 'intersect', featureId: feature.id } });
         
         return feature;
     }
@@ -276,15 +285,29 @@ export class AmericaD {
     /**
      * Delete a feature
      */
-    deleteFeature(featureId) {
+    async deleteFeature(featureId) {
         if (featureId === this.selectedFeatureId) {
             this.selectFeature(null);
         }
         
+        // Get kernel shape ID before removing from document
+        const feature = this.document.getFeature(featureId);
+        const kernelId = feature?.kernelId || this.evaluator.getKernelId(featureId);
+        
+        // Remove from document and evaluator
         this.document.removeFeature(featureId);
         this.evaluator.removeFeatureMesh(featureId);
         
-        CrashGuard.log({ action: 'delete', featureId });
+        // Clean up kernel memory to prevent leaks
+        if (this.kernelReady && kernelId) {
+            try {
+                await kernel.deleteShape(kernelId);
+            } catch (err) {
+                console.warn('[Ameri-CAD] Failed to delete kernel shape:', err);
+            }
+        }
+        
+        CrashGuard.recordCommand({ type: 'DELETE', data: { action: 'delete', featureId } });
     }
     
     /**
@@ -324,7 +347,7 @@ export class AmericaD {
             await this.evaluator.reEvaluateFromFeature(featureId);
         }
         
-        CrashGuard.log({ action: 'update', featureId, params });
+        CrashGuard.recordCommand({ type: 'UPDATE_PARAMS', data: { action: 'update', featureId, params } });
     }
     
     // ==================== File Operations ====================

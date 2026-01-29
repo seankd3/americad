@@ -304,6 +304,235 @@ function applyFillet(shape, edgeIds, radius) {
 }
 
 /**
+ * Apply chamfer to edges
+ */
+function applyChamfer(shape, edgeIds, distance) {
+    const chamfer = new oc.BRepFilletAPI_MakeChamfer(shape);
+    
+    // Find edges by ID and add to chamfer
+    const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    
+    while (explorer.More()) {
+        const edge = oc.TopoDS.Edge_1(explorer.Current());
+        const edgeId = getTopoId(edge);
+        
+        if (edgeIds.includes(edgeId)) {
+            chamfer.Add_2(distance, edge);
+        }
+        
+        explorer.Next();
+    }
+    
+    chamfer.Build(new oc.Message_ProgressRange_1());
+    
+    if (!chamfer.IsDone()) {
+        throw new Error('Chamfer operation failed');
+    }
+    
+    return {
+        shape: chamfer.Shape(),
+        id: getTopoId(chamfer.Shape()),
+        type: 'chamfer'
+    };
+}
+
+/**
+ * Create a torus primitive
+ */
+function createTorus(majorRadius, minorRadius, center = { x: 0, y: 0, z: 0 }) {
+    const axis = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(center.x, center.y, center.z),
+        new oc.gp_Dir_4(0, 0, 1)
+    );
+    
+    const torus = new oc.BRepPrimAPI_MakeTorus_3(axis, majorRadius, minorRadius).Shape();
+    
+    return {
+        shape: torus,
+        id: getTopoId(torus),
+        type: 'torus',
+        params: { majorRadius, minorRadius, center }
+    };
+}
+
+/**
+ * Create a wedge primitive
+ */
+function createWedge(dx, dy, dz, ltx = 0, center = { x: 0, y: 0, z: 0 }) {
+    // BRepPrimAPI_MakeWedge creates a wedge from axes and dimensions
+    const ax = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(center.x - dx/2, center.y - dy/2, center.z - dz/2),
+        new oc.gp_Dir_4(0, 0, 1)
+    );
+    
+    const wedge = new oc.BRepPrimAPI_MakeWedge_3(ax, dx, dy, dz, ltx).Shape();
+    
+    return {
+        shape: wedge,
+        id: getTopoId(wedge),
+        type: 'wedge',
+        params: { dx, dy, dz, ltx, center }
+    };
+}
+
+/**
+ * Extrude a face/profile along a direction
+ */
+function extrudeProfile(profile, direction, distance) {
+    // Create direction vector
+    const vec = new oc.gp_Vec_4(
+        direction.x * distance,
+        direction.y * distance,
+        direction.z * distance
+    );
+    
+    // BRepPrimAPI_MakePrism extrudes a shape along a vector
+    const prism = new oc.BRepPrimAPI_MakePrism_1(profile, vec, false, true);
+    prism.Build(new oc.Message_ProgressRange_1());
+    
+    if (!prism.IsDone()) {
+        throw new Error('Extrude operation failed');
+    }
+    
+    return {
+        shape: prism.Shape(),
+        id: getTopoId(prism.Shape()),
+        type: 'extrude'
+    };
+}
+
+/**
+ * Revolve a face/profile around an axis
+ */
+function revolveProfile(profile, axis, angleDegrees) {
+    // Create axis for revolution
+    const ax1 = new oc.gp_Ax1_2(
+        new oc.gp_Pnt_3(axis.origin.x, axis.origin.y, axis.origin.z),
+        new oc.gp_Dir_4(axis.direction.x, axis.direction.y, axis.direction.z)
+    );
+    
+    const angleRadians = angleDegrees * Math.PI / 180;
+    
+    // BRepPrimAPI_MakeRevol revolves a shape around an axis
+    const revol = new oc.BRepPrimAPI_MakeRevol_1(profile, ax1, angleRadians, true);
+    revol.Build(new oc.Message_ProgressRange_1());
+    
+    if (!revol.IsDone()) {
+        throw new Error('Revolve operation failed');
+    }
+    
+    return {
+        shape: revol.Shape(),
+        id: getTopoId(revol.Shape()),
+        type: 'revolve'
+    };
+}
+
+/**
+ * Shell a solid (hollow it out)
+ */
+function shellSolid(shape, faceIds, thickness) {
+    const shell = new oc.BRepOffsetAPI_MakeThickSolid();
+    
+    // Collect faces to remove
+    const facesToRemove = new oc.TopTools_ListOfShape_1();
+    
+    if (faceIds && faceIds.length > 0) {
+        const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        
+        while (explorer.More()) {
+            const face = oc.TopoDS.Face_1(explorer.Current());
+            const faceId = getTopoId(face);
+            
+            if (faceIds.includes(faceId)) {
+                facesToRemove.Append_1(face);
+            }
+            
+            explorer.Next();
+        }
+    }
+    
+    // MakeThickSolidByJoin(shape, facesToRemove, offset, tolerance, mode, intersection, selfInter, join, removeIntEdges)
+    shell.MakeThickSolidByJoin(
+        shape,
+        facesToRemove,
+        thickness,
+        1e-6,
+        oc.BRepOffset_Mode.BRepOffset_Skin,
+        false,
+        false,
+        oc.GeomAbs_JoinType.GeomAbs_Arc,
+        false,
+        new oc.Message_ProgressRange_1()
+    );
+    
+    if (!shell.IsDone()) {
+        throw new Error('Shell operation failed');
+    }
+    
+    return {
+        shape: shell.Shape(),
+        id: getTopoId(shell.Shape()),
+        type: 'shell'
+    };
+}
+
+/**
+ * Loft between multiple profiles
+ */
+function loftProfiles(profiles, solid = true) {
+    const loft = new oc.BRepOffsetAPI_ThruSections(solid, false, 1e-6);
+    
+    // Add each profile as a wire/vertex
+    for (const profile of profiles) {
+        // Check if it's a wire or vertex
+        const shapeType = profile.ShapeType();
+        if (shapeType === oc.TopAbs_ShapeEnum.TopAbs_WIRE) {
+            loft.AddWire(oc.TopoDS.Wire_1(profile));
+        } else if (shapeType === oc.TopAbs_ShapeEnum.TopAbs_VERTEX) {
+            loft.AddVertex(oc.TopoDS.Vertex_1(profile));
+        } else if (shapeType === oc.TopAbs_ShapeEnum.TopAbs_FACE) {
+            // Extract outer wire from face
+            const wire = oc.BRepTools.OuterWire(oc.TopoDS.Face_1(profile));
+            loft.AddWire(wire);
+        }
+    }
+    
+    loft.Build(new oc.Message_ProgressRange_1());
+    
+    if (!loft.IsDone()) {
+        throw new Error('Loft operation failed');
+    }
+    
+    return {
+        shape: loft.Shape(),
+        id: getTopoId(loft.Shape()),
+        type: 'loft'
+    };
+}
+
+/**
+ * Sweep a profile along a path
+ */
+function sweepProfile(profile, path) {
+    // BRepOffsetAPI_MakePipe sweeps a profile along a spine wire
+    const spine = oc.TopoDS.Wire_1(path);
+    
+    const pipe = new oc.BRepOffsetAPI_MakePipe_1(spine, profile);
+    pipe.Build(new oc.Message_ProgressRange_1());
+    
+    if (!pipe.IsDone()) {
+        throw new Error('Sweep operation failed');
+    }
+    
+    return {
+        shape: pipe.Shape(),
+        id: getTopoId(pipe.Shape()),
+        type: 'sweep'
+    };
+}
+
+/**
  * Export to STEP format
  */
 function exportSTEP(shape) {
@@ -460,6 +689,69 @@ self.onmessage = async function(e) {
                 shapes.set(filleted.id, filleted.shape);
                 const filletMesh = tessellate(filleted.shape);
                 result = { id: filleted.id, mesh: filletMesh };
+                break;
+                
+            case 'chamfer':
+                const shapeCh = shapes.get(params.shapeId);
+                const chamfered = applyChamfer(shapeCh, params.edgeIds, params.distance);
+                shapes.set(chamfered.id, chamfered.shape);
+                const chamferMesh = tessellate(chamfered.shape);
+                result = { id: chamfered.id, mesh: chamferMesh };
+                break;
+                
+            case 'createTorus':
+                const torus = createTorus(params.majorRadius, params.minorRadius, params.center);
+                shapes.set(torus.id, torus.shape);
+                const torusMesh = tessellate(torus.shape);
+                result = { id: torus.id, mesh: torusMesh, params: torus.params };
+                break;
+                
+            case 'createWedge':
+                const wedge = createWedge(params.dx, params.dy, params.dz, params.ltx, params.center);
+                shapes.set(wedge.id, wedge.shape);
+                const wedgeMesh = tessellate(wedge.shape);
+                result = { id: wedge.id, mesh: wedgeMesh, params: wedge.params };
+                break;
+                
+            case 'extrude':
+                const profileE = shapes.get(params.profileId);
+                const extruded = extrudeProfile(profileE, params.direction, params.distance);
+                shapes.set(extruded.id, extruded.shape);
+                const extrudeMesh = tessellate(extruded.shape);
+                result = { id: extruded.id, mesh: extrudeMesh };
+                break;
+                
+            case 'revolve':
+                const profileR = shapes.get(params.profileId);
+                const revolved = revolveProfile(profileR, params.axis, params.angle);
+                shapes.set(revolved.id, revolved.shape);
+                const revolveMesh = tessellate(revolved.shape);
+                result = { id: revolved.id, mesh: revolveMesh };
+                break;
+                
+            case 'shell':
+                const shapeS = shapes.get(params.shapeId);
+                const shelled = shellSolid(shapeS, params.faceIds, params.thickness);
+                shapes.set(shelled.id, shelled.shape);
+                const shellMesh = tessellate(shelled.shape);
+                result = { id: shelled.id, mesh: shellMesh };
+                break;
+                
+            case 'loft':
+                const profilesL = params.profileIds.map(id => shapes.get(id));
+                const lofted = loftProfiles(profilesL, params.solid);
+                shapes.set(lofted.id, lofted.shape);
+                const loftMesh = tessellate(lofted.shape);
+                result = { id: lofted.id, mesh: loftMesh };
+                break;
+                
+            case 'sweep':
+                const profileSw = shapes.get(params.profileId);
+                const pathSw = shapes.get(params.pathId);
+                const swept = sweepProfile(profileSw, pathSw);
+                shapes.set(swept.id, swept.shape);
+                const sweepMesh = tessellate(swept.shape);
+                result = { id: swept.id, mesh: sweepMesh };
                 break;
                 
             case 'exportSTEP':
