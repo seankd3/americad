@@ -132,62 +132,130 @@ export class SketchRenderer {
     }
     
     /**
-     * Create the sketch grid
+     * Create the sketch grid with major/minor lines
      */
     createGrid(planeName) {
         this.gridGroup.clear();
         
-        const lines = [];
         const extent = this.gridExtent;
-        const step = this.gridSize;
+        const minorStep = this.gridSize;
+        const majorStep = minorStep * 10; // Major grid every 10 minor steps
         
-        // Create grid lines in sketch 2D space
-        for (let i = -extent; i <= extent; i += step) {
-            // Vertical lines (in sketch space)
-            lines.push(i, -extent);
-            lines.push(i, extent);
-            
-            // Horizontal lines (in sketch space)
-            lines.push(-extent, i);
-            lines.push(extent, i);
+        // Minor grid lines
+        const minorLines = [];
+        for (let i = -extent; i <= extent; i += minorStep) {
+            if (i % majorStep === 0) continue; // Skip major lines
+            minorLines.push(i, -extent);
+            minorLines.push(i, extent);
+            minorLines.push(-extent, i);
+            minorLines.push(extent, i);
         }
         
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(lines.length * 1.5); // x, y, z for each point
+        // Major grid lines
+        const majorLines = [];
+        for (let i = -extent; i <= extent; i += majorStep) {
+            majorLines.push(i, -extent);
+            majorLines.push(i, extent);
+            majorLines.push(-extent, i);
+            majorLines.push(extent, i);
+        }
         
-        // Convert 2D to 3D based on plane
-        for (let i = 0; i < lines.length; i += 2) {
-            const x2d = lines[i];
-            const y2d = lines[i + 1];
-            const idx = (i / 2) * 3;
-            
-            switch (planeName) {
-                case 'xy':
-                    positions[idx] = x2d;
-                    positions[idx + 1] = y2d;
-                    positions[idx + 2] = 0;
-                    break;
-                case 'xz':
-                    positions[idx] = x2d;
-                    positions[idx + 1] = 0;
-                    positions[idx + 2] = y2d;
-                    break;
-                case 'yz':
-                    positions[idx] = 0;
-                    positions[idx + 1] = y2d;
-                    positions[idx + 2] = x2d;
-                    break;
+        // Helper to convert 2D to 3D
+        const to3D = (lines2D) => {
+            const positions = new Float32Array(lines2D.length * 1.5);
+            for (let i = 0; i < lines2D.length; i += 2) {
+                const x2d = lines2D[i];
+                const y2d = lines2D[i + 1];
+                const idx = (i / 2) * 3;
+                
+                switch (planeName) {
+                    case 'xy':
+                        positions[idx] = x2d;
+                        positions[idx + 1] = y2d;
+                        positions[idx + 2] = 0;
+                        break;
+                    case 'xz':
+                        positions[idx] = x2d;
+                        positions[idx + 1] = 0;
+                        positions[idx + 2] = y2d;
+                        break;
+                    case 'yz':
+                        positions[idx] = 0;
+                        positions[idx + 1] = y2d;
+                        positions[idx + 2] = x2d;
+                        break;
+                }
             }
+            return positions;
+        };
+        
+        // Create minor grid
+        if (minorLines.length > 0) {
+            const minorGeom = new THREE.BufferGeometry();
+            minorGeom.setAttribute('position', new THREE.BufferAttribute(to3D(minorLines), 3));
+            const minorGrid = new THREE.LineSegments(minorGeom, this.materials.grid);
+            minorGrid.name = 'sketch-grid-minor';
+            this.gridGroup.add(minorGrid);
         }
         
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        
-        const grid = new THREE.LineSegments(geometry, this.materials.grid);
-        grid.name = 'sketch-grid';
-        this.gridGroup.add(grid);
+        // Create major grid
+        if (majorLines.length > 0) {
+            const majorGeom = new THREE.BufferGeometry();
+            majorGeom.setAttribute('position', new THREE.BufferAttribute(to3D(majorLines), 3));
+            const majorMat = new THREE.LineBasicMaterial({ 
+                color: Colors.GRID_MAJOR, 
+                transparent: true, 
+                opacity: 0.5 
+            });
+            const majorGrid = new THREE.LineSegments(majorGeom, majorMat);
+            majorGrid.name = 'sketch-grid-major';
+            this.gridGroup.add(majorGrid);
+        }
         
         // Add axis indicators
         this.addAxisIndicators(planeName);
+        
+        // Add origin crosshair
+        this.addOriginCrosshair(planeName);
+    }
+    
+    /**
+     * Add origin crosshair indicator
+     */
+    addOriginCrosshair(planeName) {
+        const size = 10;
+        const hMat = new THREE.LineBasicMaterial({ color: Colors.AXIS_X, linewidth: 2 });
+        const vMat = new THREE.LineBasicMaterial({ color: Colors.AXIS_Y, linewidth: 2 });
+        
+        let hPos, vPos;
+        
+        switch (planeName) {
+            case 'xy':
+                hPos = new Float32Array([-size, 0, 0.1, size, 0, 0.1]);
+                vPos = new Float32Array([0, -size, 0.1, 0, size, 0.1]);
+                break;
+            case 'xz':
+                hPos = new Float32Array([-size, 0.1, 0, size, 0.1, 0]);
+                vPos = new Float32Array([0, 0.1, -size, 0, 0.1, size]);
+                break;
+            case 'yz':
+                hPos = new Float32Array([0.1, 0, -size, 0.1, 0, size]);
+                vPos = new Float32Array([0.1, -size, 0, 0.1, size, 0]);
+                break;
+        }
+        
+        const hGeom = new THREE.BufferGeometry();
+        hGeom.setAttribute('position', new THREE.BufferAttribute(hPos, 3));
+        const hLine = new THREE.Line(hGeom, hMat);
+        hLine.name = 'origin-h';
+        
+        const vGeom = new THREE.BufferGeometry();
+        vGeom.setAttribute('position', new THREE.BufferAttribute(vPos, 3));
+        const vLine = new THREE.Line(vGeom, vMat);
+        vLine.name = 'origin-v';
+        
+        this.gridGroup.add(hLine);
+        this.gridGroup.add(vLine);
     }
     
     /**

@@ -1097,6 +1097,12 @@ function enterSketchMode(plane = 'xy') {
     // Hide 3D grid, show sketch grid
     if (gridHelper) gridHelper.visible = false;
     
+    // Change scene background to indicate sketch mode
+    if (scene) {
+        scene.userData.normalBackground = scene.background.clone();
+        scene.background = new THREE.Color(0x0a0a18); // Slightly blue tint
+    }
+    
     // Disable orbit controls rotation (only pan/zoom in sketch mode)
     if (controls) {
         controls.enableRotate = false;
@@ -1125,6 +1131,11 @@ function exitSketchMode() {
     
     // Restore 3D view
     if (gridHelper) gridHelper.visible = System.grid;
+    
+    // Restore scene background
+    if (scene && scene.userData.normalBackground) {
+        scene.background = scene.userData.normalBackground;
+    }
     
     // Re-enable orbit controls
     if (controls) {
@@ -1178,17 +1189,18 @@ function setSketchView(plane) {
  */
 function updateSketchUI(inSketch) {
     // Update tool buttons visibility
-    const sketchTools = document.querySelectorAll('[data-tool="line"], [data-tool="rectangle"], [data-tool="circle"]');
+    const sketchTools = document.querySelectorAll('[data-tool="line"], [data-tool="rectangle"], [data-tool="circle"], [data-tool="arc"]');
     sketchTools.forEach(btn => {
         btn.classList.toggle('sketch-active', inSketch);
     });
     
-    // Add/remove exit sketch button
+    // Add/remove exit sketch button and mode indicator
     let exitBtn = document.getElementById('exit-sketch-btn');
+    let modeIndicator = document.getElementById('sketch-mode-indicator');
     
     if (inSketch) {
+        // Create exit button
         if (!exitBtn) {
-            // Create exit button in viewport toolbar
             const toolbar = document.querySelector('.viewport-toolbar .toolbar-left-group');
             if (toolbar) {
                 exitBtn = document.createElement('button');
@@ -1202,16 +1214,74 @@ function updateSketchUI(inSketch) {
                 toolbar.appendChild(exitBtn);
             }
         }
-    } else {
-        if (exitBtn) {
-            exitBtn.remove();
+        
+        // Create sketch mode indicator overlay
+        if (!modeIndicator) {
+            const viewport = document.getElementById('viewport');
+            if (viewport) {
+                modeIndicator = document.createElement('div');
+                modeIndicator.id = 'sketch-mode-indicator';
+                modeIndicator.innerHTML = `
+                    <div style="
+                        position: absolute;
+                        top: 10px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        background: linear-gradient(135deg, #0066cc, #0044aa);
+                        color: #fff;
+                        padding: 8px 20px;
+                        border-radius: 4px;
+                        font-family: monospace;
+                        font-size: 12px;
+                        font-weight: bold;
+                        letter-spacing: 0.1em;
+                        box-shadow: 0 2px 8px rgba(0,100,200,0.4);
+                        z-index: 100;
+                        pointer-events: none;
+                        border: 1px solid #0088ff;
+                    ">
+                        ✎ SKETCH MODE — ${System.sketchPlane.toUpperCase()} PLANE
+                    </div>
+                    <div style="
+                        position: absolute;
+                        bottom: 50px;
+                        left: 10px;
+                        background: rgba(0,50,100,0.8);
+                        color: #66ccff;
+                        padding: 10px;
+                        border-radius: 4px;
+                        font-family: monospace;
+                        font-size: 11px;
+                        line-height: 1.6;
+                        z-index: 100;
+                        border: 1px solid #004488;
+                    ">
+                        <div><b>L</b> - Line</div>
+                        <div><b>R</b> - Rectangle</div>
+                        <div><b>O</b> - Circle</div>
+                        <div><b>A</b> - Arc (3-point)</div>
+                        <div><b>Esc</b> - Cancel/Exit</div>
+                        <div><b>Enter</b> - Finish</div>
+                    </div>
+                `;
+                viewport.appendChild(modeIndicator);
+            }
         }
+    } else {
+        if (exitBtn) exitBtn.remove();
+        if (modeIndicator) modeIndicator.remove();
     }
     
     // Update status bar
     const statusItem = document.querySelector('.status-left .status-item:first-child span:last-child');
     if (statusItem) {
         statusItem.textContent = inSketch ? 'SKETCH MODE' : 'SYSTEM READY';
+    }
+    
+    // Update status indicator color
+    const statusIndicator = document.querySelector('.status-indicator');
+    if (statusIndicator) {
+        statusIndicator.style.backgroundColor = inSketch ? '#0088ff' : 'var(--success)';
     }
 }
 
