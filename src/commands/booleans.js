@@ -154,6 +154,70 @@ export function registerBooleanCommands(kernel) {
         }
     });
     
+    // FILLETALL - Add fillet to ALL edges
+    registerCommand('filletall', {
+        aliases: ['roundall', 'filall'],
+        description: 'Add fillet (rounded edges) to ALL edges of a shape',
+        category: 'feature',
+        params: [
+            { name: 'radius', type: 'number', required: true, description: 'Fillet radius' },
+            { name: 'shapeId', type: 'string', required: false, description: 'Shape ID (or use selection)' }
+        ],
+        validate(params, context) {
+            const shapeId = params.shapeId || (context.selection?.length ? context.selection[0] : null);
+            if (!shapeId) return 'Select a shape or provide shapeId';
+            if (params.radius <= 0) return 'Radius must be positive';
+            return true;
+        },
+        async execute(params, context) {
+            const shapeId = params.shapeId || context.selection[0];
+            const result = await kernel.filletAll(shapeId, params.radius);
+            return result;
+        }
+    });
+    
+    // CHAMFERALL - Add chamfer to ALL edges
+    registerCommand('chamferall', {
+        aliases: ['bevelall', 'chamall'],
+        description: 'Add chamfer (angled edges) to ALL edges of a shape',
+        category: 'feature',
+        params: [
+            { name: 'distance', type: 'number', required: true, description: 'Chamfer distance' },
+            { name: 'shapeId', type: 'string', required: false, description: 'Shape ID (or use selection)' }
+        ],
+        validate(params, context) {
+            const shapeId = params.shapeId || (context.selection?.length ? context.selection[0] : null);
+            if (!shapeId) return 'Select a shape or provide shapeId';
+            if (params.distance <= 0) return 'Distance must be positive';
+            return true;
+        },
+        async execute(params, context) {
+            const shapeId = params.shapeId || context.selection[0];
+            const result = await kernel.chamferAll(shapeId, params.distance);
+            return result;
+        }
+    });
+    
+    // GETEDGES - Get edge IDs for a shape (for debugging/selection)
+    registerCommand('getedges', {
+        aliases: ['edges', 'listedges'],
+        description: 'List all edge IDs for a shape',
+        category: 'analysis',
+        params: [
+            { name: 'shapeId', type: 'string', required: false, description: 'Shape ID (or use selection)' }
+        ],
+        validate(params, context) {
+            const shapeId = params.shapeId || (context.selection?.length ? context.selection[0] : null);
+            if (!shapeId) return 'Select a shape or provide shapeId';
+            return true;
+        },
+        async execute(params, context) {
+            const shapeId = params.shapeId || context.selection[0];
+            const result = await kernel.getEdges(shapeId);
+            return result;
+        }
+    });
+    
     // EXTRUDE - Extrude a face or sketch
     registerCommand('extrude', {
         aliases: ['ext', 'push', 'e'],

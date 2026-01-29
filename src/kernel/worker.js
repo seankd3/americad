@@ -258,8 +258,8 @@ function createCone(radius1, radius2, height, center = { x: 0, y: 0, z: 0 }) {
  * Boolean union operation
  */
 function booleanUnion(shape1, shape2) {
-    const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRange_1());
-    fuse.Build(new oc.Message_ProgressRange_1());
+    // Use _2 constructor which takes two shapes and auto-builds (no progress range needed)
+    const fuse = new oc.BRepAlgoAPI_Fuse_2(shape1, shape2);
     
     if (!fuse.IsDone()) {
         throw new Error('Boolean union failed');
@@ -276,8 +276,8 @@ function booleanUnion(shape1, shape2) {
  * Boolean subtraction operation
  */
 function booleanSubtract(shape1, shape2) {
-    const cut = new oc.BRepAlgoAPI_Cut_3(shape1, shape2, new oc.Message_ProgressRange_1());
-    cut.Build(new oc.Message_ProgressRange_1());
+    // Use _2 constructor which takes two shapes and auto-builds (no progress range needed)
+    const cut = new oc.BRepAlgoAPI_Cut_2(shape1, shape2);
     
     if (!cut.IsDone()) {
         throw new Error('Boolean subtraction failed');
@@ -294,8 +294,8 @@ function booleanSubtract(shape1, shape2) {
  * Boolean intersection operation
  */
 function booleanIntersect(shape1, shape2) {
-    const common = new oc.BRepAlgoAPI_Common_3(shape1, shape2, new oc.Message_ProgressRange_1());
-    common.Build(new oc.Message_ProgressRange_1());
+    // Use _2 constructor which takes two shapes and auto-builds (no progress range needed)
+    const common = new oc.BRepAlgoAPI_Common_2(shape1, shape2);
     
     if (!common.IsDone()) {
         throw new Error('Boolean intersection failed');
@@ -328,7 +328,7 @@ function applyFillet(shape, edgeIds, radius) {
         explorer.Next();
     }
     
-    fillet.Build(new oc.Message_ProgressRange_1());
+    fillet.Build();
     
     if (!fillet.IsDone()) {
         throw new Error('Fillet operation failed');
@@ -361,7 +361,7 @@ function applyChamfer(shape, edgeIds, distance) {
         explorer.Next();
     }
     
-    chamfer.Build(new oc.Message_ProgressRange_1());
+    chamfer.Build();
     
     if (!chamfer.IsDone()) {
         throw new Error('Chamfer operation failed');
@@ -372,6 +372,92 @@ function applyChamfer(shape, edgeIds, distance) {
         id: getTopoId(chamfer.Shape()),
         type: 'chamfer'
     };
+}
+
+/**
+ * Apply fillet to ALL edges of a shape
+ */
+function applyFilletAll(shape, radius) {
+    const fillet = new oc.BRepFilletAPI_MakeFillet(shape, oc.ChFi3d_FilletShape.ChFi3d_Rational);
+    
+    // Add all edges to fillet
+    const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    let edgeCount = 0;
+    
+    while (explorer.More()) {
+        const edge = oc.TopoDS.Edge_1(explorer.Current());
+        fillet.Add_2(radius, edge);
+        edgeCount++;
+        explorer.Next();
+    }
+    
+    if (edgeCount === 0) {
+        throw new Error('Shape has no edges to fillet');
+    }
+    
+    fillet.Build(new oc.Message_ProgressRange_1());
+    
+    if (!fillet.IsDone()) {
+        throw new Error('Fillet operation failed - radius may be too large for geometry');
+    }
+    
+    return {
+        shape: fillet.Shape(),
+        id: getTopoId(fillet.Shape()),
+        type: 'filletAll',
+        edgeCount
+    };
+}
+
+/**
+ * Apply chamfer to ALL edges of a shape
+ */
+function applyChamferAll(shape, distance) {
+    const chamfer = new oc.BRepFilletAPI_MakeChamfer(shape);
+    
+    // Add all edges to chamfer
+    const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    let edgeCount = 0;
+    
+    while (explorer.More()) {
+        const edge = oc.TopoDS.Edge_1(explorer.Current());
+        chamfer.Add_2(distance, edge);
+        edgeCount++;
+        explorer.Next();
+    }
+    
+    if (edgeCount === 0) {
+        throw new Error('Shape has no edges to chamfer');
+    }
+    
+    chamfer.Build(new oc.Message_ProgressRange_1());
+    
+    if (!chamfer.IsDone()) {
+        throw new Error('Chamfer operation failed - distance may be too large for geometry');
+    }
+    
+    return {
+        shape: chamfer.Shape(),
+        id: getTopoId(chamfer.Shape()),
+        type: 'chamferAll',
+        edgeCount
+    };
+}
+
+/**
+ * Get all edge IDs for a shape
+ */
+function getEdges(shape) {
+    const edges = [];
+    const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    
+    while (explorer.More()) {
+        const edge = oc.TopoDS.Edge_1(explorer.Current());
+        edges.push(getTopoId(edge));
+        explorer.Next();
+    }
+    
+    return edges;
 }
 
 /**
@@ -426,7 +512,7 @@ function extrudeProfile(profile, direction, distance) {
     
     // BRepPrimAPI_MakePrism extrudes a shape along a vector
     const prism = new oc.BRepPrimAPI_MakePrism_1(profile, vec, false, true);
-    prism.Build(new oc.Message_ProgressRange_1());
+    prism.Build();
     
     if (!prism.IsDone()) {
         throw new Error('Extrude operation failed');
@@ -453,7 +539,7 @@ function revolveProfile(profile, axis, angleDegrees) {
     
     // BRepPrimAPI_MakeRevol revolves a shape around an axis
     const revol = new oc.BRepPrimAPI_MakeRevol_1(profile, ax1, angleRadians, true);
-    revol.Build(new oc.Message_ProgressRange_1());
+    revol.Build();
     
     if (!revol.IsDone()) {
         throw new Error('Revolve operation failed');
@@ -779,6 +865,30 @@ self.onmessage = async function(e) {
                 shapes.set(chamfered.id, chamfered.shape);
                 const chamferMesh = tessellate(chamfered.shape);
                 result = { id: chamfered.id, mesh: chamferMesh };
+                break;
+                
+            case 'filletAll':
+                const shapeFA = shapes.get(params.shapeId);
+                if (!shapeFA) throw new Error(`Shape not found: ${params.shapeId}`);
+                const filletedAll = applyFilletAll(shapeFA, params.radius);
+                shapes.set(filletedAll.id, filletedAll.shape);
+                const filletAllMesh = tessellate(filletedAll.shape);
+                result = { id: filletedAll.id, mesh: filletAllMesh, edgeCount: filletedAll.edgeCount };
+                break;
+                
+            case 'chamferAll':
+                const shapeCA = shapes.get(params.shapeId);
+                if (!shapeCA) throw new Error(`Shape not found: ${params.shapeId}`);
+                const chamferedAll = applyChamferAll(shapeCA, params.distance);
+                shapes.set(chamferedAll.id, chamferedAll.shape);
+                const chamferAllMesh = tessellate(chamferedAll.shape);
+                result = { id: chamferedAll.id, mesh: chamferAllMesh, edgeCount: chamferedAll.edgeCount };
+                break;
+                
+            case 'getEdges':
+                const shapeGE = shapes.get(params.shapeId);
+                if (!shapeGE) throw new Error(`Shape not found: ${params.shapeId}`);
+                result = { edgeIds: getEdges(shapeGE) };
                 break;
                 
             case 'createTorus':

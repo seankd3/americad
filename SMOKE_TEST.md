@@ -16,7 +16,7 @@
 | Basic Primitives | ⚠️ PARTIAL |
 | New Primitives (Torus, Wedge) | ✅ PASS |
 | Boolean Operations | ❌ FAIL |
-| Fillet/Chamfer | ❌ FAIL |
+| Fillet/Chamfer | ⚠️ PARTIAL (filletAll/chamferAll added) |
 | Undo | ✅ PASS |
 | Redo | ❌ FAIL |
 
@@ -85,17 +85,23 @@ oc.Message_ProgressRange_1 is not a constructor
 - `kernel.subtract(shapeA, shapeB)` → ❌ FAIL  
 - `kernel.intersect(shapeA, shapeB)` → ❌ FAIL
 
-### 3. Fillet/Chamfer - API MISMATCH
-**Symptom:** Both throw TypeError  
-**Console Error:**
-```
-edgeIds.includes is not a function
-```
-**Impact:** Cannot apply edge treatments  
-**Root Cause:** API expects array of edge IDs, but current call passes single shape ID
+### 3. Fillet/Chamfer - WORKAROUND ADDED ⚠️
+**Original Symptom:** Both threw TypeError (`edgeIds.includes is not a function`)  
+**Root Cause:** API expected array of edge IDs, caller passed single shape ID
 
-**Expected API:** `kernel.fillet(shapeId, edgeIds[], radius)`  
-**Actual Call:** `kernel.fillet(shapeId, radius)`
+**Fix Applied:**
+- Added `kernel.filletAll(shapeId, radius)` - fillets ALL edges at once
+- Added `kernel.chamferAll(shapeId, distance)` - chamfers ALL edges at once
+- Added `kernel.getEdges(shapeId)` - returns edge IDs for selective operations
+- Added commands: `filletall`, `chamferall`, `getedges`
+
+**Usage:**
+```javascript
+const box = await kernel.createBox({width:20, height:20, depth:20})
+await kernel.filletAll(box.id, 2) // Fillet all edges with radius 2
+```
+
+**Original API still works** for selective edge operations when you have edge IDs.
 
 ### 4. Redo - SILENT FAILURE
 **Symptom:** Redo command executes but doesn't restore object  
@@ -149,9 +155,7 @@ No uncaught exceptions or crashes observed.
 ### Priority 2 (Important)
 3. **Fix Cone Parameters** - Update worker to pass 5 parameters to `BRepPrimAPI_MakeCone_4` constructor (likely needs axis parameter).
 
-4. **Fix Fillet/Chamfer API** - Either:
-   - Update caller to provide edge IDs array, or
-   - Add edge detection to auto-select all edges when none specified
+4. ~~**Fix Fillet/Chamfer API**~~ ✅ DONE - Added `filletAll` and `chamferAll` methods that apply to all edges. Added `getEdges` for selective operations.
 
 ### Priority 3 (Nice to Have)
 5. **Test Extrude/Revolve** - Not tested due to sketch system dependency
@@ -190,9 +194,9 @@ window.AmericaD.redo()
 ```
 Primitives: createBox, createCylinder, createSphere, createCone, createTorus, createWedge
 Booleans: boolean, union, subtract, intersect
-Features: fillet, chamfer, extrude, revolve, shell, loft, sweep
+Features: fillet, chamfer, filletAll, chamferAll, extrude, revolve, shell, loft, sweep
+Query: getVolume, getBoundingBox, getEdges
 Export: exportSTEP, exportSTL
-Query: getVolume, getBoundingBox
 Lifecycle: init, isReady, deleteShape, terminate
 ```
 

@@ -185,6 +185,9 @@ export class KernelBridge {
     
     /**
      * Apply fillet to edges
+     * @param {string} shapeId - Shape ID
+     * @param {string[]} edgeIds - Array of edge IDs to fillet
+     * @param {number} radius - Fillet radius
      * @returns {Promise<{id: string, mesh: Object}>}
      */
     async fillet(shapeId, edgeIds, radius) {
@@ -194,11 +197,46 @@ export class KernelBridge {
     
     /**
      * Apply chamfer to edges
+     * @param {string} shapeId - Shape ID
+     * @param {string[]} edgeIds - Array of edge IDs to chamfer
+     * @param {number} distance - Chamfer distance
      * @returns {Promise<{id: string, mesh: Object}>}
      */
     async chamfer(shapeId, edgeIds, distance) {
         await this.init();
         return this._call('chamfer', { shapeId, edgeIds, distance });
+    }
+    
+    /**
+     * Apply fillet to ALL edges of a shape
+     * @param {string} shapeId - Shape ID
+     * @param {number} radius - Fillet radius
+     * @returns {Promise<{id: string, mesh: Object, edgeCount: number}>}
+     */
+    async filletAll(shapeId, radius) {
+        await this.init();
+        return this._call('filletAll', { shapeId, radius });
+    }
+    
+    /**
+     * Apply chamfer to ALL edges of a shape
+     * @param {string} shapeId - Shape ID
+     * @param {number} distance - Chamfer distance
+     * @returns {Promise<{id: string, mesh: Object, edgeCount: number}>}
+     */
+    async chamferAll(shapeId, distance) {
+        await this.init();
+        return this._call('chamferAll', { shapeId, distance });
+    }
+    
+    /**
+     * Get all edge IDs for a shape
+     * @param {string} shapeId - Shape ID
+     * @returns {Promise<{edgeIds: string[]}>}
+     */
+    async getEdges(shapeId) {
+        await this.init();
+        return this._call('getEdges', { shapeId });
     }
     
     /**
