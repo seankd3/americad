@@ -1467,6 +1467,371 @@ function createCircularPattern(shape, axisOrigin, axisDirection, count, angle = 
     };
 }
 
+// ==================== Hole Wizard Functions ====================
+
+/**
+ * Create a simple hole (cylinder cut from solid)
+ * @param {TopoDS_Shape} targetShape - Shape to cut hole from
+ * @param {{x,y,z}} position - Center of hole on surface
+ * @param {{x,y,z}} direction - Direction into the material (normalized)
+ * @param {number} diameter - Hole diameter
+ * @param {number} depth - Hole depth (0 or negative for through-all)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createSimpleHole(targetShape, position, direction, diameter, depth) {
+    const radius = diameter / 2;
+    
+    // Normalize direction
+    const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+    const dir = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+    
+    // Determine actual depth - if 0 or negative, use through-all (calculate from bbox)
+    let actualDepth = depth;
+    if (actualDepth <= 0) {
+        const bbox = getBoundingBox(targetShape);
+        const diagonal = Math.sqrt(
+            Math.pow(bbox.max.x - bbox.min.x, 2) +
+            Math.pow(bbox.max.y - bbox.min.y, 2) +
+            Math.pow(bbox.max.z - bbox.min.z, 2)
+        );
+        actualDepth = diagonal * 2; // Ensure it goes all the way through
+    }
+    
+    // Create cylinder axis - start slightly above surface, extend through
+    const startOffset = 0.1; // Small offset to ensure clean cut
+    const axis = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(
+            position.x - dir.x * startOffset,
+            position.y - dir.y * startOffset,
+            position.z - dir.z * startOffset
+        ),
+        new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+    );
+    
+    // Create cutting cylinder
+    const cylinder = new oc.BRepPrimAPI_MakeCylinder_3(axis, radius, actualDepth + startOffset).Shape();
+    
+    // Boolean subtraction
+    const progress = new oc.Message_ProgressRange_1();
+    const cut = new oc.BRepAlgoAPI_Cut_3(targetShape, cylinder, progress);
+    
+    if (!cut.IsDone()) {
+        throw new Error('Simple hole creation failed');
+    }
+    
+    return {
+        shape: cut.Shape(),
+        id: getTopoId(cut.Shape()),
+        type: 'simpleHole'
+    };
+}
+
+/**
+ * Create a counterbore hole
+ * @param {TopoDS_Shape} targetShape - Shape to cut hole from
+ * @param {{x,y,z}} position - Center of hole on surface
+ * @param {{x,y,z}} direction - Direction into the material (normalized)
+ * @param {number} holeDiameter - Main hole diameter
+ * @param {number} cbDiameter - Counterbore diameter
+ * @param {number} cbDepth - Counterbore depth
+ * @param {number} holeDepth - Total hole depth (0 for through-all)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createCounterboreHole(targetShape, position, direction, holeDiameter, cbDiameter, cbDepth, holeDepth) {
+    // Normalize direction
+    const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+    const dir = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+    
+    // Determine actual hole depth
+    let actualHoleDepth = holeDepth;
+    if (actualHoleDepth <= 0) {
+        const bbox = getBoundingBox(targetShape);
+        const diagonal = Math.sqrt(
+            Math.pow(bbox.max.x - bbox.min.x, 2) +
+            Math.pow(bbox.max.y - bbox.min.y, 2) +
+            Math.pow(bbox.max.z - bbox.min.z, 2)
+        );
+        actualHoleDepth = diagonal * 2;
+    }
+    
+    const startOffset = 0.1;
+    
+    // Create counterbore cylinder (larger, shallow)
+    const cbAxis = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(
+            position.x - dir.x * startOffset,
+            position.y - dir.y * startOffset,
+            position.z - dir.z * startOffset
+        ),
+        new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+    );
+    const cbCylinder = new oc.BRepPrimAPI_MakeCylinder_3(cbAxis, cbDiameter / 2, cbDepth + startOffset).Shape();
+    
+    // Create main hole cylinder (starts at bottom of counterbore)
+    const holeAxis = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(
+            position.x + dir.x * cbDepth,
+            position.y + dir.y * cbDepth,
+            position.z + dir.z * cbDepth
+        ),
+        new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+    );
+    const holeCylinder = new oc.BRepPrimAPI_MakeCylinder_3(holeAxis, holeDiameter / 2, actualHoleDepth - cbDepth).Shape();
+    
+    // Union the two cylinders to create tool
+    const progress1 = new oc.Message_ProgressRange_1();
+    const toolFuse = new oc.BRepAlgoAPI_Fuse_3(cbCylinder, holeCylinder, progress1);
+    if (!toolFuse.IsDone()) {
+        throw new Error('Failed to create counterbore tool');
+    }
+    const tool = toolFuse.Shape();
+    
+    // Cut from target
+    const progress2 = new oc.Message_ProgressRange_1();
+    const cut = new oc.BRepAlgoAPI_Cut_3(targetShape, tool, progress2);
+    
+    if (!cut.IsDone()) {
+        throw new Error('Counterbore hole creation failed');
+    }
+    
+    return {
+        shape: cut.Shape(),
+        id: getTopoId(cut.Shape()),
+        type: 'counterboreHole'
+    };
+}
+
+/**
+ * Create a countersink hole
+ * @param {TopoDS_Shape} targetShape - Shape to cut hole from
+ * @param {{x,y,z}} position - Center of hole on surface
+ * @param {{x,y,z}} direction - Direction into the material (normalized)
+ * @param {number} holeDiameter - Main hole diameter
+ * @param {number} csDiameter - Countersink top diameter
+ * @param {number} csAngle - Countersink angle in degrees (82, 90, 100)
+ * @param {number} holeDepth - Total hole depth (0 for through-all)
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createCountersinkHole(targetShape, position, direction, holeDiameter, csDiameter, csAngle, holeDepth) {
+    // Normalize direction
+    const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+    const dir = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+    
+    // Calculate countersink depth from angle and diameters
+    // csDepth = (csDiameter - holeDiameter) / 2 / tan(angle/2)
+    const halfAngleRad = (csAngle / 2) * Math.PI / 180;
+    const csDepth = (csDiameter - holeDiameter) / 2 / Math.tan(halfAngleRad);
+    
+    // Determine actual hole depth
+    let actualHoleDepth = holeDepth;
+    if (actualHoleDepth <= 0) {
+        const bbox = getBoundingBox(targetShape);
+        const diagonal = Math.sqrt(
+            Math.pow(bbox.max.x - bbox.min.x, 2) +
+            Math.pow(bbox.max.y - bbox.min.y, 2) +
+            Math.pow(bbox.max.z - bbox.min.z, 2)
+        );
+        actualHoleDepth = diagonal * 2;
+    }
+    
+    const startOffset = 0.1;
+    
+    // Create countersink cone
+    // BRepPrimAPI_MakeCone_4: (Ax2, R1, R2, H, angle)
+    // R1 = top radius (larger), R2 = bottom radius (smaller), H = height
+    const coneAxis = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(
+            position.x - dir.x * startOffset,
+            position.y - dir.y * startOffset,
+            position.z - dir.z * startOffset
+        ),
+        new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+    );
+    const cone = new oc.BRepPrimAPI_MakeCone_4(
+        coneAxis,
+        csDiameter / 2,      // Top radius (at surface)
+        holeDiameter / 2,    // Bottom radius (at hole start)
+        csDepth + startOffset,
+        2 * Math.PI
+    ).Shape();
+    
+    // Create main hole cylinder (starts at bottom of countersink)
+    const holeAxis = new oc.gp_Ax2_3(
+        new oc.gp_Pnt_3(
+            position.x + dir.x * csDepth,
+            position.y + dir.y * csDepth,
+            position.z + dir.z * csDepth
+        ),
+        new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+    );
+    const holeCylinder = new oc.BRepPrimAPI_MakeCylinder_3(holeAxis, holeDiameter / 2, actualHoleDepth - csDepth).Shape();
+    
+    // Union the cone and cylinder to create tool
+    const progress1 = new oc.Message_ProgressRange_1();
+    const toolFuse = new oc.BRepAlgoAPI_Fuse_3(cone, holeCylinder, progress1);
+    if (!toolFuse.IsDone()) {
+        throw new Error('Failed to create countersink tool');
+    }
+    const tool = toolFuse.Shape();
+    
+    // Cut from target
+    const progress2 = new oc.Message_ProgressRange_1();
+    const cut = new oc.BRepAlgoAPI_Cut_3(targetShape, tool, progress2);
+    
+    if (!cut.IsDone()) {
+        throw new Error('Countersink hole creation failed');
+    }
+    
+    return {
+        shape: cut.Shape(),
+        id: getTopoId(cut.Shape()),
+        type: 'countersinkHole'
+    };
+}
+
+/**
+ * Create a tapped hole (visual representation - helix for thread indication)
+ * Note: This creates a visual approximation, not actual thread geometry
+ * @param {TopoDS_Shape} targetShape - Shape to cut hole from
+ * @param {{x,y,z}} position - Center of hole on surface
+ * @param {{x,y,z}} direction - Direction into the material (normalized)
+ * @param {number} nominalDiameter - Thread nominal diameter (e.g., 5 for M5)
+ * @param {number} pitch - Thread pitch in mm
+ * @param {number} depth - Hole depth
+ * @returns {{shape: TopoDS_Shape, id: string, type: string}}
+ */
+function createTappedHole(targetShape, position, direction, nominalDiameter, pitch, depth) {
+    // For tapped holes, we use the tap drill diameter (approximately nominal - pitch)
+    // This gives ~75% thread engagement which is standard
+    const tapDrillDiameter = nominalDiameter - pitch;
+    
+    // Create the basic hole using tap drill size
+    const result = createSimpleHole(targetShape, position, direction, tapDrillDiameter, depth);
+    
+    // The visual thread indication would be handled in the UI layer
+    // by adding thread cosmetic lines or a texture
+    result.type = 'tappedHole';
+    result.threadInfo = {
+        nominalDiameter,
+        pitch,
+        tapDrillDiameter,
+        depth
+    };
+    
+    return result;
+}
+
+/**
+ * Create a hole tool (for preview or batch operations)
+ * Returns the cutting tool shape without performing the cut
+ * @param {string} holeType - 'simple', 'counterbore', 'countersink', 'tapped'
+ * @param {Object} params - Hole parameters
+ * @returns {{shape: TopoDS_Shape, id: string}}
+ */
+function createHoleTool(holeType, params) {
+    const { position, direction, diameter, depth } = params;
+    
+    // Normalize direction
+    const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+    const dir = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+    
+    const startOffset = 0.1;
+    const actualDepth = depth > 0 ? depth : 100; // Default for preview
+    
+    let tool;
+    
+    switch (holeType) {
+        case 'simple':
+        case 'tapped': {
+            const axis = new oc.gp_Ax2_3(
+                new oc.gp_Pnt_3(
+                    position.x - dir.x * startOffset,
+                    position.y - dir.y * startOffset,
+                    position.z - dir.z * startOffset
+                ),
+                new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+            );
+            tool = new oc.BRepPrimAPI_MakeCylinder_3(axis, diameter / 2, actualDepth + startOffset).Shape();
+            break;
+        }
+        
+        case 'counterbore': {
+            const { cbDiameter, cbDepth, holeDiameter } = params;
+            
+            const cbAxis = new oc.gp_Ax2_3(
+                new oc.gp_Pnt_3(
+                    position.x - dir.x * startOffset,
+                    position.y - dir.y * startOffset,
+                    position.z - dir.z * startOffset
+                ),
+                new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+            );
+            const cbCylinder = new oc.BRepPrimAPI_MakeCylinder_3(cbAxis, cbDiameter / 2, cbDepth + startOffset).Shape();
+            
+            const holeAxis = new oc.gp_Ax2_3(
+                new oc.gp_Pnt_3(
+                    position.x + dir.x * cbDepth,
+                    position.y + dir.y * cbDepth,
+                    position.z + dir.z * cbDepth
+                ),
+                new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+            );
+            const holeCylinder = new oc.BRepPrimAPI_MakeCylinder_3(holeAxis, holeDiameter / 2, actualDepth - cbDepth).Shape();
+            
+            const progress = new oc.Message_ProgressRange_1();
+            const fuse = new oc.BRepAlgoAPI_Fuse_3(cbCylinder, holeCylinder, progress);
+            tool = fuse.Shape();
+            break;
+        }
+        
+        case 'countersink': {
+            const { csDiameter, csAngle, holeDiameter } = params;
+            const halfAngleRad = (csAngle / 2) * Math.PI / 180;
+            const csDepth = (csDiameter - holeDiameter) / 2 / Math.tan(halfAngleRad);
+            
+            const coneAxis = new oc.gp_Ax2_3(
+                new oc.gp_Pnt_3(
+                    position.x - dir.x * startOffset,
+                    position.y - dir.y * startOffset,
+                    position.z - dir.z * startOffset
+                ),
+                new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+            );
+            const cone = new oc.BRepPrimAPI_MakeCone_4(
+                coneAxis,
+                csDiameter / 2,
+                holeDiameter / 2,
+                csDepth + startOffset,
+                2 * Math.PI
+            ).Shape();
+            
+            const holeAxis = new oc.gp_Ax2_3(
+                new oc.gp_Pnt_3(
+                    position.x + dir.x * csDepth,
+                    position.y + dir.y * csDepth,
+                    position.z + dir.z * csDepth
+                ),
+                new oc.gp_Dir_4(dir.x, dir.y, dir.z)
+            );
+            const holeCylinder = new oc.BRepPrimAPI_MakeCylinder_3(holeAxis, holeDiameter / 2, actualDepth - csDepth).Shape();
+            
+            const progress = new oc.Message_ProgressRange_1();
+            const fuse = new oc.BRepAlgoAPI_Fuse_3(cone, holeCylinder, progress);
+            tool = fuse.Shape();
+            break;
+        }
+        
+        default:
+            throw new Error(`Unknown hole type: ${holeType}`);
+    }
+    
+    return {
+        shape: tool,
+        id: getTopoId(tool),
+        type: `${holeType}Tool`
+    };
+}
+
 /**
  * Calculate volume of shape
  */
@@ -1851,6 +2216,110 @@ self.onmessage = async function(e) {
                     count,
                     spacing,
                     direction
+                };
+                break;
+            }
+            
+            // ==================== Hole Operations ====================
+            
+            case 'createSimpleHole': {
+                const targetShape = shapes.get(params.shapeId);
+                if (!targetShape) throw new Error(`Shape not found: ${params.shapeId}`);
+                
+                const holeResult = createSimpleHole(
+                    targetShape,
+                    params.position,
+                    params.direction,
+                    params.diameter,
+                    params.depth
+                );
+                shapes.set(holeResult.id, holeResult.shape);
+                const holeMesh = tessellate(holeResult.shape);
+                result = { 
+                    id: holeResult.id, 
+                    mesh: holeMesh,
+                    type: 'simpleHole'
+                };
+                break;
+            }
+            
+            case 'createCounterboreHole': {
+                const targetShape = shapes.get(params.shapeId);
+                if (!targetShape) throw new Error(`Shape not found: ${params.shapeId}`);
+                
+                const holeResult = createCounterboreHole(
+                    targetShape,
+                    params.position,
+                    params.direction,
+                    params.holeDiameter,
+                    params.cbDiameter,
+                    params.cbDepth,
+                    params.holeDepth
+                );
+                shapes.set(holeResult.id, holeResult.shape);
+                const holeMesh = tessellate(holeResult.shape);
+                result = { 
+                    id: holeResult.id, 
+                    mesh: holeMesh,
+                    type: 'counterboreHole'
+                };
+                break;
+            }
+            
+            case 'createCountersinkHole': {
+                const targetShape = shapes.get(params.shapeId);
+                if (!targetShape) throw new Error(`Shape not found: ${params.shapeId}`);
+                
+                const holeResult = createCountersinkHole(
+                    targetShape,
+                    params.position,
+                    params.direction,
+                    params.holeDiameter,
+                    params.csDiameter,
+                    params.csAngle,
+                    params.holeDepth
+                );
+                shapes.set(holeResult.id, holeResult.shape);
+                const holeMesh = tessellate(holeResult.shape);
+                result = { 
+                    id: holeResult.id, 
+                    mesh: holeMesh,
+                    type: 'countersinkHole'
+                };
+                break;
+            }
+            
+            case 'createTappedHole': {
+                const targetShape = shapes.get(params.shapeId);
+                if (!targetShape) throw new Error(`Shape not found: ${params.shapeId}`);
+                
+                const holeResult = createTappedHole(
+                    targetShape,
+                    params.position,
+                    params.direction,
+                    params.nominalDiameter,
+                    params.pitch,
+                    params.depth
+                );
+                shapes.set(holeResult.id, holeResult.shape);
+                const holeMesh = tessellate(holeResult.shape);
+                result = { 
+                    id: holeResult.id, 
+                    mesh: holeMesh,
+                    type: 'tappedHole',
+                    threadInfo: holeResult.threadInfo
+                };
+                break;
+            }
+            
+            case 'createHoleTool': {
+                const toolResult = createHoleTool(params.holeType, params);
+                shapes.set(toolResult.id, toolResult.shape);
+                const toolMesh = tessellate(toolResult.shape);
+                result = { 
+                    id: toolResult.id, 
+                    mesh: toolMesh,
+                    type: toolResult.type
                 };
                 break;
             }

@@ -118,6 +118,10 @@
                                 <span>REDO</span>
                                 <span class="shortcut">CTRL+Y</span>
                             </div>
+                            <div class="dropdown-item" data-action="history">
+                                <span>UNDO HISTORY</span>
+                                <span class="shortcut">CTRL+H</span>
+                            </div>
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" data-action="copy">
                                 <span>COPY</span>
@@ -139,19 +143,24 @@
                             <div class="dropdown-divider"></div>
                             <div class="dropdown-item" data-action="front">
                                 <span>FRONT</span>
-                                <span class="shortcut">1</span>
+                                <span class="shortcut">NUM 1</span>
                             </div>
                             <div class="dropdown-item" data-action="top">
                                 <span>TOP</span>
-                                <span class="shortcut">2</span>
+                                <span class="shortcut">NUM 7</span>
                             </div>
                             <div class="dropdown-item" data-action="right">
                                 <span>RIGHT</span>
-                                <span class="shortcut">3</span>
+                                <span class="shortcut">NUM 3</span>
                             </div>
                             <div class="dropdown-item" data-action="iso">
-                                <span>ISOMETRIC</span>
-                                <span class="shortcut">4</span>
+                                <span>PERSPECTIVE</span>
+                                <span class="shortcut">NUM 0</span>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" data-action="quad-view">
+                                <span>QUAD VIEW</span>
+                                <span class="shortcut">CTRL+ALT+Q</span>
                             </div>
                         </div>
                     </div>
@@ -244,6 +253,7 @@
                         <button class="view-btn" data-view="left">LEFT</button>
                     </div>
                     <div class="toolbar-right-group">
+                        <button class="toggle-btn" data-toggle="quad" id="quad-toggle" title="Toggle Quad View (Ctrl+Alt+Q)">⊞⊞</button>
                         <button class="toggle-btn active" data-toggle="grid" title="Toggle Grid">⊞</button>
                         <button class="toggle-btn active" data-toggle="axes" title="Toggle Axes">⚯</button>
                         <button class="toggle-btn" data-toggle="shadows" title="Toggle Shadows">◐</button>

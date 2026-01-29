@@ -16,7 +16,15 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { generateId, computeBoundingBox, calculateFitDistance, radToDeg } from './src/core/math.js';
 import { updateMouseCoords, getWorldPosition, performRaycast, getObjectMatrix4 } from './src/core/transforms.js';
 import { selectionManager } from './src/state/selection.js';
-import { commandManager, CreatePrimitiveCommand, DeleteCommand, TransformCommand } from './src/state/history.js';
+import { 
+    commandManager, 
+    CreatePrimitiveCommand, 
+    DeleteCommand, 
+    TransformCommand,
+    BooleanCommand,
+    EditParamCommand,
+    EditParamsCommand
+} from './src/state/history.js';
 
 // Kernel and command system integration
 import { initializeSystem, executeCommand as execCmd, isKernelReady, getCommandSuggestions, getContext } from './src/core/app-integration.js';
@@ -33,6 +41,15 @@ import { initPropertyPanel } from './src/ui/property-panel.js';
 import { sketchManager, SketchMode, ConstraintType, SketchLine, SketchCircle } from './src/sketch/sketch-manager.js';
 import { SketchRenderer } from './src/sketch/sketch-renderer.js';
 import { solveSketch } from './src/sketch/constraint-solver.js';
+
+// Viewport manager for quad view support
+import { ViewportManager, cameraPresets } from './src/ui/viewport-manager.js';
+
+// Viewport display modes
+import { ViewportModeManager, ViewportMode, ViewportModeLabels } from './src/ui/viewport-modes.js';
+
+// Modal transform system (Blender-style G/R/S)
+import { ModalTransformManager, TransformMode, AxisConstraint, PlaneConstraint } from './src/ui/modal-transform.js';
 
 // ========================================
 // SYSTEM STATE
@@ -75,6 +92,9 @@ const System = {
     activeSketch: null,
     sketchPlane: 'xy',
     
+    // Viewport Manager
+    viewportManager: null,
+    
     // Stats
     fps: 60,
     frameCount: 0,
@@ -94,6 +114,8 @@ let gridHelper, axesHelper;
 let sketchRenderer; // For 2D sketch visualization
 let featureTreeUI; // Feature tree UI component
 let propertyPanel; // Property panel UI component
+let viewportModes; // Viewport display mode manager
+let modalTransformManager; // Blender-style G/R/S modal transforms
 
 // ========================================
 // DOM REFERENCES
@@ -483,7 +505,14 @@ function updateLoadingStatus(text) {
 function setupHistoryCallbacks() {
     // Update UI when history state changes
     commandManager.onStateChange((canUndo, canRedo) => {
-        // Could update undo/redo button states here
+        // Update Edit menu with current undo/redo action names
+        updateUndoRedoMenuItems(canUndo, canRedo);
+        
+        // Update undo history panel if open
+        if (undoHistoryPanel && undoHistoryPanel.style.display !== 'none') {
+            renderUndoHistoryPanel();
+        }
+        
         console.log(`[Ameri-CAD] History: Undo=${canUndo}, Redo=${canRedo}`);
     });
     
@@ -581,9 +610,10 @@ async function initThreeJS() {
                 const selected = selectionManager.getSelected();
                 if (selected && System.transformStartMatrix) {
                     const endMatrix = getObjectMatrix4(selected);
-                    const cmd = new TransformCommand(selected, System.transformStartMatrix, endMatrix);
+                    // Pass transform mode for descriptive name (e.g., "Move", "Rotate", "Scale")
+                    const cmd = new TransformCommand(selected, System.transformStartMatrix, endMatrix, System.transformMode);
                     commandManager.push(cmd);
-                    log('TRANSFORM RECORDED', 'info');
+                    log(`${cmd.name.toUpperCase()} RECORDED`, 'info');
                 }
                 System.transformStartMatrix = null;
             }
@@ -598,8 +628,41 @@ async function initThreeJS() {
     setupLighting();
     setupGridAndAxes();
     
+    // Initialize viewport manager for quad view support
+    System.viewportManager = new ViewportManager(DOM.viewport, THREE);
+    System.viewportManager.init(scene, camera, renderer, controls);
+    System.viewportManager.onModeChange = (mode) => {
+        log(`VIEWPORT: ${mode.toUpperCase()} MODE`, 'info');
+    };
+    
+    // Initialize viewport display modes (solid/wireframe/xray/hidden)
+    initViewportModes();
+    
     // Initialize sketch renderer
     sketchRenderer = new SketchRenderer(scene);
+    
+    // Initialize modal transform manager (Blender-style G/R/S)
+    modalTransformManager = new ModalTransformManager({
+        log: log,
+        onTransformComplete: (mesh, data) => {
+            // Record transform in history for undo/redo
+            const startMatrix = new THREE.Matrix4();
+            startMatrix.compose(
+                data.startPosition || mesh.position.clone(),
+                mesh.quaternion.clone(),
+                data.startScale || mesh.scale.clone()
+            );
+            const endMatrix = getObjectMatrix4(mesh);
+            const cmd = new TransformCommand(mesh, startMatrix, endMatrix, data.mode);
+            commandManager.push(cmd);
+            log(`${data.mode.toUpperCase()} COMPLETED`, 'success');
+        },
+        onTransformCancel: () => {
+            log('TRANSFORM CANCELLED', 'warn');
+        }
+    });
+    modalTransformManager.init(scene, camera, renderer, selectionManager, transformControl, controls);
+    System.modalTransform = modalTransformManager;
     
     // Set up sketch manager callbacks
     sketchManager.onSketchUpdate = (sketch, previewEntity) => {
@@ -848,8 +911,8 @@ async function createKernelPrimitive(type, options = {}) {
     scene.add(mesh);
     System.objects.push(mesh);
     
-    // Record in history
-    const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh);
+    // Record in history with descriptive name (e.g., "Create Box")
+    const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
     commandManager.push(cmd);
     
     // Also track in AmericaD DocumentModel if available (unified architecture)
@@ -934,8 +997,8 @@ function createFallbackPrimitive(type, options = {}) {
     scene.add(mesh);
     System.objects.push(mesh);
     
-    // Record in history
-    const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh);
+    // Record in history with descriptive name (e.g., "Create Box")
+    const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
     commandManager.push(cmd);
     
     // Track in DocumentModel for feature tree (unified architecture)
@@ -1042,6 +1105,270 @@ function redo() {
     }
 }
 
+/**
+ * Update the Edit menu undo/redo items with current action names
+ */
+function updateUndoRedoMenuItems(canUndo, canRedo) {
+    // Find undo menu item
+    const undoItem = document.querySelector('[data-action="undo"]');
+    if (undoItem) {
+        const undoName = commandManager.getUndoName();
+        const undoSpan = undoItem.querySelector('span:first-child');
+        if (undoSpan) {
+            undoSpan.textContent = undoName ? `UNDO: ${undoName}` : 'UNDO';
+        }
+        // Disable if can't undo
+        undoItem.classList.toggle('disabled', !canUndo);
+        undoItem.style.opacity = canUndo ? '1' : '0.5';
+        undoItem.style.pointerEvents = canUndo ? 'auto' : 'none';
+    }
+    
+    // Find redo menu item
+    const redoItem = document.querySelector('[data-action="redo"]');
+    if (redoItem) {
+        const redoName = commandManager.getRedoName();
+        const redoSpan = redoItem.querySelector('span:first-child');
+        if (redoSpan) {
+            redoSpan.textContent = redoName ? `REDO: ${redoName}` : 'REDO';
+        }
+        // Disable if can't redo
+        redoItem.classList.toggle('disabled', !canRedo);
+        redoItem.style.opacity = canRedo ? '1' : '0.5';
+        redoItem.style.pointerEvents = canRedo ? 'auto' : 'none';
+    }
+    
+    // Update status bar hint if it exists
+    const hint = document.getElementById('command-hint');
+    if (hint && canUndo) {
+        const undoName = commandManager.getUndoName();
+        hint.textContent = `READY // Ctrl+Z: Undo ${undoName || ''}`;
+    }
+}
+
+// ========================================
+// UNDO HISTORY PANEL
+// ========================================
+let undoHistoryPanel = null;
+
+/**
+ * Create/show the undo history panel
+ */
+function showUndoHistoryPanel() {
+    if (!undoHistoryPanel) {
+        undoHistoryPanel = createUndoHistoryPanel();
+    }
+    undoHistoryPanel.style.display = 'block';
+    renderUndoHistoryPanel();
+}
+
+/**
+ * Hide the undo history panel
+ */
+function hideUndoHistoryPanel() {
+    if (undoHistoryPanel) {
+        undoHistoryPanel.style.display = 'none';
+    }
+}
+
+/**
+ * Toggle the undo history panel
+ */
+function toggleUndoHistoryPanel() {
+    if (!undoHistoryPanel || undoHistoryPanel.style.display === 'none') {
+        showUndoHistoryPanel();
+    } else {
+        hideUndoHistoryPanel();
+    }
+}
+
+/**
+ * Create the undo history panel element
+ */
+function createUndoHistoryPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'undo-history-panel';
+    panel.className = 'undo-history-panel';
+    panel.innerHTML = `
+        <div class="undo-history-header">
+            <span class="undo-history-title">UNDO HISTORY</span>
+            <button class="undo-history-close" onclick="hideUndoHistoryPanel()">&times;</button>
+        </div>
+        <div class="undo-history-list" id="undo-history-list">
+            <!-- History items rendered here -->
+        </div>
+    `;
+    document.body.appendChild(panel);
+    
+    // Add styles if not already added
+    addUndoHistoryStyles();
+    
+    return panel;
+}
+
+/**
+ * Render the undo history list
+ */
+function renderUndoHistoryPanel() {
+    const list = document.getElementById('undo-history-list');
+    if (!list) return;
+    
+    const history = commandManager.getUndoHistory(20);
+    
+    if (history.length === 0) {
+        list.innerHTML = '<div class="undo-history-empty">No actions to undo</div>';
+        return;
+    }
+    
+    list.innerHTML = history.map((item, displayIdx) => {
+        const timeAgo = formatTimeAgo(item.timestamp);
+        const isCurrent = displayIdx === 0;
+        
+        return `
+            <div class="undo-history-item ${isCurrent ? 'current' : ''}" 
+                 data-index="${item.index}"
+                 onclick="undoToHistoryIndex(${item.index})"
+                 title="Click to undo to this point">
+                <span class="undo-history-icon">${isCurrent ? '▶' : '○'}</span>
+                <span class="undo-history-name">${item.name}</span>
+                <span class="undo-history-time">${timeAgo}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+/**
+ * Undo to a specific history index
+ */
+function undoToHistoryIndex(index) {
+    const undone = commandManager.undoTo(index);
+    if (undone.length > 0) {
+        log(`UNDO TO: ${undone[undone.length - 1].name} (${undone.length} actions)`, 'info');
+        selectionManager.deselect(transformControl);
+    }
+}
+
+/**
+ * Format timestamp as relative time
+ */
+function formatTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+/**
+ * Add CSS styles for undo history panel
+ */
+function addUndoHistoryStyles() {
+    if (document.getElementById('undo-history-styles')) return;
+    
+    const style = document.createElement('style');
+    style.id = 'undo-history-styles';
+    style.textContent = `
+        .undo-history-panel {
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            width: 280px;
+            max-height: 400px;
+            background: var(--bg-panel, #1f1f22);
+            border: 1px solid var(--border, #333);
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            display: none;
+            font-family: 'Berkeley Mono', 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+        
+        .undo-history-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border, #333);
+            background: var(--bg-header, #16161a);
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .undo-history-title {
+            color: var(--text-primary, #e8b13f);
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        .undo-history-close {
+            background: none;
+            border: none;
+            color: var(--text-muted, #666);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+        }
+        
+        .undo-history-close:hover {
+            color: var(--text-primary, #fff);
+        }
+        
+        .undo-history-list {
+            max-height: 340px;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+        
+        .undo-history-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background 0.1s ease;
+            gap: 8px;
+        }
+        
+        .undo-history-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .undo-history-item.current {
+            background: rgba(232, 177, 63, 0.1);
+            border-left: 2px solid var(--accent, #e8b13f);
+        }
+        
+        .undo-history-icon {
+            color: var(--text-muted, #666);
+            width: 16px;
+            text-align: center;
+        }
+        
+        .undo-history-item.current .undo-history-icon {
+            color: var(--accent, #e8b13f);
+        }
+        
+        .undo-history-name {
+            flex: 1;
+            color: var(--text-primary, #fff);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .undo-history-time {
+            color: var(--text-muted, #666);
+            font-size: 10px;
+        }
+        
+        .undo-history-empty {
+            padding: 20px;
+            text-align: center;
+            color: var(--text-muted, #666);
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 // ========================================
 // TOOLS & TRANSFORM
 // ========================================
@@ -1111,6 +1438,23 @@ function setTool(tool) {
 }
 
 function setView(view) {
+    // Map view names to viewport manager preset names
+    const presetMap = {
+        'top': 'top',
+        'front': 'front',
+        'right': 'right',
+        'left': 'right',  // Left view handled specially
+        'back': 'front',   // Back view handled specially
+        'iso': 'perspective',
+        '3d': 'perspective'
+    };
+    
+    // Use viewport manager if available and we have a standard preset
+    if (System.viewportManager && presetMap[view]) {
+        System.viewportManager.setView(presetMap[view]);
+    }
+    
+    // Also handle camera directly for views not in viewport manager
     if (camera && controls) {
         const distance = camera.position.length();
         const target = controls.target.clone();
@@ -1118,21 +1462,28 @@ function setView(view) {
         switch(view) {
             case 'top':
                 camera.position.set(target.x, distance, target.z);
+                camera.up.set(0, 0, -1);
                 break;
             case 'front':
                 camera.position.set(target.x, target.y, target.z + distance);
+                camera.up.set(0, 1, 0);
                 break;
             case 'right':
                 camera.position.set(target.x + distance, target.y, target.z);
+                camera.up.set(0, 1, 0);
                 break;
             case 'left':
                 camera.position.set(target.x - distance, target.y, target.z);
+                camera.up.set(0, 1, 0);
                 break;
             case 'back':
                 camera.position.set(target.x, target.y, target.z - distance);
+                camera.up.set(0, 1, 0);
                 break;
             case 'iso':
+            case '3d':
                 camera.position.set(distance * 0.6, distance * 0.6, distance * 0.6);
+                camera.up.set(0, 1, 0);
                 break;
         }
         
@@ -1148,28 +1499,124 @@ function setView(view) {
     log(`VIEW: ${view.toUpperCase()}`, 'info');
 }
 
+/**
+ * Toggle quad viewport layout
+ */
+function toggleQuadView() {
+    if (System.viewportManager) {
+        System.viewportManager.toggle();
+    } else {
+        log('VIEWPORT MANAGER NOT READY', 'warn');
+    }
+}
+
+/**
+ * Set viewport display mode
+ * @param {string} mode - 'shaded'/'solid', 'wireframe', 'xray', 'hidden'
+ */
 function setRenderMode(mode) {
-    System.renderMode = mode;
+    // Map dropdown values to ViewportMode enum
+    const modeMap = {
+        'shaded': ViewportMode.SOLID,
+        'solid': ViewportMode.SOLID,
+        'wireframe': ViewportMode.WIREFRAME,
+        'xray': ViewportMode.XRAY,
+        'hidden': ViewportMode.HIDDEN
+    };
     
-    System.objects.forEach(obj => {
-        if (!obj.material) return;
+    const viewportMode = modeMap[mode] || ViewportMode.SOLID;
+    
+    if (viewportModes) {
+        viewportModes.setMode(viewportMode);
+    } else {
+        // Fallback if manager not initialized
+        System.renderMode = mode;
         
-        switch(mode) {
-            case 'shaded':
-                obj.material.wireframe = false;
-                obj.material.transparent = false;
-                obj.material.opacity = 1;
-                break;
-            case 'wireframe':
-                obj.material.wireframe = true;
-                break;
-            case 'xray':
-                obj.material.wireframe = false;
-                obj.material.transparent = true;
-                obj.material.opacity = 0.5;
-                break;
+        System.objects.forEach(obj => {
+            if (!obj.material) return;
+            
+            switch(mode) {
+                case 'shaded':
+                case 'solid':
+                    obj.material.wireframe = false;
+                    obj.material.transparent = false;
+                    obj.material.opacity = 1;
+                    break;
+                case 'wireframe':
+                    obj.material.wireframe = true;
+                    break;
+                case 'xray':
+                    obj.material.wireframe = false;
+                    obj.material.transparent = true;
+                    obj.material.opacity = 0.5;
+                    break;
+                case 'hidden':
+                    obj.material.wireframe = false;
+                    obj.material.transparent = false;
+                    obj.material.opacity = 1;
+                    if (obj.material.color) {
+                        obj.material.color.setHex(0xfafafa);
+                    }
+                    break;
+            }
+        });
+    }
+}
+
+/**
+ * Cycle viewport display mode (Z key like Blender)
+ */
+function cycleViewportMode() {
+    if (viewportModes) {
+        const newMode = viewportModes.cycleMode();
+        
+        // Update dropdown to match
+        const renderSelect = document.getElementById('render-mode');
+        if (renderSelect) {
+            // Map ViewportMode to dropdown value
+            const dropdownMap = {
+                [ViewportMode.SOLID]: 'shaded',
+                [ViewportMode.WIREFRAME]: 'wireframe',
+                [ViewportMode.XRAY]: 'xray',
+                [ViewportMode.HIDDEN]: 'hidden'
+            };
+            renderSelect.value = dropdownMap[newMode] || 'shaded';
+        }
+    } else {
+        // Fallback cycling
+        const modes = ['shaded', 'wireframe', 'xray', 'hidden'];
+        const currentIndex = modes.indexOf(System.renderMode);
+        const nextIndex = (currentIndex + 1) % modes.length;
+        setRenderMode(modes[nextIndex]);
+        
+        const renderSelect = document.getElementById('render-mode');
+        if (renderSelect) {
+            renderSelect.value = modes[nextIndex];
+        }
+    }
+}
+
+/**
+ * Initialize viewport mode manager
+ */
+function initViewportModes() {
+    viewportModes = new ViewportModeManager({
+        THREE: THREE,
+        scene: scene,
+        getObjects: () => System.objects,
+        onModeChange: (mode, label, previous) => {
+            System.renderMode = mode;
+            log(`DISPLAY: ${label}`, 'info');
+            
+            // Update status bar mode indicator
+            const modeIndicator = document.querySelector('.status-mode');
+            if (modeIndicator) {
+                modeIndicator.textContent = mode !== ViewportMode.SOLID ? `VIEW: ${label}` : '';
+            }
         }
     });
+    
+    console.log('[Ameri-CAD] Viewport mode manager initialized');
 }
 
 // ========================================
@@ -2046,6 +2493,14 @@ function handleToggle(toggle, active) {
                 });
             }
             break;
+        case 'quad':
+            toggleQuadView();
+            // Update the button state based on actual mode
+            const quadBtn = document.getElementById('quad-toggle');
+            if (quadBtn && System.viewportManager) {
+                quadBtn.classList.toggle('active', System.viewportManager.getMode() === 'quad');
+            }
+            break;
     }
 }
 
@@ -2082,6 +2537,9 @@ function handleMenuAction(action) {
         case 'redo':
             redo();
             break;
+        case 'history':
+            toggleUndoHistoryPanel();
+            break;
         case 'fit':
         case 'zoom-fit':
             zoomToFit();
@@ -2091,6 +2549,9 @@ function handleMenuAction(action) {
         case 'right':
         case 'iso':
             setView(action);
+            break;
+        case 'quad-view':
+            toggleQuadView();
             break;
         case 'settings':
             log('SETTINGS...', 'info');
@@ -2278,6 +2739,11 @@ function onResize() {
         DOM.canvas.height = height;
         drawFallbackCanvas();
     }
+    
+    // Update viewport manager for quad view
+    if (System.viewportManager) {
+        System.viewportManager.resize();
+    }
 }
 
 function onMouseDown(e) {
@@ -2406,6 +2872,16 @@ function onKeyDown(e) {
     // Prevent default for tool shortcuts when not in input
     const inInput = document.activeElement?.tagName === 'INPUT';
     
+    // Ctrl+Alt shortcuts
+    if (e.ctrlKey && e.altKey) {
+        switch(e.key.toLowerCase()) {
+            case 'q':
+                e.preventDefault();
+                toggleQuadView();
+                return;
+        }
+    }
+    
     // Ctrl shortcuts (always active)
     if (e.ctrlKey || e.metaKey) {
         switch(e.key.toLowerCase()) {
@@ -2511,6 +2987,30 @@ function onKeyDown(e) {
                 break;
             case 'f':
                 zoomToFit();
+                break;
+            case 'z':
+                // Cycle viewport display modes (like Blender)
+                cycleViewportMode();
+                break;
+        }
+        
+        // Numpad view shortcuts (CAD-style)
+        switch(e.code) {
+            case 'Numpad7':
+                e.preventDefault();
+                setView('top');
+                break;
+            case 'Numpad1':
+                e.preventDefault();
+                setView('front');
+                break;
+            case 'Numpad3':
+                e.preventDefault();
+                setView('right');
+                break;
+            case 'Numpad0':
+                e.preventDefault();
+                setView('iso');
                 break;
         }
     }
@@ -2688,6 +3188,10 @@ async function executeCommand(cmd) {
         case 'y':
             redo();
             break;
+        case 'history':
+        case 'undohistory':
+            toggleUndoHistoryPanel();
+            break;
         case 'delete':
         case 'del':
         case 'rm':
@@ -2799,17 +3303,18 @@ function showHelp() {
 ║   kernel               Show kernel status                 ║
 ╠═══════════════════════════════════════════════════════════╣
 ║ KEYBOARD SHORTCUTS:                                       ║
-║   Ctrl+S    Save document (.americad)                     ║
-║   Ctrl+O    Open document                                 ║
-║   C         Enter sketch mode                             ║
-║   L/R/O/A   Sketch tools (Line/Rect/Circle/Arc)           ║
-║   Esc       Cancel / Exit sketch                          ║
-║   Enter     Finish current operation                      ║
-║   \`         Focus command line                           ║
-║   1-4       View: Front/Top/Right/Iso                     ║
-║   F         Zoom to fit                                   ║
-║   Delete    Remove selected                               ║
-║   Ctrl+Z    Undo                                          ║
+║   Ctrl+S      Save document (.americad)                   ║
+║   Ctrl+O      Open document                               ║
+║   Ctrl+Alt+Q  Toggle quad viewport                        ║
+║   C           Enter sketch mode                           ║
+║   L/R/O/A     Sketch tools (Line/Rect/Circle/Arc)         ║
+║   Esc         Cancel / Exit sketch                        ║
+║   Enter       Finish current operation                    ║
+║   \`           Focus command line                         ║
+║   Num1/7/3/0  Front/Top/Right/Perspective views           ║
+║   F           Zoom to fit                                 ║
+║   Delete      Remove selected                             ║
+║   Ctrl+Z      Undo                                        ║
 ╚═══════════════════════════════════════════════════════════╝
 `;
     console.log(help);
@@ -3152,5 +3657,10 @@ window.AmericaD = {
     get evaluator() { return System.americad?.evaluator; },
     get featureTree() { return featureTreeUI; },
     get propertyPanel() { return propertyPanel; },
-    kernel
+    get viewportManager() { return System.viewportManager; },
+    kernel,
+    
+    // Viewport management
+    toggleQuadView,
+    cameraPresets
 };

@@ -492,6 +492,90 @@ export class KernelBridge {
         return this._call('linearPattern', { shapeId, direction, count, spacing });
     }
     
+    // ==================== Hole Wizard ====================
+    
+    /**
+     * Create a simple hole (cylinder cut from solid)
+     * @param {string} shapeId - Target shape ID
+     * @param {{x,y,z}} position - Center of hole on surface
+     * @param {{x,y,z}} direction - Direction into the material (normalized)
+     * @param {number} diameter - Hole diameter
+     * @param {number} depth - Hole depth (0 or negative for through-all)
+     * @returns {Promise<{id: string, mesh: Object, type: string}>}
+     */
+    async createSimpleHole(shapeId, position, direction, diameter, depth = 0) {
+        await this.init();
+        return this._call('createSimpleHole', { shapeId, position, direction, diameter, depth });
+    }
+    
+    /**
+     * Create a counterbore hole
+     * @param {string} shapeId - Target shape ID
+     * @param {{x,y,z}} position - Center of hole on surface
+     * @param {{x,y,z}} direction - Direction into the material (normalized)
+     * @param {number} holeDiameter - Main hole diameter
+     * @param {number} cbDiameter - Counterbore diameter
+     * @param {number} cbDepth - Counterbore depth
+     * @param {number} holeDepth - Total hole depth (0 for through-all)
+     * @returns {Promise<{id: string, mesh: Object, type: string}>}
+     */
+    async createCounterboreHole(shapeId, position, direction, holeDiameter, cbDiameter, cbDepth, holeDepth = 0) {
+        await this.init();
+        return this._call('createCounterboreHole', { 
+            shapeId, position, direction, 
+            holeDiameter, cbDiameter, cbDepth, holeDepth 
+        });
+    }
+    
+    /**
+     * Create a countersink hole
+     * @param {string} shapeId - Target shape ID
+     * @param {{x,y,z}} position - Center of hole on surface
+     * @param {{x,y,z}} direction - Direction into the material (normalized)
+     * @param {number} holeDiameter - Main hole diameter
+     * @param {number} csDiameter - Countersink top diameter
+     * @param {number} csAngle - Countersink angle in degrees (82, 90, 100)
+     * @param {number} holeDepth - Total hole depth (0 for through-all)
+     * @returns {Promise<{id: string, mesh: Object, type: string}>}
+     */
+    async createCountersinkHole(shapeId, position, direction, holeDiameter, csDiameter, csAngle = 90, holeDepth = 0) {
+        await this.init();
+        return this._call('createCountersinkHole', { 
+            shapeId, position, direction, 
+            holeDiameter, csDiameter, csAngle, holeDepth 
+        });
+    }
+    
+    /**
+     * Create a tapped hole (visual representation)
+     * Note: Creates a tap-drill sized hole; actual threads are visual only
+     * @param {string} shapeId - Target shape ID
+     * @param {{x,y,z}} position - Center of hole on surface
+     * @param {{x,y,z}} direction - Direction into the material (normalized)
+     * @param {number} nominalDiameter - Thread nominal diameter (e.g., 5 for M5)
+     * @param {number} pitch - Thread pitch in mm
+     * @param {number} depth - Hole depth
+     * @returns {Promise<{id: string, mesh: Object, type: string, threadInfo: Object}>}
+     */
+    async createTappedHole(shapeId, position, direction, nominalDiameter, pitch, depth) {
+        await this.init();
+        return this._call('createTappedHole', { 
+            shapeId, position, direction, 
+            nominalDiameter, pitch, depth 
+        });
+    }
+    
+    /**
+     * Create a hole tool shape (for preview or batch operations)
+     * @param {string} holeType - 'simple', 'counterbore', 'countersink', 'tapped'
+     * @param {Object} params - Hole parameters
+     * @returns {Promise<{id: string, mesh: Object, type: string}>}
+     */
+    async createHoleTool(holeType, params) {
+        await this.init();
+        return this._call('createHoleTool', { holeType, ...params });
+    }
+    
     // ==================== Export ====================
     
     /**
