@@ -2101,11 +2101,7 @@ function createWeb(baseBody, profile, thickness, direction = { x: 0, y: 0, z: 1 
   }
 
   // Create extrusion vector
-  const vec = new oc.gp_Vec_4(
-    dirNorm.x * thickness,
-    dirNorm.y * thickness,
-    dirNorm.z * thickness
-  );
+  const vec = new oc.gp_Vec_4(dirNorm.x * thickness, dirNorm.y * thickness, dirNorm.z * thickness);
 
   // Extrude the profile
   const prism = new oc.BRepPrimAPI_MakePrism_1(faceProfile, vec, false, true);
@@ -3124,7 +3120,7 @@ function createThreadProfile(pitch, depth, radius) {
   // Thread angle is 60° (30° half-angle) for ISO metric
 
   const halfPitch = pitch / 2;
-  const halfAngle = Math.PI / 6; // 30 degrees
+  const _halfAngle = Math.PI / 6; // 30 degrees (ISO metric thread)
 
   // Profile points (in local coordinates, Z is along thread axis)
   // Root point (bottom of V)
@@ -3271,7 +3267,14 @@ function createInternalThread(targetShape, position, direction, nominalDiameter,
  * @param {string} threadType - 'external' or 'internal'
  * @returns {{type: string, faceId: string, threadInfo: Object}}
  */
-function createCosmeticThread(shapeId, faceId, nominalDiameter, pitch, length, threadType = 'external') {
+function createCosmeticThread(
+  shapeId,
+  faceId,
+  nominalDiameter,
+  pitch,
+  length,
+  threadType = 'external'
+) {
   const threadGeom = getThreadProfileGeometry(pitch, threadType === 'external');
 
   return {

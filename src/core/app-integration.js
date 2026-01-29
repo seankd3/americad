@@ -27,6 +27,7 @@ import { registerMeasureCommands } from '../commands/measure.js';
 import { registerMassPropertiesCommands } from '../commands/mass-properties.js';
 import { registerShortcutCommands } from '../commands/shortcuts.js';
 import { registerReferenceCommands } from '../commands/reference.js';
+import { registerParameterCommands } from '../commands/params.js';
 
 // Application context - shared state between commands
 const appContext = {
@@ -178,6 +179,7 @@ function registerAllCommands() {
   registerMassPropertiesCommands(appContext);
   registerShortcutCommands();
   registerReferenceCommands(appContext);
+  registerParameterCommands();
 
   // Register custom app commands
   registerAppCommands();
