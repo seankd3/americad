@@ -548,6 +548,23 @@ body {
   border-radius: 0 1px 1px 0;
 }
 
+/* Primitive Creation Buttons */
+.tool-btn.primitive-btn {
+  color: var(--accent-secondary);
+  border: 1px solid transparent;
+}
+
+.tool-btn.primitive-btn:hover {
+  background: rgba(78, 204, 163, 0.15);
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.tool-btn.primitive-btn:active {
+  background: rgba(78, 204, 163, 0.3);
+  transform: scale(0.95);
+}
+
 /* Tool Groups with Labels */
 .tool-group-label {
   font-size: var(--text-xs);

@@ -18,13 +18,18 @@ import { updateMouseCoords, getWorldPosition, performRaycast, getObjectMatrix4 }
 import { selectionManager } from './src/state/selection.js';
 import { commandManager, CreatePrimitiveCommand, DeleteCommand, TransformCommand } from './src/state/history.js';
 
+// Kernel and command system integration
+import { initializeSystem, executeCommand as execCmd, isKernelReady, getCommandSuggestions } from './src/core/app-integration.js';
+import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
+
 // ========================================
 // SYSTEM STATE
 // ========================================
 const System = {
-    version: '2.1.0-LA',
+    version: '2.2.0-LA',
     ready: false,
     loading: true,
+    kernelReady: false,
     
     // Tool State
     tool: 'select',
@@ -56,7 +61,12 @@ const System = {
     // Stats
     fps: 60,
     frameCount: 0,
-    lastTime: performance.now()
+    lastTime: performance.now(),
+    
+    // Command system state
+    commandHistory: [],
+    commandHistoryIndex: -1,
+    suggestions: []
 };
 
 // ========================================
@@ -105,7 +115,7 @@ async function initialize() {
         console.log('[Ameri-CAD] Safety timeout triggered');
         if (DOM.splash) DOM.splash.classList.add('hidden');
         if (DOM.app) DOM.app.classList.remove('hidden');
-    }, 5000);
+    }, 8000); // Extended for kernel loading
     
     try {
         console.log('[Ameri-CAD] Starting initialization...');
@@ -120,6 +130,10 @@ async function initialize() {
         updateLoadingStatus('BIND EVENTS...');
         setupEvents();
         setupHistoryCallbacks();
+        
+        // Initialize kernel and command system (async, non-blocking)
+        updateLoadingStatus('INIT KERNEL...');
+        initKernelSystem();
         
         updateLoadingStatus('BUILD SCENE...');
         createDefaultScene();
@@ -139,6 +153,7 @@ async function initialize() {
                 
                 onResize();
                 console.log('[Ameri-CAD] SYSTEM READY');
+                log('SYSTEM READY // KERNEL LOADING IN BACKGROUND', 'success');
             } catch (e) {
                 console.error('[Ameri-CAD] Error revealing app:', e);
             }
@@ -154,6 +169,53 @@ async function initialize() {
             if (DOM.app) DOM.app.classList.remove('hidden');
         }, 500);
     }
+}
+
+/**
+ * Initialize the OpenCASCADE kernel and command system
+ */
+async function initKernelSystem() {
+    try {
+        const result = await initializeSystem({
+            THREE,
+            scene,
+            camera,
+            onBodyCreated: (mesh, body) => {
+                // Add to system objects array
+                System.objects.push(mesh);
+                selectObject(mesh);
+                updateFeatureTree();
+            },
+            onBodyDeleted: (id) => {
+                // Remove from objects array
+                System.objects = System.objects.filter(o => o.userData?.kernelId !== id);
+                updateFeatureTree();
+            },
+            log: log
+        });
+        
+        System.kernelReady = true;
+        log('KERNEL ONLINE (OCCT B-REP)', 'success');
+        
+        // Update status indicator
+        const statusIndicator = document.querySelector('.status-indicator');
+        if (statusIndicator) {
+            statusIndicator.style.backgroundColor = 'var(--success)';
+        }
+        
+    } catch (error) {
+        console.error('[Ameri-CAD] Kernel init failed:', error);
+        log('KERNEL FALLBACK MODE (THREE.JS)', 'warn');
+    }
+}
+
+/**
+ * Update feature tree UI
+ */
+function updateFeatureTree() {
+    // Future: sync feature tree with document state
+    const bodiesNode = document.querySelector('.tree-node .tree-label');
+    // Could update tree here
 }
 
 function cacheDOM() {
@@ -417,12 +479,105 @@ function createDefaultScene() {
     });
 }
 
-function createPrimitive(type, options = {}) {
+/**
+ * Create a primitive using the kernel (B-Rep) or fallback to Three.js
+ */
+async function createPrimitive(type, options = {}) {
     if (!renderer || !scene) {
         log('CREATE ' + type.toUpperCase() + ' (WEBGL NOT READY)', 'warn');
         return null;
     }
     
+    // Try to use the kernel for real B-Rep geometry
+    if (isKernelReady()) {
+        try {
+            return await createKernelPrimitive(type, options);
+        } catch (error) {
+            console.warn('[Ameri-CAD] Kernel primitive failed, using fallback:', error);
+            log('KERNEL ERROR - USING FALLBACK', 'warn');
+        }
+    }
+    
+    // Fallback to Three.js geometry
+    return createFallbackPrimitive(type, options);
+}
+
+/**
+ * Create primitive using OpenCASCADE kernel (real B-Rep geometry)
+ */
+async function createKernelPrimitive(type, options = {}) {
+    const size = options.size ?? [10, 10, 10];
+    const pos = options.position ?? [0, 0, 0];
+    const center = { x: pos[0], y: pos[1], z: pos[2] };
+    
+    let result;
+    
+    switch(type) {
+        case 'box':
+        case 'cube':
+            result = await kernel.createBox(size[0], size[1], size[2], center);
+            break;
+        case 'sphere':
+            result = await kernel.createSphere(options.radius ?? 10, center);
+            break;
+        case 'cylinder':
+            result = await kernel.createCylinder(options.radius ?? 8, options.height ?? 20, center);
+            break;
+        case 'cone':
+            result = await kernel.createCone(options.radius ?? 8, 0, options.height ?? 16, center);
+            break;
+        default:
+            result = await kernel.createBox(10, 10, 10, center);
+    }
+    
+    // Convert kernel mesh to Three.js
+    const geometry = meshToThreeGeometry(result.mesh, THREE);
+    
+    const color = options.color ?? 0x808080;
+    const material = new THREE.MeshStandardMaterial({
+        color,
+        metalness: options.metalness ?? 0.4,
+        roughness: options.roughness ?? 0.6
+    });
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    
+    // Add edges for CAD look
+    const edges = new THREE.EdgesGeometry(geometry, 15);
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+    mesh.add(new THREE.LineSegments(edges, edgeMat));
+    
+    // Metadata
+    mesh.userData = {
+        type: 'body',
+        name: options.name ?? `BODY_${String(System.objects.length + 1).padStart(3, '0')}`,
+        id: generateId(),
+        kernelId: result.id,
+        bodyType: type,
+        material: 'AL-6061-T6',
+        created: Date.now(),
+        isKernelGeometry: true
+    };
+    
+    scene.add(mesh);
+    System.objects.push(mesh);
+    
+    // Record in history
+    const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh);
+    commandManager.push(cmd);
+    
+    selectObject(mesh);
+    log(`CREATED: ${mesh.userData.name} (B-REP)`, 'success');
+    
+    return mesh;
+}
+
+/**
+ * Fallback: Create primitive using Three.js (tessellated, not B-Rep)
+ */
+function createFallbackPrimitive(type, options = {}) {
     let geometry;
     const color = options.color ?? 0x808080;
     const metalness = options.metalness ?? 0.4;
@@ -470,7 +625,8 @@ function createPrimitive(type, options = {}) {
         name: options.name ?? `BODY_${String(System.objects.length + 1).padStart(3, '0')}`,
         id: generateId(),
         material: 'AL-6061-T6',
-        created: Date.now()
+        created: Date.now(),
+        isKernelGeometry: false
     };
     
     scene.add(mesh);
@@ -481,7 +637,7 @@ function createPrimitive(type, options = {}) {
     commandManager.push(cmd);
     
     selectObject(mesh);
-    log(`CREATED: ${mesh.userData.name}`, 'info');
+    log(`CREATED: ${mesh.userData.name} (FALLBACK)`, 'info');
     
     return mesh;
 }
@@ -663,8 +819,30 @@ function zoomToFit() {
 // UI INITIALIZATION
 // ========================================
 function initUI() {
-    document.querySelectorAll('.tool-btn').forEach(btn => {
-        btn.addEventListener('click', () => setTool(btn.dataset.tool));
+    // Tool buttons (select, sketch, etc.)
+    document.querySelectorAll('.tool-btn:not(.primitive-btn)').forEach(btn => {
+        if (btn.dataset.tool) {
+            btn.addEventListener('click', () => setTool(btn.dataset.tool));
+        }
+    });
+    
+    // Primitive creation buttons - dispatch commands!
+    document.querySelectorAll('.primitive-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const primitiveType = btn.dataset.primitive;
+            log(`CREATING ${primitiveType.toUpperCase()}...`, 'info');
+            
+            // Default sizes for each primitive type
+            const defaults = {
+                box: { size: [20, 20, 20], position: [0, 10, 0] },
+                sphere: { radius: 10, position: [0, 10, 0] },
+                cylinder: { radius: 8, height: 20, position: [0, 10, 0] },
+                cone: { radius: 8, height: 16, position: [0, 8, 0] },
+                torus: { radius: 10, tube: 3, position: [0, 13, 0] }
+            };
+            
+            await createPrimitive(primitiveType, defaults[primitiveType] || {});
+        });
     });
     
     document.querySelectorAll('.view-btn').forEach(btn => {
@@ -855,18 +1033,128 @@ function setupEvents() {
     
     if (DOM.commandInput) {
         DOM.commandInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                executeCommand(DOM.commandInput.value);
-                DOM.commandInput.value = '';
+            switch(e.key) {
+                case 'Enter':
+                    executeCommand(DOM.commandInput.value);
+                    DOM.commandInput.value = '';
+                    hideSuggestions();
+                    break;
+                    
+                case 'ArrowUp':
+                    e.preventDefault();
+                    navigateHistory(-1);
+                    break;
+                    
+                case 'ArrowDown':
+                    e.preventDefault();
+                    navigateHistory(1);
+                    break;
+                    
+                case 'Tab':
+                    e.preventDefault();
+                    completeSuggestion();
+                    break;
+                    
+                case 'Escape':
+                    DOM.commandInput.value = '';
+                    hideSuggestions();
+                    DOM.commandInput.blur();
+                    break;
+            }
+        });
+        
+        DOM.commandInput.addEventListener('input', (e) => {
+            updateSuggestions(e.target.value);
+        });
+        
+        // Focus command line with backtick
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '`' && document.activeElement !== DOM.commandInput) {
+                e.preventDefault();
+                DOM.commandInput.focus();
             }
         });
     }
     
+    // Hide context menu when clicking outside
     document.addEventListener('click', (e) => {
         if (DOM.contextMenu && !e.target.closest('.context-menu')) {
             DOM.contextMenu.classList.add('hidden');
         }
     });
+}
+
+/**
+ * Navigate command history
+ */
+function navigateHistory(direction) {
+    if (System.commandHistory.length === 0) return;
+    
+    System.commandHistoryIndex += direction;
+    
+    if (System.commandHistoryIndex < 0) {
+        System.commandHistoryIndex = 0;
+    }
+    if (System.commandHistoryIndex >= System.commandHistory.length) {
+        System.commandHistoryIndex = System.commandHistory.length;
+        DOM.commandInput.value = '';
+        return;
+    }
+    
+    DOM.commandInput.value = System.commandHistory[System.commandHistoryIndex];
+}
+
+/**
+ * Update autocomplete suggestions
+ */
+function updateSuggestions(input) {
+    if (!input || input.includes(' ')) {
+        hideSuggestions();
+        return;
+    }
+    
+    const suggestions = getCommandSuggestions(input);
+    System.suggestions = suggestions;
+    
+    if (suggestions.length > 0 && suggestions.length <= 8) {
+        showSuggestions(suggestions);
+    } else {
+        hideSuggestions();
+    }
+}
+
+/**
+ * Show autocomplete suggestions
+ */
+function showSuggestions(suggestions) {
+    const hint = DOM.commandHint;
+    if (!hint) return;
+    
+    const text = suggestions.map(s => s.name).join(' | ');
+    hint.textContent = text;
+    hint.classList.add('text-accent');
+}
+
+/**
+ * Hide autocomplete suggestions
+ */
+function hideSuggestions() {
+    const hint = DOM.commandHint;
+    if (!hint) return;
+    
+    hint.textContent = 'READY // TYPE ? FOR HELP';
+    hint.classList.remove('text-accent');
+    System.suggestions = [];
+}
+
+/**
+ * Complete with first suggestion
+ */
+function completeSuggestion() {
+    if (System.suggestions.length > 0) {
+        DOM.commandInput.value = System.suggestions[0].name + ' ';
+        hideSuggestions();
+    }
 }
 
 function onResize() {
@@ -1048,46 +1336,86 @@ function onKeyDown(e) {
 // ========================================
 // COMMANDS
 // ========================================
-function executeCommand(cmd) {
-    const command = cmd.trim().toLowerCase();
+async function executeCommand(cmd) {
+    const command = cmd.trim();
     if (!command) return;
     
     log(`> ${command}`, 'info');
     
-    const parts = command.split(' ');
-    const action = parts[0];
+    // Add to command history
+    if (System.commandHistory[System.commandHistory.length - 1] !== command) {
+        System.commandHistory.push(command);
+        if (System.commandHistory.length > 100) System.commandHistory.shift();
+    }
+    System.commandHistoryIndex = System.commandHistory.length;
     
+    const parts = command.toLowerCase().split(' ');
+    const action = parts[0];
+    const args = parts.slice(1);
+    
+    // Handle primitives with optional parameters (e.g., "box 20 30 10")
+    if (['box', 'cube', 'block'].includes(action)) {
+        const w = parseFloat(args[0]) || 20;
+        const h = parseFloat(args[1]) || w;
+        const d = parseFloat(args[2]) || w;
+        await createPrimitive('box', { size: [w, h, d], position: [0, h/2, 0] });
+        return;
+    }
+    
+    if (['sphere', 'ball'].includes(action)) {
+        const r = parseFloat(args[0]) || 10;
+        await createPrimitive('sphere', { radius: r, position: [0, r, 0] });
+        return;
+    }
+    
+    if (['cylinder', 'cyl'].includes(action)) {
+        const r = parseFloat(args[0]) || 8;
+        const h = parseFloat(args[1]) || 20;
+        await createPrimitive('cylinder', { radius: r, height: h, position: [0, h/2, 0] });
+        return;
+    }
+    
+    if (action === 'cone') {
+        const r = parseFloat(args[0]) || 8;
+        const h = parseFloat(args[1]) || 16;
+        await createPrimitive('cone', { radius: r, height: h, position: [0, h/2, 0] });
+        return;
+    }
+    
+    if (['torus', 'donut'].includes(action)) {
+        const r = parseFloat(args[0]) || 8;
+        const t = parseFloat(args[1]) || 3;
+        await createPrimitive('torus', { radius: r, tube: t, position: [0, r + t, 0] });
+        return;
+    }
+    
+    // Other commands
     switch(action) {
         case '?':
         case 'help':
             showHelp();
             break;
-        case 'box':
-            createPrimitive('box');
-            break;
-        case 'sphere':
-            createPrimitive('sphere');
-            break;
-        case 'cylinder':
-            createPrimitive('cylinder');
-            break;
-        case 'cone':
-            createPrimitive('cone');
-            break;
-        case 'torus':
-            createPrimitive('torus');
-            break;
         case 'clear':
+        case 'clearall':
             clearScene();
             break;
         case 'fit':
+        case 'zf':
+        case 'zoomfit':
             zoomToFit();
             break;
         case 'undo':
+        case 'u':
             undo();
             break;
         case 'redo':
+        case 'y':
             redo();
+            break;
+        case 'delete':
+        case 'del':
+        case 'rm':
+            deleteSelected();
             break;
         case 'grid':
             System.grid = !System.grid;
@@ -1097,6 +1425,7 @@ function executeCommand(cmd) {
                 gridBtn.classList.toggle('active', System.grid);
                 gridBtn.textContent = `GRID: ${System.grid ? 'ON' : 'OFF'}`;
             }
+            log(`GRID: ${System.grid ? 'ON' : 'OFF'}`, 'info');
             break;
         case 'snap':
             System.snap = !System.snap;
@@ -1105,33 +1434,65 @@ function executeCommand(cmd) {
                 snapBtn.classList.toggle('active', System.snap);
                 snapBtn.textContent = `SNAP: ${System.snap ? 'ON' : 'OFF'}`;
             }
+            log(`SNAP: ${System.snap ? 'ON' : 'OFF'}`, 'info');
+            break;
+        case 'kernel':
+            if (isKernelReady()) {
+                log('KERNEL: ONLINE (OCCT B-REP)', 'success');
+            } else {
+                log('KERNEL: OFFLINE (FALLBACK MODE)', 'warn');
+            }
+            break;
+        case 'status':
+            log(`OBJECTS: ${System.objects.length} | KERNEL: ${isKernelReady() ? 'ON' : 'OFF'} | FPS: ${System.fps}`, 'info');
             break;
         default:
-            log(`UNKNOWN: ${action}`, 'error');
+            // Try the advanced command system
+            try {
+                const result = await execCmd(command);
+                if (result.success && result.result !== undefined) {
+                    log(String(result.result), 'info');
+                }
+            } catch (e) {
+                log(`UNKNOWN: ${action}`, 'error');
+            }
     }
 }
 
 function showHelp() {
     const help = `
-COMMANDS:
-  box sphere cylinder cone torus  CREATE PRIMITIVE
-  clear                           CLEAR SCENE
-  fit                             ZOOM TO FIT
-  undo / redo                     UNDO/REDO (Ctrl+Z/Ctrl+Shift+Z)
-  grid                            TOGGLE GRID
-  snap                            TOGGLE SNAP
-  help                            SHOW THIS HELP
-
-SHORTCUTS:
-  S=Select C=Sketch E=Extrude
-  L=Line R=Rect O=Circle
-  T=Move R=Rotate G=Scale
-  1=Front 2=Top 3=Right 4=Iso
-  F=Fit Delete=Remove ESC=Cancel
-  Ctrl+Z=Undo Ctrl+Shift+Z=Redo
+╔═══════════════════════════════════════════════════════════╗
+║                    Ameri-CAD COMMANDS                     ║
+╠═══════════════════════════════════════════════════════════╣
+║ PRIMITIVES (uses real B-Rep kernel when available):       ║
+║   box [w] [h] [d]      Create box (e.g., "box 20 10 30")  ║
+║   sphere [r]           Create sphere (e.g., "sphere 15")  ║
+║   cylinder [r] [h]     Create cylinder ("cyl 8 20")       ║
+║   cone [r] [h]         Create cone                        ║
+║   torus [r] [t]        Create torus ("torus 10 3")        ║
+╠═══════════════════════════════════════════════════════════╣
+║ GENERAL:                                                  ║
+║   undo / redo          Undo/redo (Ctrl+Z / Ctrl+Y)        ║
+║   delete / del         Delete selected                    ║
+║   clear                Clear entire scene                 ║
+║   fit                  Zoom to fit all                    ║
+║   grid                 Toggle grid                        ║
+║   snap                 Toggle snap                        ║
+║   status               Show system status                 ║
+║   kernel               Show kernel status                 ║
+╠═══════════════════════════════════════════════════════════╣
+║ KEYBOARD SHORTCUTS:                                       ║
+║   \`         Focus command line                           ║
+║   Tab       Autocomplete command                          ║
+║   ↑/↓       Command history                               ║
+║   1-4       View: Front/Top/Right/Iso                     ║
+║   F         Zoom to fit                                   ║
+║   Delete    Remove selected                               ║
+║   Ctrl+Z    Undo                                          ║
+╚═══════════════════════════════════════════════════════════╝
 `;
     console.log(help);
-    log('HELP IN CONSOLE (F12)', 'info');
+    log('HELP PRINTED TO CONSOLE (F12)', 'info');
 }
 
 function clearScene() {
