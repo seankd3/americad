@@ -572,7 +572,7 @@ describe('Reference Geometry Integration', function () {
 
       const testPoint = [10, 0, 0];
       const distance = mirrorPlane.distanceToPoint(testPoint);
-      const projected = mirrorPlane.projectPoint(testPoint);
+      const _projected = mirrorPlane.projectPoint(testPoint);
 
       // Reflected point should be equidistant on other side
       const reflected = [
