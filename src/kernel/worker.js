@@ -395,7 +395,7 @@ function applyFilletAll(shape, radius) {
         throw new Error('Shape has no edges to fillet');
     }
     
-    fillet.Build(new oc.Message_ProgressRange_1());
+    fillet.Build();
     
     if (!fillet.IsDone()) {
         throw new Error('Fillet operation failed - radius may be too large for geometry');
@@ -430,7 +430,7 @@ function applyChamferAll(shape, distance) {
         throw new Error('Shape has no edges to chamfer');
     }
     
-    chamfer.Build(new oc.Message_ProgressRange_1());
+    chamfer.Build();
     
     if (!chamfer.IsDone()) {
         throw new Error('Chamfer operation failed - distance may be too large for geometry');
@@ -576,7 +576,7 @@ function shellSolid(shape, faceIds, thickness) {
         }
     }
     
-    // MakeThickSolidByJoin(shape, facesToRemove, offset, tolerance, mode, intersection, selfInter, join, removeIntEdges)
+    // MakeThickSolidByJoin without progress range (use 9-arg version)
     shell.MakeThickSolidByJoin(
         shape,
         facesToRemove,
@@ -586,8 +586,7 @@ function shellSolid(shape, faceIds, thickness) {
         false,
         false,
         oc.GeomAbs_JoinType.GeomAbs_Arc,
-        false,
-        new oc.Message_ProgressRange_1()
+        false
     );
     
     if (!shell.IsDone()) {
@@ -622,7 +621,7 @@ function loftProfiles(profiles, solid = true) {
         }
     }
     
-    loft.Build(new oc.Message_ProgressRange_1());
+    loft.Build();
     
     if (!loft.IsDone()) {
         throw new Error('Loft operation failed');
@@ -643,7 +642,7 @@ function sweepProfile(profile, path) {
     const spine = oc.TopoDS.Wire_1(path);
     
     const pipe = new oc.BRepOffsetAPI_MakePipe_1(spine, profile);
-    pipe.Build(new oc.Message_ProgressRange_1());
+    pipe.Build();
     
     if (!pipe.IsDone()) {
         throw new Error('Sweep operation failed');
@@ -670,12 +669,11 @@ function exportSTEP(shape) {
     
     const writer = new oc.STEPControl_Writer_1();
     
-    // Transfer shape - use ManifoldSolidBrep for solid geometry
+    // Transfer shape - use the 3-arg version without progress range
     const status = writer.Transfer(
         shape, 
         oc.STEPControl_StepModelType.STEPControl_AsIs, 
-        true, 
-        new oc.Message_ProgressRange_1()
+        true
     );
     
     if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
@@ -733,7 +731,8 @@ function exportSTL(shape) {
     writer.SetASCIIMode(true);
     
     const filename = '/output.stl';
-    writer.Write(shape, filename, new oc.Message_ProgressRange_1());
+    // Use 2-arg Write method without progress range
+    writer.Write(shape, filename);
     
     const content = oc.FS.readFile(filename, { encoding: 'utf8' });
     oc.FS.unlink(filename);

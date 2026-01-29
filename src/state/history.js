@@ -49,18 +49,19 @@ export class CreatePrimitiveCommand extends Command {
         this.scene = scene;
         this.objectsArray = objectsArray;
         this.mesh = mesh;
-        this.wasExecuted = false;
+        // Set to true since mesh is already in scene when command is created
+        // (we use push() for already-executed operations, not execute())
+        this.wasExecuted = true;
     }
     
     execute() {
-        if (!this.wasExecuted) {
-            // First execution - mesh already in scene
-            this.wasExecuted = true;
-            return;
-        }
-        // Re-add on redo
+        // Re-add mesh on redo (mesh was removed by undo)
+        // Note: wasExecuted is true from constructor since mesh is already
+        // in scene when command is created via push()
         this.scene.add(this.mesh);
-        this.objectsArray.push(this.mesh);
+        if (!this.objectsArray.includes(this.mesh)) {
+            this.objectsArray.push(this.mesh);
+        }
     }
     
     undo() {
