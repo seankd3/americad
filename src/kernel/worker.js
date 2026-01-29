@@ -538,9 +538,9 @@ function getEdges(shape) {
 }
 
 /**
- * Get all face IDs for a shape
+ * Get all face IDs for a shape (simple version - returns array of IDs only)
  */
-function getFaces(shape) {
+function getFaceIds(shape) {
     const faces = [];
     const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
     
@@ -2518,10 +2518,10 @@ self.onmessage = async function(e) {
                 result = { edgeIds: getEdges(shapeGE) };
                 break;
             
-            case 'getFaces':
+            case 'getFaceIds':
                 const shapeGF = shapes.get(params.shapeId);
                 if (!shapeGF) throw new Error(`Shape not found: ${params.shapeId}`);
-                result = { faceIds: getFaces(shapeGF) };
+                result = { faceIds: getFaceIds(shapeGF) };
                 break;
             
             case 'draft': {

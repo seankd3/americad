@@ -88,8 +88,9 @@ export function validateBoundingBox(mesh) {
 }
 
 /**
- * Check if mesh is manifold using Euler characteristic
- * For closed manifold: V - E + F = 2
+ * Check if mesh is manifold (watertight closed surface)
+ * A manifold mesh has every edge shared by exactly 2 faces.
+ * Euler characteristic varies by topology: sphere=2, torus=0, etc.
  * @param {THREE.Mesh} mesh 
  * @returns {{ isManifold: boolean, vertices?: number, edges?: number, faces?: number, euler?: number, error?: string }}
  */
@@ -102,8 +103,8 @@ export function checkManifold(mesh) {
     const position = geometry.attributes.position;
     const index = geometry.index;
     
-    // Build edge set using position-based vertex keys for proper deduplication
-    const edgeSet = new Set();
+    // Track edge usage count for watertight check
+    const edgeCount = new Map();
     const vertexSet = new Set();
     let faceCount = 0;
     
@@ -124,6 +125,12 @@ export function checkManifold(mesh) {
         return vKey1 < vKey2 ? `${vKey1}|${vKey2}` : `${vKey2}|${vKey1}`;
     };
     
+    const addEdge = (edgeKey) => {
+        if (edgeKey) {
+            edgeCount.set(edgeKey, (edgeCount.get(edgeKey) || 0) + 1);
+        }
+    };
+    
     const processTriangle = (v0, v1, v2) => {
         const vKey0 = roundVertex(v0);
         const vKey1 = roundVertex(v1);
@@ -138,14 +145,10 @@ export function checkManifold(mesh) {
         vertexSet.add(vKey1);
         vertexSet.add(vKey2);
         
-        // Track edges using position-based keys (skip null/degenerate edges)
-        const e0 = makeEdgeKey(vKey0, vKey1);
-        const e1 = makeEdgeKey(vKey1, vKey2);
-        const e2 = makeEdgeKey(vKey2, vKey0);
-        
-        if (e0) edgeSet.add(e0);
-        if (e1) edgeSet.add(e1);
-        if (e2) edgeSet.add(e2);
+        // Track edge usage for watertight check
+        addEdge(makeEdgeKey(vKey0, vKey1));
+        addEdge(makeEdgeKey(vKey1, vKey2));
+        addEdge(makeEdgeKey(vKey2, vKey0));
         
         faceCount++;
     };
@@ -173,22 +176,25 @@ export function checkManifold(mesh) {
     }
     
     const V = vertexSet.size;
-    const E = edgeSet.size;
+    const E = edgeCount.size;
     const F = faceCount;
     const euler = V - E + F;
     
-    // Debug output for manifold issues
-    if (euler !== 2) {
-        console.log(`[checkManifold] V=${V}, E=${E}, F=${F}, Euler=${euler}`);
+    // Check watertight: every edge must be shared by exactly 2 faces
+    let isWatertight = true;
+    for (const count of edgeCount.values()) {
+        if (count !== 2) {
+            isWatertight = false;
+            break;
+        }
     }
     
     return {
-        isManifold: euler === 2,
+        isManifold: isWatertight,
         vertices: V,
         edges: E,
         faces: F,
-        euler: euler,
-        expected: 2
+        euler: euler
     };
 }
 

@@ -300,7 +300,8 @@ describe('GeometryUtils (src/core/geometry-utils.js)', function() {
             
             const result = checkManifold(mesh);
             
-            expect(result.isManifold, `Sphere V=${result.vertices} E=${result.edges} F=${result.faces} Euler=${result.euler}`).to.be.true;
+            expect(result.isManifold).to.be.true;
+            // Sphere has Euler characteristic = 2 (genus 0)
             expect(result.euler).to.equal(2);
         });
         
@@ -310,7 +311,8 @@ describe('GeometryUtils (src/core/geometry-utils.js)', function() {
             
             const result = checkManifold(mesh);
             
-            expect(result.isManifold, `Cylinder V=${result.vertices} E=${result.edges} F=${result.faces} Euler=${result.euler}`).to.be.true;
+            expect(result.isManifold).to.be.true;
+            // Cylinder has Euler characteristic = 2 (genus 0)
             expect(result.euler).to.equal(2);
         });
         

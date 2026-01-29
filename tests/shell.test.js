@@ -44,20 +44,6 @@ function expectedBoxShellVolume(w, h, d, t, closed = false) {
     }
 }
 
-/**
- * Calculate approximate shell volume for a cylinder (tube)
- * @param {number} r - outer radius
- * @param {number} h - height
- * @param {number} t - wall thickness
- * @returns {number} Expected volume for tube (both ends removed)
- */
-function expectedCylinderTubeVolume(r, h, t) {
-    const outerVolume = Math.PI * r * r * h;
-    const innerR = r - t;
-    const innerVolume = Math.PI * innerR * innerR * h;
-    return outerVolume - innerVolume;
-}
-
 // ==================== Test Suite ====================
 
 describe('Shell Command', function() {
@@ -212,7 +198,6 @@ describe('Shell Command', function() {
             // Hollow sphere volume ≈ 4/3π(R³ - r³)
             const { volume } = await kernel.getVolume(result.id);
             const outerVol = (4/3) * Math.PI * Math.pow(15, 3);
-            const innerVol = (4/3) * Math.PI * Math.pow(13, 3);
             // With largest face removed, this is tricky - just check it's smaller
             expect(volume).to.be.lessThan(outerVol);
             

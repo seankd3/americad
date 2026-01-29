@@ -273,15 +273,46 @@ export function registerGeneralCommands(_app) {
         }
     });
     
-    // VIEW - Set view angle
+    // VIEW - Set view angle (with orthographic support)
     registerCommand('view', {
         aliases: ['v'],
-        description: 'Set view to standard angle',
+        description: 'Set view to standard angle or toggle ortho/perspective',
         category: 'view',
         params: [
-            { name: 'angle', type: 'string', required: true, description: 'front, back, top, bottom, left, right, iso' }
+            { name: 'angle', type: 'string', required: true, description: 'front, back, top, bottom, left, right, iso, ortho, reset' }
         ],
         execute(params, context) {
+            const angle = params.angle.toLowerCase();
+            
+            // Use camera preset manager if available
+            if (context.cameraPresets) {
+                if (angle === 'ortho' || angle === 'toggle') {
+                    const isOrtho = context.cameraPresets.toggleOrtho();
+                    return `Projection: ${isOrtho ? 'ORTHOGRAPHIC' : 'PERSPECTIVE'}`;
+                }
+                
+                if (angle === 'reset') {
+                    context.cameraPresets.reset();
+                    return 'View reset to default';
+                }
+                
+                // Standard view presets
+                const validViews = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
+                if (validViews.includes(angle)) {
+                    context.cameraPresets.setView(angle);
+                    return `View: ${angle.toUpperCase()}`;
+                }
+                
+                // Handle aliases
+                if (angle === 'isometric') {
+                    context.cameraPresets.setView('iso');
+                    return 'View: ISO';
+                }
+                
+                return `Unknown view: ${angle}. Use: ${validViews.join(', ')}, ortho, reset`;
+            }
+            
+            // Fallback to basic view direction
             const views = {
                 front: { x: 0, y: 0, z: 1 },
                 back: { x: 0, y: 0, z: -1 },
@@ -293,13 +324,13 @@ export function registerGeneralCommands(_app) {
                 isometric: { x: 1, y: 1, z: 1 }
             };
             
-            const dir = views[params.angle.toLowerCase()];
+            const dir = views[angle];
             if (!dir) {
-                return `Unknown view: ${params.angle}. Use: ${Object.keys(views).join(', ')}`;
+                return `Unknown view: ${angle}. Use: ${Object.keys(views).join(', ')}`;
             }
             
             context.view?.setViewDirection(dir);
-            return `View set to ${params.angle}`;
+            return `View set to ${angle}`;
         }
     });
     

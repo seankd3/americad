@@ -324,7 +324,7 @@ describe('Geometry Validation', function() {
             primitives.forEach((geometry, i) => {
                 const mesh = new THREE.Mesh(geometry);
                 const result = checkManifold(mesh);
-                expect(result.isManifold, `Primitive ${i} V=${result.vertices} E=${result.edges} F=${result.faces} Euler=${result.euler}`).to.be.true;
+                expect(result.isManifold, `Primitive ${i} should be manifold`).to.be.true;
             });
         });
     });

@@ -18,6 +18,7 @@ import { registerSweepCommands } from '../commands/sweep.js';
 import { registerTransformCommands } from '../commands/transforms.js';
 import { registerSketchCommands } from '../commands/sketch.js';
 import { registerMeasureCommands } from '../commands/measure.js';
+import { registerMassPropertiesCommands } from '../commands/mass-properties.js';
 
 // Application context - shared state between commands
 const appContext = {
@@ -166,6 +167,7 @@ function registerAllCommands() {
     registerTransformCommands(wrappedKernel);
     registerSketchCommands(appContext);
     registerMeasureCommands(appContext);
+    registerMassPropertiesCommands(appContext);
     
     // Register custom app commands
     registerAppCommands();

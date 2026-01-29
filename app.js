@@ -682,6 +682,14 @@ async function initThreeJS() {
     cameraPresetManager.createIndicator(DOM.viewport);
     System.cameraPresetManager = cameraPresetManager;
     
+    // Add camera presets to command context (after a short delay to ensure context is ready)
+    setTimeout(() => {
+        const context = getContext();
+        if (context) {
+            context.cameraPresets = cameraPresetManager;
+        }
+    }, 100);
+    
     // Set up sketch manager callbacks
     sketchManager.onSketchUpdate = (sketch, previewEntity) => {
         if (sketchRenderer && sketch) {
@@ -1458,6 +1466,16 @@ function setTool(tool) {
 }
 
 function setView(view) {
+    // Use camera preset manager if available for full orthographic support
+    if (cameraPresetManager && CameraPresets[view]) {
+        cameraPresetManager.setView(view);
+        System.view = view;
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === view);
+        });
+        return;
+    }
+    
     // Map view names to viewport manager preset names
     const presetMap = {
         'top': 'top',
@@ -1465,6 +1483,7 @@ function setView(view) {
         'right': 'right',
         'left': 'right',  // Left view handled specially
         'back': 'front',   // Back view handled specially
+        'bottom': 'top',   // Bottom view handled specially
         'iso': 'perspective',
         '3d': 'perspective'
     };
@@ -1484,8 +1503,16 @@ function setView(view) {
                 camera.position.set(target.x, distance, target.z);
                 camera.up.set(0, 0, -1);
                 break;
+            case 'bottom':
+                camera.position.set(target.x, -distance, target.z);
+                camera.up.set(0, 0, 1);
+                break;
             case 'front':
                 camera.position.set(target.x, target.y, target.z + distance);
+                camera.up.set(0, 1, 0);
+                break;
+            case 'back':
+                camera.position.set(target.x, target.y, target.z - distance);
                 camera.up.set(0, 1, 0);
                 break;
             case 'right':
@@ -1494,10 +1521,6 @@ function setView(view) {
                 break;
             case 'left':
                 camera.position.set(target.x - distance, target.y, target.z);
-                camera.up.set(0, 1, 0);
-                break;
-            case 'back':
-                camera.position.set(target.x, target.y, target.z - distance);
                 camera.up.set(0, 1, 0);
                 break;
             case 'iso':
