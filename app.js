@@ -22,6 +22,9 @@ import { commandManager, CreatePrimitiveCommand, DeleteCommand, TransformCommand
 import { initializeSystem, executeCommand as execCmd, isKernelReady, getCommandSuggestions } from './src/core/app-integration.js';
 import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
 
+// Modular AmericaD class - the unified CAD architecture
+import { AmericaD, app as americadApp } from './src/main.js';
+
 // Sketch system
 import { sketchManager, SketchMode } from './src/sketch/sketch-manager.js';
 import { SketchRenderer } from './src/sketch/sketch-renderer.js';
@@ -206,6 +209,17 @@ async function initKernelSystem() {
         
         System.kernelReady = true;
         log('KERNEL ONLINE (OCCT B-REP)', 'success');
+        
+        // Initialize the modular AmericaD class and wire it to the scene
+        try {
+            await americadApp.init(THREE);
+            americadApp.setScene(scene, camera, renderer, controls, transformControl);
+            System.americad = americadApp;
+            log('DOCUMENT MODEL READY', 'success');
+        } catch (err) {
+            console.warn('[Ameri-CAD] AmericaD class init warning:', err);
+            // Non-fatal - system still works without DocumentModel
+        }
         
         // Update status indicator
         const statusIndicator = document.querySelector('.status-indicator');
@@ -601,6 +615,23 @@ async function createKernelPrimitive(type, options = {}) {
     // Record in history
     const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh);
     commandManager.push(cmd);
+    
+    // Also track in AmericaD DocumentModel if available (unified architecture)
+    if (System.americad?.document) {
+        try {
+            // Create a feature reference for the DocumentModel
+            System.americad.document.trackExternalFeature({
+                id: mesh.userData.id,
+                kernelId: result.id,
+                type: type,
+                name: mesh.userData.name,
+                mesh: mesh
+            });
+        } catch (err) {
+            // Non-fatal - tracking is optional
+            console.debug('[Ameri-CAD] Document tracking skipped:', err.message);
+        }
+    }
     
     selectObject(mesh);
     log(`CREATED: ${mesh.userData.name} (B-REP)`, 'success');
@@ -2160,5 +2191,10 @@ window.AmericaD = {
     enterSketchMode,
     exitSketchMode,
     extrudeSketch,
-    log
+    log,
+    // Unified architecture access
+    get app() { return System.americad; },
+    get document() { return System.americad?.document; },
+    get evaluator() { return System.americad?.evaluator; },
+    kernel
 };

@@ -424,6 +424,49 @@ export class DocumentModel {
         
         if (this.onDocumentChanged) this.onDocumentChanged();
     }
+    
+    /**
+     * Track an externally-created feature (from app.js legacy path)
+     * This allows gradual migration to the unified architecture
+     */
+    trackExternalFeature(data) {
+        // Create a lightweight feature reference without full evaluation
+        const feature = new Feature(data.type, {
+            name: data.name,
+            external: true,
+            meshRef: data.mesh
+        });
+        
+        // Use provided IDs to maintain sync
+        if (data.id) feature.id = data.id;
+        if (data.kernelId) feature.kernelId = data.kernelId;
+        if (data.mesh?.uuid) feature.meshId = data.mesh.uuid;
+        
+        feature.valid = true;
+        feature.visible = true;
+        
+        // Add to document without triggering evaluation
+        this.features.set(feature.id, feature);
+        this.rootFeatures.push(feature.id);
+        this.modifiedAt = Date.now();
+        
+        // Don't trigger full callbacks for external features
+        // This prevents re-evaluation loops
+        
+        return feature;
+    }
+    
+    /**
+     * Remove tracking for an external feature
+     */
+    untrackExternalFeature(featureId) {
+        const feature = this.features.get(featureId);
+        if (feature?.params?.external) {
+            this.features.delete(featureId);
+            this.rootFeatures = this.rootFeatures.filter(id => id !== featureId);
+            this.modifiedAt = Date.now();
+        }
+    }
 }
 
 // Global document instance

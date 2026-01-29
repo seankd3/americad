@@ -49,30 +49,38 @@ Also added `getKernelId(featureId)` method to evaluator.js.
 
 ---
 
-## Phase 3: Make src/main.js Entry Point 🚧 DEFERRED
+## Phase 3: Integrate AmericaD Class ✅ COMPLETE
 
-### Current Architecture Understanding
-After analysis, the relationship is:
-- **app.js**: UI infrastructure, Three.js scene, event handlers, DOM interaction
-- **src/main.js**: AmericaD class with CAD operations, feature management
-- **src/core/app-integration.js**: Bridge connecting command system to kernel
+### Strategy Chosen: Integration over Replacement
+Instead of replacing app.js, we integrated the modular architecture INTO it:
+- app.js remains the entry point (handles UI/scene infrastructure)
+- AmericaD class from src/main.js is initialized and wired to the scene
+- DocumentModel tracks primitives created via legacy path
 
-They're **complementary**, not redundant. app.js already imports from src/:
+### 3.1 Import AmericaD ✅
+Added import in app.js:
 ```javascript
-import { initializeSystem, executeCommand, ... } from './src/core/app-integration.js';
-import { kernel, meshToThreeGeometry } from './src/kernel/bridge.js';
+import { AmericaD, app as americadApp } from './src/main.js';
 ```
 
-### 3.1 Update index.html ⏸️
-Keeping app.js as entry for now - it handles critical UI/scene setup.
+### 3.2 Initialize in initKernelSystem ✅
+AmericaD class now initializes alongside the existing system:
+- Calls `americadApp.init(THREE)`
+- Wires to scene via `setScene(scene, camera, renderer, controls, transformControl)`
+- Stored in `System.americad` for access
 
-### 3.2 Integration Strategy (Recommended)
-Instead of replacing app.js, refactor it to:
-1. Use AmericaD class from src/main.js for all CAD operations
-2. Have app-integration.js use DocumentModel from src/state/document.js
-3. Remove duplicated state management code
+### 3.3 Track External Features ✅
+Added `trackExternalFeature()` to DocumentModel:
+- When app.js creates a primitive via kernel, it registers with DocumentModel
+- Maintains sync between legacy path and unified architecture
+- Non-blocking - failures don't break primitive creation
 
-This preserves working UI while unifying the CAD architecture.
+### 3.4 Public API Access ✅
+window.AmericaD now exposes:
+- `app` - the AmericaD instance
+- `document` - the DocumentModel
+- `evaluator` - the geometry evaluator  
+- `kernel` - direct kernel access
 
 ---
 
