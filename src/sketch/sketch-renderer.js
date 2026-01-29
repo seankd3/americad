@@ -10,7 +10,8 @@
  */
 
 import * as THREE from 'three';
-import { SketchMode } from './sketch-manager.js';
+import { SketchMode, ConstraintType } from './sketch-manager.js';
+import { SnapType } from '../ui/snap-manager.js';
 
 // Sketch colors - distinctive blue/cyan for sketch mode
 const Colors = {
@@ -19,7 +20,7 @@ const Colors = {
     SELECTED: 0xff6600,        // Orange - selected
     PREVIEW: 0x00ffff,         // Cyan - preview while drawing
     POINT: 0xffff00,           // Yellow - points/vertices
-    POINT_SNAP: 0xff00ff,      // Magenta - snap indicator
+    POINT_SNAP: 0xff00ff,      // Magenta - snap indicator (legacy)
     CONSTRAINED: 0x00ff88,     // Green-cyan - fully constrained
     UNDER_CONSTRAINED: 0x00aaff, // Blue - under constrained
     ERROR: 0xff4444,           // Red - over constrained / error
@@ -27,7 +28,16 @@ const Colors = {
     GRID_MAJOR: 0x3a3a5e,      // Slightly lighter - major grid lines
     PLANE: 0x1a1a3e,           // Very dark blue - construction plane
     AXIS_X: 0xff4444,          // Red - X axis
-    AXIS_Y: 0x44ff44           // Green - Y axis
+    AXIS_Y: 0x44ff44,          // Green - Y axis
+    
+    // Snap indicator colors (per type)
+    SNAP_ENDPOINT: 0x00ff00,   // Green - endpoint snap
+    SNAP_MIDPOINT: 0x00ffff,   // Cyan - midpoint snap
+    SNAP_CENTER: 0xff00ff,     // Magenta - center snap
+    SNAP_INTERSECTION: 0xffff00, // Yellow - intersection snap
+    SNAP_PERPENDICULAR: 0xff8800, // Orange - perpendicular snap
+    SNAP_NEAREST: 0x8888ff,    // Light blue - nearest point snap
+    SNAP_GRID: 0x666666        // Gray - grid snap
 };
 
 /**
@@ -308,6 +318,7 @@ export class SketchRenderer {
     renderSketch(sketch, selectedIds = new Set()) {
         this.geometryGroup.clear();
         this.pointsGroup.clear();
+        this.constraintGroup.clear();
         this.selectedIds = selectedIds;
         
         // Render lines
@@ -329,6 +340,9 @@ export class SketchRenderer {
         for (const point of sketch.points.values()) {
             this.renderPoint(point, sketch);
         }
+        
+        // Render constraint indicators
+        this.renderConstraintIndicators(sketch);
     }
     
     /**
@@ -467,6 +481,157 @@ export class SketchRenderer {
     }
     
     /**
+     * Render constraint indicators (H for horizontal, V for vertical)
+     */
+    renderConstraintIndicators(sketch) {
+        if (!sketch || !sketch.constraints) return;
+        
+        const constraintColor = Colors.CONSTRAINED;
+        
+        for (const constraint of sketch.constraints.values()) {
+            if (constraint.type === ConstraintType.HORIZONTAL || 
+                constraint.type === ConstraintType.VERTICAL) {
+                
+                // Get the constrained line
+                const lineId = constraint.entities[0];
+                const line = sketch.lines.get(lineId);
+                if (!line) continue;
+                
+                // Calculate midpoint of the line
+                const midX = (line.start.x + line.end.x) / 2;
+                const midY = (line.start.y + line.end.y) / 2;
+                
+                // Offset the symbol slightly from the line
+                const offsetX = constraint.type === ConstraintType.HORIZONTAL ? 0 : 3;
+                const offsetY = constraint.type === ConstraintType.HORIZONTAL ? 3 : 0;
+                
+                const symbolPos = sketch.sketchToWorld({ 
+                    x: midX + offsetX, 
+                    y: midY + offsetY 
+                });
+                
+                // Draw the constraint symbol (H or V)
+                const symbol = this.createConstraintSymbol(
+                    constraint.type === ConstraintType.HORIZONTAL ? 'H' : 'V',
+                    symbolPos,
+                    constraintColor,
+                    sketch.plane
+                );
+                
+                symbol.name = `constraint-${constraint.id}`;
+                symbol.userData.constraintId = constraint.id;
+                this.constraintGroup.add(symbol);
+            }
+        }
+    }
+    
+    /**
+     * Create a constraint symbol (H or V letter)
+     */
+    createConstraintSymbol(letter, position, color, plane) {
+        const group = new THREE.Group();
+        const size = 2.5;  // Symbol size
+        const lineWidth = 0.4;
+        
+        // Create lines that form the letter
+        const material = new THREE.LineBasicMaterial({ 
+            color: color, 
+            linewidth: 2,
+            transparent: true,
+            opacity: 0.9
+        });
+        
+        let letterPoints;
+        
+        if (letter === 'H') {
+            // Draw an "H" shape
+            letterPoints = [
+                // Left vertical
+                [{ x: -size/2, y: -size/2 }, { x: -size/2, y: size/2 }],
+                // Right vertical
+                [{ x: size/2, y: -size/2 }, { x: size/2, y: size/2 }],
+                // Horizontal crossbar
+                [{ x: -size/2, y: 0 }, { x: size/2, y: 0 }]
+            ];
+        } else if (letter === 'V') {
+            // Draw a "V" shape
+            letterPoints = [
+                // Left diagonal
+                [{ x: -size/2, y: size/2 }, { x: 0, y: -size/2 }],
+                // Right diagonal
+                [{ x: 0, y: -size/2 }, { x: size/2, y: size/2 }]
+            ];
+        }
+        
+        for (const segment of letterPoints) {
+            const positions = [];
+            for (const pt of segment) {
+                // Transform based on sketch plane
+                let x3d, y3d, z3d;
+                switch (plane) {
+                    case 'xy':
+                        x3d = position.x + pt.x;
+                        y3d = position.y + pt.y;
+                        z3d = position.z + 0.2; // Slightly above plane
+                        break;
+                    case 'xz':
+                        x3d = position.x + pt.x;
+                        y3d = position.y + 0.2;
+                        z3d = position.z + pt.y;
+                        break;
+                    case 'yz':
+                        x3d = position.x + 0.2;
+                        y3d = position.y + pt.y;
+                        z3d = position.z + pt.x;
+                        break;
+                    default:
+                        x3d = position.x + pt.x;
+                        y3d = position.y + pt.y;
+                        z3d = position.z + 0.2;
+                }
+                positions.push(x3d, y3d, z3d);
+            }
+            
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(
+                new Float32Array(positions), 3
+            ));
+            
+            const lineObj = new THREE.Line(geometry, material);
+            group.add(lineObj);
+        }
+        
+        // Add a small background circle for better visibility
+        const bgGeometry = new THREE.CircleGeometry(size * 0.8, 16);
+        const bgMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x1a1a3e,
+            transparent: true,
+            opacity: 0.7,
+            side: THREE.DoubleSide
+        });
+        const bgCircle = new THREE.Mesh(bgGeometry, bgMaterial);
+        
+        // Position and orient the background circle
+        switch (plane) {
+            case 'xy':
+                bgCircle.position.set(position.x, position.y, position.z + 0.1);
+                break;
+            case 'xz':
+                bgCircle.position.set(position.x, position.y + 0.1, position.z);
+                bgCircle.rotation.x = -Math.PI / 2;
+                break;
+            case 'yz':
+                bgCircle.position.set(position.x + 0.1, position.y, position.z);
+                bgCircle.rotation.y = Math.PI / 2;
+                break;
+        }
+        
+        group.add(bgCircle);
+        
+        return group;
+    }
+    
+    /**
      * Render preview entity while drawing
      */
     renderPreview(entity, sketch) {
@@ -573,35 +738,192 @@ export class SketchRenderer {
     }
     
     /**
-     * Show snap indicator
+     * Show snap indicator (legacy - point only)
      */
     showSnapIndicator(point, sketch) {
-        // Remove existing indicator
+        this.showSnapResult(point ? { point, type: SnapType.ENDPOINT } : null, sketch);
+    }
+    
+    /**
+     * Show snap indicator with full SnapResult info
+     * Displays different shapes/colors for different snap types
+     */
+    showSnapResult(snapResult, sketch, showLabel = true) {
+        // Remove existing indicators
         const existing = this.previewGroup.getObjectByName('snap-indicator');
         if (existing) this.previewGroup.remove(existing);
+        const existingLabel = this.previewGroup.getObjectByName('snap-label');
+        if (existingLabel) this.previewGroup.remove(existingLabel);
         
-        if (!point) return;
+        if (!snapResult || !sketch) return;
         
-        const point3d = sketch.sketchToWorld(point);
+        const point3d = sketch.sketchToWorld(snapResult.point);
+        const snapType = snapResult.type || SnapType.ENDPOINT;
+        const color = snapType.color || 0xff00ff;
+        const size = 4;
         
-        // Create a small cross or circle at snap point
+        const group = new THREE.Group();
+        group.name = 'snap-indicator';
+        
+        // Draw different shapes based on snap type
+        const shape = snapType.shape || 'square';
+        const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+        
+        let positions;
+        
+        switch (shape) {
+            case 'square':
+                // Square for endpoints
+                positions = new Float32Array([
+                    point3d.x - size, point3d.y - size, point3d.z + 0.1,
+                    point3d.x + size, point3d.y - size, point3d.z + 0.1,
+                    point3d.x + size, point3d.y + size, point3d.z + 0.1,
+                    point3d.x - size, point3d.y + size, point3d.z + 0.1,
+                    point3d.x - size, point3d.y - size, point3d.z + 0.1
+                ]);
+                break;
+                
+            case 'triangle':
+                // Triangle for midpoints
+                positions = new Float32Array([
+                    point3d.x, point3d.y + size * 1.2, point3d.z + 0.1,
+                    point3d.x - size, point3d.y - size * 0.6, point3d.z + 0.1,
+                    point3d.x + size, point3d.y - size * 0.6, point3d.z + 0.1,
+                    point3d.x, point3d.y + size * 1.2, point3d.z + 0.1
+                ]);
+                break;
+                
+            case 'circle':
+                // Circle for centers
+                const segments = 16;
+                const circlePositions = [];
+                for (let i = 0; i <= segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2;
+                    circlePositions.push(
+                        point3d.x + size * Math.cos(angle),
+                        point3d.y + size * Math.sin(angle),
+                        point3d.z + 0.1
+                    );
+                }
+                positions = new Float32Array(circlePositions);
+                break;
+                
+            case 'cross':
+                // Cross (X) for intersections
+                positions = new Float32Array([
+                    point3d.x - size, point3d.y - size, point3d.z + 0.1,
+                    point3d.x + size, point3d.y + size, point3d.z + 0.1,
+                    point3d.x + size, point3d.y - size, point3d.z + 0.1,  // Move pen
+                    point3d.x + size, point3d.y - size, point3d.z + 0.1,
+                    point3d.x - size, point3d.y + size, point3d.z + 0.1
+                ]);
+                break;
+                
+            case 'diamond':
+                // Diamond for nearest point
+                positions = new Float32Array([
+                    point3d.x, point3d.y - size, point3d.z + 0.1,
+                    point3d.x + size, point3d.y, point3d.z + 0.1,
+                    point3d.x, point3d.y + size, point3d.z + 0.1,
+                    point3d.x - size, point3d.y, point3d.z + 0.1,
+                    point3d.x, point3d.y - size, point3d.z + 0.1
+                ]);
+                break;
+                
+            case 'dot':
+            default:
+                // Small dot for grid snap
+                const dotSegs = 8;
+                const dotPositions = [];
+                for (let i = 0; i <= dotSegs; i++) {
+                    const angle = (i / dotSegs) * Math.PI * 2;
+                    dotPositions.push(
+                        point3d.x + (size * 0.5) * Math.cos(angle),
+                        point3d.y + (size * 0.5) * Math.sin(angle),
+                        point3d.z + 0.1
+                    );
+                }
+                positions = new Float32Array(dotPositions);
+                break;
+        }
+        
         const geometry = new THREE.BufferGeometry();
-        const size = 3;
-        
-        // Small square indicator
-        const positions = new Float32Array([
-            point3d.x - size, point3d.y - size, point3d.z,
-            point3d.x + size, point3d.y - size, point3d.z,
-            point3d.x + size, point3d.y + size, point3d.z,
-            point3d.x - size, point3d.y + size, point3d.z,
-            point3d.x - size, point3d.y - size, point3d.z
-        ]);
-        
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         
-        const indicator = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xff00ff }));
-        indicator.name = 'snap-indicator';
-        this.previewGroup.add(indicator);
+        const indicator = new THREE.Line(geometry, material);
+        group.add(indicator);
+        
+        // Add a highlight point in the center
+        const centerGeom = new THREE.BufferGeometry();
+        centerGeom.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([point3d.x, point3d.y, point3d.z + 0.15]), 3
+        ));
+        const centerMat = new THREE.PointsMaterial({ 
+            color, 
+            size: 6, 
+            sizeAttenuation: false 
+        });
+        const centerPoint = new THREE.Points(centerGeom, centerMat);
+        group.add(centerPoint);
+        
+        this.previewGroup.add(group);
+        
+        // Add label if enabled (optional, can be toggled)
+        if (showLabel && snapType.name && snapType !== SnapType.GRID) {
+            this._showSnapLabel(snapType.name, point3d, color, sketch.plane);
+        }
+    }
+    
+    /**
+     * Show snap type label near indicator
+     */
+    _showSnapLabel(text, position, color, plane) {
+        // Create a simple text sprite or use existing constraint symbol approach
+        // For now, we'll create a minimal indicator group
+        const labelGroup = new THREE.Group();
+        labelGroup.name = 'snap-label';
+        
+        // Create small text-like geometry using lines
+        // This is a simplified approach - in production you'd use TextGeometry or sprites
+        const offsetX = 6;
+        const offsetY = 6;
+        
+        // Position label offset from snap point
+        let labelPos;
+        switch (plane) {
+            case 'xy':
+                labelPos = new THREE.Vector3(position.x + offsetX, position.y + offsetY, position.z + 0.2);
+                break;
+            case 'xz':
+                labelPos = new THREE.Vector3(position.x + offsetX, position.y + 0.2, position.z + offsetY);
+                break;
+            case 'yz':
+                labelPos = new THREE.Vector3(position.x + 0.2, position.y + offsetY, position.z + offsetX);
+                break;
+            default:
+                labelPos = new THREE.Vector3(position.x + offsetX, position.y + offsetY, position.z + 0.2);
+        }
+        
+        // Draw a small connecting line from indicator to label area
+        const lineGeom = new THREE.BufferGeometry();
+        lineGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+            position.x, position.y, position.z + 0.15,
+            labelPos.x - 2, labelPos.y - 2, labelPos.z
+        ]), 3));
+        
+        const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 });
+        const line = new THREE.Line(lineGeom, lineMat);
+        labelGroup.add(line);
+        
+        // Add a small dot at label position
+        const dotGeom = new THREE.BufferGeometry();
+        dotGeom.setAttribute('position', new THREE.BufferAttribute(
+            new Float32Array([labelPos.x, labelPos.y, labelPos.z]), 3
+        ));
+        const dotMat = new THREE.PointsMaterial({ color, size: 4, sizeAttenuation: false });
+        labelGroup.add(new THREE.Points(dotGeom, dotMat));
+        
+        this.previewGroup.add(labelGroup);
     }
     
     /**

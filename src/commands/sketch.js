@@ -5,7 +5,8 @@
  */
 
 import { registerCommand } from '../core/commands.js';
-import { sketchManager, SketchMode } from '../sketch/sketch-manager.js';
+import { sketchManager, SketchMode, ConstraintType, SketchLine, SketchCircle } from '../sketch/sketch-manager.js';
+import { solveSketch } from '../sketch/constraint-solver.js';
 
 /**
  * Register all sketch-related commands
@@ -213,6 +214,406 @@ export function registerSketchCommands(context) {
                 return { success: true };
             }
             return { success: false, error: 'Nothing selected' };
+        }
+    });
+    
+    // CONSTRAIN - Add constraint to selected entity
+    registerCommand('constrain', {
+        aliases: ['con'],
+        description: 'Add constraint to selected line (horizontal, vertical)',
+        category: 'sketch',
+        params: [
+            { name: 'type', type: 'string', required: true, description: 'Constraint type (horizontal, vertical)' }
+        ],
+        validate(params) {
+            const validTypes = ['horizontal', 'vertical', 'h', 'v'];
+            if (!validTypes.includes(params.type?.toLowerCase())) {
+                return `Invalid constraint type: ${params.type}. Use horizontal or vertical`;
+            }
+            return true;
+        },
+        async execute(params, ctx) {
+            if (!ctx.inSketchMode) {
+                return { success: false, error: 'Enter sketch mode first' };
+            }
+            
+            const sketch = sketchManager.activeSketch;
+            if (!sketch) {
+                return { success: false, error: 'No active sketch' };
+            }
+            
+            // Find selected lines
+            const selectedLines = [];
+            for (const id of sketchManager.selectedEntities) {
+                const entity = sketch.getEntity(id);
+                if (entity && sketch.lines.has(id)) {
+                    selectedLines.push(entity);
+                }
+            }
+            
+            if (selectedLines.length === 0) {
+                return { success: false, error: 'Select a line first' };
+            }
+            
+            // Normalize constraint type
+            let constraintType;
+            const typeInput = params.type.toLowerCase();
+            if (typeInput === 'horizontal' || typeInput === 'h') {
+                constraintType = ConstraintType.HORIZONTAL;
+            } else if (typeInput === 'vertical' || typeInput === 'v') {
+                constraintType = ConstraintType.VERTICAL;
+            }
+            
+            // Add constraints to all selected lines
+            let addedCount = 0;
+            for (const line of selectedLines) {
+                // Check if already has this constraint
+                const existingConstraints = Array.from(sketch.constraints.values())
+                    .filter(c => c.entities.includes(line.id) && c.type === constraintType);
+                
+                if (existingConstraints.length === 0) {
+                    sketch.addConstraint(constraintType, [line.id]);
+                    addedCount++;
+                }
+            }
+            
+            // Solve the sketch to apply constraints
+            const result = solveSketch(sketch);
+            
+            // Trigger UI update
+            if (ctx.updateSketchView) {
+                ctx.updateSketchView();
+            } else if (sketchManager.onSketchUpdate) {
+                sketchManager.onSketchUpdate(sketch);
+            }
+            
+            return { 
+                success: true, 
+                type: constraintType, 
+                count: addedCount,
+                solverStatus: result.status,
+                converged: result.converged
+            };
+        }
+    });
+    
+    // H - Shortcut for horizontal constraint
+    registerCommand('h', {
+        aliases: ['horizontal'],
+        description: 'Make selected line(s) horizontal',
+        category: 'sketch',
+        params: [],
+        async execute(params, ctx) {
+            // Delegate to constrain command
+            return registerCommand._executeDelegate('constrain', { type: 'horizontal' }, ctx);
+        }
+    });
+    
+    // V - Shortcut for vertical constraint
+    registerCommand('v', {
+        aliases: ['vertical'],
+        description: 'Make selected line(s) vertical',
+        category: 'sketch',
+        params: [],
+        async execute(params, ctx) {
+            // Delegate to constrain command
+            return registerCommand._executeDelegate('constrain', { type: 'vertical' }, ctx);
+        }
+    });
+    
+    // Internal helper for command delegation
+    registerCommand._executeDelegate = async function(cmdName, params, ctx) {
+        if (!ctx.inSketchMode) {
+            return { success: false, error: 'Enter sketch mode first' };
+        }
+        
+        const sketch = sketchManager.activeSketch;
+        if (!sketch) {
+            return { success: false, error: 'No active sketch' };
+        }
+        
+        // Find selected lines
+        const selectedLines = [];
+        for (const id of sketchManager.selectedEntities) {
+            const entity = sketch.getEntity(id);
+            if (entity && sketch.lines.has(id)) {
+                selectedLines.push(entity);
+            }
+        }
+        
+        if (selectedLines.length === 0) {
+            return { success: false, error: 'Select a line first' };
+        }
+        
+        // Normalize constraint type
+        let constraintType;
+        const typeInput = params.type.toLowerCase();
+        if (typeInput === 'horizontal' || typeInput === 'h') {
+            constraintType = ConstraintType.HORIZONTAL;
+        } else if (typeInput === 'vertical' || typeInput === 'v') {
+            constraintType = ConstraintType.VERTICAL;
+        }
+        
+        // Add constraints to all selected lines
+        let addedCount = 0;
+        for (const line of selectedLines) {
+            // Check if already has this constraint
+            const existingConstraints = Array.from(sketch.constraints.values())
+                .filter(c => c.entities.includes(line.id) && c.type === constraintType);
+            
+            if (existingConstraints.length === 0) {
+                sketch.addConstraint(constraintType, [line.id]);
+                addedCount++;
+            }
+        }
+        
+        // Solve the sketch to apply constraints
+        const result = solveSketch(sketch);
+        
+        // Trigger UI update
+        if (ctx.updateSketchView) {
+            ctx.updateSketchView();
+        } else if (sketchManager.onSketchUpdate) {
+            sketchManager.onSketchUpdate(sketch);
+        }
+        
+        return { 
+            success: true, 
+            type: constraintType, 
+            count: addedCount,
+            solverStatus: result.status,
+            converged: result.converged
+        };
+    };
+    
+    // DIMENSION - Set exact length/dimension on selected element
+    registerCommand('dimension', {
+        aliases: ['dim', 'distance', 'd'],
+        description: 'Set dimension (length) on selected line or radius on circle',
+        category: 'sketch',
+        params: [
+            { name: 'value', type: 'number', required: true, description: 'Dimension value' }
+        ],
+        validate(params) {
+            if (params.value === undefined || params.value === null) {
+                return 'Value is required';
+            }
+            if (params.value <= 0) {
+                return 'Value must be positive';
+            }
+            return true;
+        },
+        async execute(params, ctx) {
+            if (!ctx.inSketchMode) {
+                return { success: false, error: 'Enter sketch mode first' };
+            }
+            
+            const sketch = sketchManager.activeSketch;
+            if (!sketch) {
+                return { success: false, error: 'No active sketch' };
+            }
+            
+            // Find selected entities (lines or circles)
+            const selectedEntities = [];
+            for (const id of sketchManager.selectedEntities) {
+                const entity = sketch.getEntity(id);
+                if (entity) {
+                    if (entity instanceof SketchLine) {
+                        selectedEntities.push({ entity, type: 'line' });
+                    } else if (entity instanceof SketchCircle) {
+                        selectedEntities.push({ entity, type: 'circle' });
+                    }
+                }
+            }
+            
+            if (selectedEntities.length === 0) {
+                return { success: false, error: 'Select a line or circle first' };
+            }
+            
+            // Add dimension constraints
+            let addedCount = 0;
+            const constraints = [];
+            
+            for (const { entity, type } of selectedEntities) {
+                // Check if already has a length/radius constraint
+                const existingLength = Array.from(sketch.constraints.values())
+                    .filter(c => c.entities.includes(entity.id) && 
+                                (c.type === ConstraintType.LENGTH || c.type === ConstraintType.RADIUS));
+                
+                if (existingLength.length > 0) {
+                    // Update existing constraint value
+                    existingLength[0].value = params.value;
+                } else {
+                    // Add new constraint
+                    const constraintType = type === 'circle' ? ConstraintType.RADIUS : ConstraintType.LENGTH;
+                    const constraint = sketch.addConstraint(constraintType, [entity.id], params.value);
+                    constraints.push(constraint);
+                    addedCount++;
+                }
+            }
+            
+            // Solve the sketch to apply constraints
+            const result = solveSketch(sketch);
+            
+            // Trigger UI update
+            if (ctx.updateSketchView) {
+                ctx.updateSketchView();
+            } else if (sketchManager.onSketchUpdate) {
+                sketchManager.onSketchUpdate(sketch);
+            }
+            
+            return { 
+                success: true, 
+                value: params.value,
+                count: addedCount,
+                solverStatus: result.status,
+                converged: result.converged
+            };
+        }
+    });
+    
+    // LENGTH - Alias for dimension (specifically for lines)
+    registerCommand('length', {
+        aliases: ['len'],
+        description: 'Set length of selected line',
+        category: 'sketch',
+        params: [
+            { name: 'value', type: 'number', required: true, description: 'Length value' }
+        ],
+        validate(params) {
+            if (params.value === undefined || params.value === null) {
+                return 'Value is required';
+            }
+            if (params.value <= 0) {
+                return 'Value must be positive';
+            }
+            return true;
+        },
+        async execute(params, ctx) {
+            // Delegate to dimension command
+            if (!ctx.inSketchMode) {
+                return { success: false, error: 'Enter sketch mode first' };
+            }
+            
+            const sketch = sketchManager.activeSketch;
+            if (!sketch) {
+                return { success: false, error: 'No active sketch' };
+            }
+            
+            // Only process lines
+            const selectedLines = [];
+            for (const id of sketchManager.selectedEntities) {
+                const entity = sketch.getEntity(id);
+                if (entity instanceof SketchLine) {
+                    selectedLines.push(entity);
+                }
+            }
+            
+            if (selectedLines.length === 0) {
+                return { success: false, error: 'Select a line first' };
+            }
+            
+            let addedCount = 0;
+            for (const line of selectedLines) {
+                // Check if already has a length constraint
+                const existing = Array.from(sketch.constraints.values())
+                    .filter(c => c.entities.includes(line.id) && c.type === ConstraintType.LENGTH);
+                
+                if (existing.length > 0) {
+                    existing[0].value = params.value;
+                } else {
+                    sketch.addConstraint(ConstraintType.LENGTH, [line.id], params.value);
+                    addedCount++;
+                }
+            }
+            
+            const result = solveSketch(sketch);
+            
+            if (ctx.updateSketchView) {
+                ctx.updateSketchView();
+            } else if (sketchManager.onSketchUpdate) {
+                sketchManager.onSketchUpdate(sketch);
+            }
+            
+            return { 
+                success: true, 
+                value: params.value,
+                count: addedCount,
+                solverStatus: result.status,
+                converged: result.converged
+            };
+        }
+    });
+    
+    // RADIUS - Set radius on selected circle
+    registerCommand('radius', {
+        aliases: ['rad'],
+        description: 'Set radius of selected circle',
+        category: 'sketch',
+        params: [
+            { name: 'value', type: 'number', required: true, description: 'Radius value' }
+        ],
+        validate(params) {
+            if (params.value === undefined || params.value === null) {
+                return 'Value is required';
+            }
+            if (params.value <= 0) {
+                return 'Value must be positive';
+            }
+            return true;
+        },
+        async execute(params, ctx) {
+            if (!ctx.inSketchMode) {
+                return { success: false, error: 'Enter sketch mode first' };
+            }
+            
+            const sketch = sketchManager.activeSketch;
+            if (!sketch) {
+                return { success: false, error: 'No active sketch' };
+            }
+            
+            // Only process circles
+            const selectedCircles = [];
+            for (const id of sketchManager.selectedEntities) {
+                const entity = sketch.getEntity(id);
+                if (entity instanceof SketchCircle) {
+                    selectedCircles.push(entity);
+                }
+            }
+            
+            if (selectedCircles.length === 0) {
+                return { success: false, error: 'Select a circle first' };
+            }
+            
+            let addedCount = 0;
+            for (const circle of selectedCircles) {
+                // Check if already has a radius constraint
+                const existing = Array.from(sketch.constraints.values())
+                    .filter(c => c.entities.includes(circle.id) && c.type === ConstraintType.RADIUS);
+                
+                if (existing.length > 0) {
+                    existing[0].value = params.value;
+                } else {
+                    sketch.addConstraint(ConstraintType.RADIUS, [circle.id], params.value);
+                    addedCount++;
+                }
+            }
+            
+            const result = solveSketch(sketch);
+            
+            if (ctx.updateSketchView) {
+                ctx.updateSketchView();
+            } else if (sketchManager.onSketchUpdate) {
+                sketchManager.onSketchUpdate(sketch);
+            }
+            
+            return { 
+                success: true, 
+                value: params.value,
+                count: addedCount,
+                solverStatus: result.status,
+                converged: result.converged
+            };
         }
     });
 }

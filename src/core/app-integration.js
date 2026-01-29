@@ -16,6 +16,7 @@ import { registerGeneralCommands } from '../commands/general.js';
 import { registerExportCommands } from '../commands/export.js';
 import { registerSweepCommands } from '../commands/sweep.js';
 import { registerTransformCommands } from '../commands/transforms.js';
+import { registerSketchCommands } from '../commands/sketch.js';
 
 // Application context - shared state between commands
 const appContext = {
@@ -161,6 +162,7 @@ function registerAllCommands() {
     registerExportCommands(appContext);
     registerSweepCommands(wrappedKernel);
     registerTransformCommands(wrappedKernel);
+    registerSketchCommands(appContext);
     
     // Register custom app commands
     registerAppCommands();
