@@ -333,6 +333,36 @@ function getFeatureUserDataParams(feature) {
   return params;
 }
 
+function removeFeatureFromShell(featureId, feature, mesh = null) {
+  const evaluator = System.americad?.evaluator;
+  const evaluatorMesh = evaluator?.getMesh?.(featureId) || null;
+  const meshesToRemove = new Set([mesh, evaluatorMesh].filter(Boolean));
+
+  if (evaluatorMesh) {
+    evaluator.removeFeatureMesh(featureId);
+  }
+
+  for (const object of meshesToRemove) {
+    scene.remove(object);
+
+    if (object !== evaluatorMesh) {
+      if (object.geometry) object.geometry.dispose();
+      if (object.material) object.material.dispose();
+    }
+
+    if (selectionManager.getSelected() === object) {
+      selectionManager.deselect(transformControl);
+      propertyPanel?.clear();
+    }
+  }
+
+  System.objects = System.objects.filter(object => !meshesToRemove.has(object));
+
+  if (!evaluatorMesh && feature?.kernelId && kernel) {
+    kernel.deleteShape(feature.kernelId).catch(() => {});
+  }
+}
+
 function initFeatureTreeUI() {
   // Add feature tree styles
   addFeatureTreeStyles();
@@ -437,29 +467,10 @@ function initFeatureTreeUI() {
 
     const mesh = findFeatureMesh(featureId, feature);
 
-    // Remove from scene and objects array
-    if (mesh) {
-      scene.remove(mesh);
-      System.objects = System.objects.filter(o => o !== mesh);
-
-      // Dispose geometry and material
-      if (mesh.geometry) mesh.geometry.dispose();
-      if (mesh.material) mesh.material.dispose();
-
-      // Deselect if selected
-      if (selectionManager.getSelected() === mesh) {
-        selectionManager.deselect(transformControl);
-        propertyPanel?.clear();
-      }
-    }
-
-    // Clean up kernel shape
-    if (feature.kernelId && kernel) {
-      kernel.deleteShape(feature.kernelId).catch(() => {});
-    }
+    removeFeatureFromShell(featureId, feature, mesh);
 
     // Remove from document model (will trigger tree update via callback)
-    docModel.untrackExternalFeature(featureId, true);
+    docModel.removeFeature(featureId);
     updateMaterialsPanel();
     updateTimeline();
     updateStatusBar();
@@ -1504,17 +1515,22 @@ function deleteSelected() {
 
   const name = selected.userData.name;
   const featureId = selected.userData.id;
+  const docModel = System.americad?.document;
+  const feature = featureId ? docModel?.getFeature(featureId) : null;
 
   // Record in history
   const cmd = new DeleteCommand(scene, System.objects, selected);
-  commandManager.execute(cmd);
-
-  // Remove from document model (triggers feature tree update)
-  if (featureId && System.americad?.document) {
-    System.americad.document.untrackExternalFeature(featureId, true);
+  if (feature) {
+    commandManager.push(cmd);
+    removeFeatureFromShell(featureId, feature, selected);
+    docModel.removeFeature(featureId);
+  } else {
+    commandManager.execute(cmd);
   }
 
-  selectionManager.deselect(transformControl);
+  if (selectionManager.getSelected()) {
+    selectionManager.deselect(transformControl);
+  }
   updateStatusBar();
 
   log(`DELETED: ${name}`, 'warn');

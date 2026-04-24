@@ -162,6 +162,26 @@ test.describe('Ameri-CAD command surface', () => {
     await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
     await page.locator('[data-tab="browser"]').click();
     await expect(page.locator('#feature-tree .tree-node')).toHaveCount(1);
+    await page.locator('#feature-tree .tree-node').first().click({ button: 'right' });
+    await page.locator('#feature-context-menu [data-action="delete"]').click();
+    await page.waitForFunction(
+      () =>
+        window.AmericaD.System.objects.length === 0 &&
+        (window.AmericaD.document?.features?.size ?? 0) === 0
+    );
+    await expect(page.locator('#body-count')).toHaveText('0');
+    await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
+    await expect(page.locator('#feature-tree .tree-node')).toHaveCount(0);
+
+    await page.evaluate(
+      json => window.AmericaD.app.loadDocument(json, 'reloaded.americad'),
+      serialized
+    );
+    await page.waitForFunction(
+      () =>
+        window.AmericaD.System.objects.length === 1 &&
+        (window.AmericaD.document?.features?.size ?? 0) === 1
+    );
 
     await page.evaluate(() => window.AmericaD.app.newDocument());
     await page.waitForFunction(
