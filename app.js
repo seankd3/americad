@@ -339,6 +339,31 @@ function initFeatureTreeUI() {
   // Create the feature tree UI
   featureTreeUI = new FeatureTreeUI('#feature-tree', docModel);
 
+  const findFeatureMesh = (featureId, feature) =>
+    System.objects.find(
+      obj =>
+        obj.userData?.id === featureId ||
+        obj.userData?.kernelId === feature?.kernelId ||
+        obj.uuid === feature?.meshId
+    );
+
+  const editFeatureFromBrowser = featureId => {
+    const feature = docModel.getFeature(featureId);
+    if (!feature) return;
+
+    const mesh = findFeatureMesh(featureId, feature);
+    if (mesh) {
+      selectObject(mesh);
+    }
+
+    if (propertyPanel) {
+      propertyPanel.bind(feature, mesh || null);
+    }
+
+    setTab('properties');
+    log(`EDIT: ${feature.name}`, 'info');
+  };
+
   const updateDocumentDrivenUI = () => {
     updateFeatureTree();
     updateMaterialsPanel();
@@ -356,13 +381,7 @@ function initFeatureTreeUI() {
     const feature = docModel.getFeature(featureId);
     if (!feature) return;
 
-    // Find the mesh in System.objects by matching IDs
-    const mesh = System.objects.find(
-      obj =>
-        obj.userData?.id === featureId ||
-        obj.userData?.kernelId === feature.kernelId ||
-        obj.uuid === feature.meshId
-    );
+    const mesh = findFeatureMesh(featureId, feature);
 
     if (mesh) {
       selectObject(mesh);
@@ -370,13 +389,9 @@ function initFeatureTreeUI() {
     }
   };
 
-  // Wire double-click to edit parameters (placeholder for future)
+  // Wire double-click/context edit to the real property inspector
   featureTreeUI.onFeatureDoubleClick = featureId => {
-    const feature = docModel.getFeature(featureId);
-    if (feature) {
-      log(`EDIT: ${feature.name} (params: ${JSON.stringify(feature.params)})`, 'info');
-      // TODO: Show parameter edit dialog
-    }
+    editFeatureFromBrowser(featureId);
   };
 
   // Wire visibility toggle
@@ -387,13 +402,7 @@ function initFeatureTreeUI() {
     // Update feature visibility
     feature.visible = visible;
 
-    // Find and update the mesh
-    const mesh = System.objects.find(
-      obj =>
-        obj.userData?.id === featureId ||
-        obj.userData?.kernelId === feature.kernelId ||
-        obj.uuid === feature.meshId
-    );
+    const mesh = findFeatureMesh(featureId, feature);
 
     if (mesh) {
       mesh.visible = visible;
@@ -415,13 +424,7 @@ function initFeatureTreeUI() {
 
     const name = feature.name;
 
-    // Find the mesh
-    const mesh = System.objects.find(
-      obj =>
-        obj.userData?.id === featureId ||
-        obj.userData?.kernelId === feature.kernelId ||
-        obj.uuid === feature.meshId
-    );
+    const mesh = findFeatureMesh(featureId, feature);
 
     // Remove from scene and objects array
     if (mesh) {
@@ -458,12 +461,7 @@ function initFeatureTreeUI() {
     feature.name = newName;
 
     // Also update the mesh userData
-    const mesh = System.objects.find(
-      obj =>
-        obj.userData?.id === featureId ||
-        obj.userData?.kernelId === feature.kernelId ||
-        obj.uuid === feature.meshId
-    );
+    const mesh = findFeatureMesh(featureId, feature);
 
     if (mesh) {
       mesh.userData.name = newName;
