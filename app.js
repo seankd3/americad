@@ -791,6 +791,7 @@ function reconcileDocumentWithScene() {
           kernelId: obj.userData?.kernelId,
           type: obj.userData?.bodyType || obj.userData?.type || 'body',
           name: obj.userData?.name || obj.name || featureId,
+          params: obj.userData?.params,
           mesh: obj,
         },
         false
@@ -1194,6 +1195,33 @@ async function createPrimitive(type, options = {}) {
   return createFallbackPrimitive(type, options);
 }
 
+function getPrimitiveFeatureParams(type, options = {}) {
+  const centerArray = options.position ?? [0, 0, 0];
+  const center = { x: centerArray[0], y: centerArray[1], z: centerArray[2] };
+
+  switch (type) {
+    case 'box':
+    case 'cube':
+      const size = options.size ?? [10, 10, 10];
+      return { width: size[0], height: size[1], depth: size[2], center };
+    case 'sphere':
+      return { radius: options.radius ?? 10, center };
+    case 'cylinder':
+      return { radius: options.radius ?? 8, height: options.height ?? 20, center };
+    case 'cone':
+      return {
+        radius1: options.radius ?? 8,
+        radius2: options.radius2 ?? 0,
+        height: options.height ?? 16,
+        center,
+      };
+    case 'torus':
+      return { radius: options.radius ?? 8, tube: options.tube ?? 3, center };
+    default:
+      return { center };
+  }
+}
+
 /**
  * Create primitive using OpenCASCADE kernel (real B-Rep geometry)
  */
@@ -1251,6 +1279,7 @@ async function createKernelPrimitive(type, options = {}) {
     material: options.material ?? DEFAULT_MATERIAL_NAME,
     created: Date.now(),
     isKernelGeometry: true,
+    params: getPrimitiveFeatureParams(type, options),
   };
 
   scene.add(mesh);
@@ -1272,6 +1301,7 @@ async function createKernelPrimitive(type, options = {}) {
         kernelId: result.id,
         type: type,
         name: mesh.userData.name,
+        params: mesh.userData.params,
         mesh: mesh,
       });
     } catch (err) {
@@ -1343,6 +1373,7 @@ function createFallbackPrimitive(type, options = {}) {
     material: options.material ?? DEFAULT_MATERIAL_NAME,
     created: Date.now(),
     isKernelGeometry: false,
+    params: getPrimitiveFeatureParams(type, options),
   };
 
   scene.add(mesh);
@@ -1362,6 +1393,7 @@ function createFallbackPrimitive(type, options = {}) {
         id: mesh.userData.id,
         type: type,
         name: mesh.userData.name,
+        params: mesh.userData.params,
         mesh: mesh,
       });
     } catch (err) {

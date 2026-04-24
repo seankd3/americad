@@ -841,6 +841,7 @@ export class DocumentModel {
   trackExternalFeature(data, triggerCallbacks = true) {
     // Create a lightweight feature reference without full evaluation
     const feature = new Feature(data.type, {
+      ...(data.params || {}),
       name: data.name,
       external: true,
       meshRef: data.mesh,
