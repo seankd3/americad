@@ -71,6 +71,14 @@ test.describe('Ameri-CAD command surface', () => {
     await page.locator('#feature-context-menu [data-action="edit"]').click();
     await expect(page.locator('#panel-properties')).toHaveClass(/active/);
     await expect(page.locator('#prop-name')).toHaveValue(/BODY_/);
+
+    await page.locator('[data-tab="browser"]').click();
+    await page.locator('#feature-tree .tree-node').first().click({ button: 'right' });
+    await page.locator('#feature-context-menu [data-action="delete"]').click();
+    await page.waitForFunction(() => window.AmericaD.System.objects.length === 0);
+    await expect(page.locator('#body-count')).toHaveText('0');
+    await expect(page.locator('#selection-status')).toHaveText('NONE');
+    await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
     expect(consoleErrors).toEqual([]);
   });
 });

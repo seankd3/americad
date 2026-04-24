@@ -415,6 +415,9 @@ function initFeatureTreeUI() {
 
     log(`${feature.name}: ${visible ? 'SHOWN' : 'HIDDEN'}`, 'info');
     featureTreeUI.render();
+    updateProperties();
+    updateMaterialsPanel();
+    updateStatusBar();
   };
 
   // Wire delete from tree
@@ -438,6 +441,7 @@ function initFeatureTreeUI() {
       // Deselect if selected
       if (selectionManager.getSelected() === mesh) {
         selectionManager.deselect(transformControl);
+        propertyPanel?.clear();
       }
     }
 
@@ -448,6 +452,9 @@ function initFeatureTreeUI() {
 
     // Remove from document model (will trigger tree update via callback)
     docModel.untrackExternalFeature(featureId, true);
+    updateMaterialsPanel();
+    updateTimeline();
+    updateStatusBar();
 
     log(`DELETED: ${name}`, 'warn');
   };
@@ -468,6 +475,11 @@ function initFeatureTreeUI() {
       mesh.name = newName;
     }
 
+    featureTreeUI.render();
+    if (selectionManager.getSelected() === mesh && propertyPanel) {
+      propertyPanel.bind(feature, mesh);
+    }
+    updateStatusBar();
     log(`RENAMED: ${oldName} → ${newName}`, 'info');
   };
 
