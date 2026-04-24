@@ -93,6 +93,17 @@ test.describe('Ameri-CAD command surface', () => {
     await expect(page.locator('#body-count')).toHaveText('0');
     await expect(page.locator('#selection-status')).toHaveText('NONE');
     await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
+
+    await page.evaluate(() => window.AmericaD.executeCommand('box 8 8 8'));
+    await page.waitForFunction(() => window.AmericaD.System.objects.length === 1);
+    await page.evaluate(() => window.AmericaD.executeCommand('clear'));
+    await page.waitForFunction(
+      () =>
+        window.AmericaD.System.objects.length === 0 &&
+        (window.AmericaD.document?.features?.size ?? 0) === 0
+    );
+    await expect(page.locator('#body-count')).toHaveText('0');
+    await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
     expect(consoleErrors).toEqual([]);
   });
 });

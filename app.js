@@ -3865,9 +3865,14 @@ function clearScene() {
   System.objects = [];
   selectionManager.deselect(transformControl);
   commandManager.clear();
-  updateMaterialsPanel();
-  updateTimeline();
-  updateStatusBar();
+
+  const docModel = System.americad?.document || americadApp?.document;
+  if (docModel?.clear) {
+    docModel.clear();
+  }
+
+  propertyPanel?.clear();
+  reconcileDocumentWithScene();
   log('SCENE CLEARED', 'warn');
 }
 
