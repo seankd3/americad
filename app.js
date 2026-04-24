@@ -1195,6 +1195,18 @@ async function createPrimitive(type, options = {}) {
   return createFallbackPrimitive(type, options);
 }
 
+function getPrimitiveDefaults(type) {
+  return (
+    {
+      box: { size: [20, 20, 20], position: [0, 10, 0] },
+      sphere: { radius: 10, position: [0, 10, 0] },
+      cylinder: { radius: 8, height: 20, position: [0, 10, 0] },
+      cone: { radius: 8, height: 16, position: [0, 8, 0] },
+      torus: { radius: 10, tube: 3, position: [0, 13, 0] },
+    }[type] || {}
+  );
+}
+
 function getPrimitiveFeatureParams(type, options = {}) {
   const centerArray = options.position ?? [0, 0, 0];
   const center = { x: centerArray[0], y: centerArray[1], z: centerArray[2] };
@@ -2950,16 +2962,7 @@ function initUI() {
       const primitiveType = btn.dataset.primitive;
       log(`CREATING ${primitiveType.toUpperCase()}...`, 'info');
 
-      // Default sizes for each primitive type
-      const defaults = {
-        box: { size: [20, 20, 20], position: [0, 10, 0] },
-        sphere: { radius: 10, position: [0, 10, 0] },
-        cylinder: { radius: 8, height: 20, position: [0, 10, 0] },
-        cone: { radius: 8, height: 16, position: [0, 8, 0] },
-        torus: { radius: 10, tube: 3, position: [0, 13, 0] },
-      };
-
-      await createPrimitive(primitiveType, defaults[primitiveType] || {});
+      await createPrimitive(primitiveType, getPrimitiveDefaults(primitiveType));
     });
   });
 
@@ -3002,11 +3005,11 @@ function initUI() {
   });
 
   document.querySelectorAll('[data-action="create"]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const selected = document.querySelector('.template-item.selected');
       if (selected) {
         const template = selected.dataset.template;
-        if (template !== 'empty') createPrimitive(template);
+        await createNewDocument(template);
       }
       closeModals();
     });
@@ -3751,6 +3754,9 @@ async function executeCommand(cmd) {
     case 'clearall':
       clearScene();
       break;
+    case 'new':
+      await createNewDocument(args[0] || 'empty');
+      break;
     case 'fit':
     case 'zf':
     case 'zoomfit':
@@ -3906,6 +3912,29 @@ function clearScene() {
   propertyPanel?.clear();
   reconcileDocumentWithScene();
   log('SCENE CLEARED', 'warn');
+}
+
+async function createNewDocument(template = 'empty') {
+  clearScene();
+
+  const titleEl = document.querySelector('.doc-title span[contenteditable]');
+  if (titleEl) titleEl.textContent = 'UNTITLED.AD';
+
+  const badge = document.querySelector('.doc-title .badge');
+  if (badge) badge.style.display = 'none';
+
+  if (template && template !== 'empty') {
+    await createPrimitive(template, getPrimitiveDefaults(template));
+  }
+
+  updateFeatureTree();
+  updateMaterialsPanel();
+  updateTimeline();
+  updateStatusBar();
+  log(
+    template && template !== 'empty' ? `NEW DESIGN: ${template.toUpperCase()}` : 'NEW DESIGN',
+    'success'
+  );
 }
 
 // ========================================

@@ -104,6 +104,19 @@ test.describe('Ameri-CAD command surface', () => {
     );
     await expect(page.locator('#body-count')).toHaveText('0');
     await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
+
+    await page.evaluate(() => window.AmericaD.executeCommand('box 8 8 8'));
+    await page.waitForFunction(() => window.AmericaD.System.objects.length === 1);
+    await page.evaluate(() => window.AmericaD.executeCommand('new cylinder'));
+    await page.waitForFunction(
+      () =>
+        window.AmericaD.System.objects.length === 1 &&
+        window.AmericaD.System.objects[0].userData?.bodyType === 'cylinder' &&
+        (window.AmericaD.document?.features?.size ?? 0) === 1
+    );
+    await expect(page.locator('#body-count')).toHaveText('1');
+    await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
+    await expect(page.locator('#selection-status')).toContainText('BODY_');
     expect(consoleErrors).toEqual([]);
   });
 });
