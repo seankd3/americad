@@ -1,6 +1,46 @@
 # Ameri-CAD Vision
 
-**The best of Fusion 360 + Blender in one application.**
+**Fusion 360-class parametric CAD, local-first, free, and open.**
+
+Ameri-CAD exists for people who want professional mechanical CAD without a cloud
+account, subscription lock-in, or disappearing files. It should feel as capable
+as Fusion 360 for everyday modeling, but with a local document model, inspectable
+data, offline operation, and a faster path from idea to editable solid.
+
+## Product Promise
+
+- **Local-first by default** — projects live on disk as human-readable `.americad`
+  documents with embedded feature history, parameters, and references.
+- **Real parametric CAD** — sketches, constraints, features, timeline edits, and
+  regeneration are the core workflow, not an afterthought.
+- **Open geometry pipeline** — OpenCASCADE B-Rep is the modeling truth; Three.js
+  is the viewport, not the CAD kernel.
+- **Powerful but calm** — command line, shortcuts, and palette for experts;
+  discoverable toolbar, inspector, and timeline for normal use.
+- **Free as in useful** — no forced cloud, no subscription, no artificial export
+  limits, no dark patterns.
+
+## Golden Workflow
+
+This workflow must be excellent before advanced features count as done:
+
+1. Create or open a local document.
+2. Pick a construction plane.
+3. Sketch a constrained profile with dimensions.
+4. Finish sketch and create an extrude/revolve.
+5. Edit sketch dimensions or feature parameters.
+6. Regenerate downstream features predictably.
+7. Save, reopen, and export STEP/STL without losing design intent.
+
+## Architecture Rule
+
+There is one source of truth:
+
+`Document -> Parameters -> Sketches -> Features -> Bodies -> Evaluated Geometry`
+
+UI tools and typed commands may create intent, but they do not own CAD state.
+The document graph owns state. The evaluator rebuilds geometry from that graph.
+The viewport renders evaluated geometry.
 
 ## From Fusion 360 (Precision CAD)
 

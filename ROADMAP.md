@@ -1,100 +1,77 @@
-# Ameri-CAD Development Roadmap
+# Ameri-CAD Roadmap
 
-**Generated:** 2026-01-29
-**Goal:** Professional CAD app like Fusion 360, running locally
+**Goal:** Fusion 360-class parametric CAD that runs locally, stays free, and keeps
+the user's design data under their control.
 
-## Architecture (Council-Approved)
+## Non-Negotiables
 
-```
-┌─────────────────────────────────────────┐
-│         UI Layer (Main Thread)          │
-│   Three.js viewport, panels, tree       │
-└────────────────┬────────────────────────┘
-                 │ postMessage
-┌────────────────▼────────────────────────┐
-│      Document Model (Feature DAG)       │
-│  Source of truth: JSON recipe + params  │
-│  Topology map: Face#1 → kernel ID       │
-└────────────────┬────────────────────────┘
-                 │ Transferable buffers
-┌────────────────▼────────────────────────┐
-│    Geometry Kernel (Web Worker)         │
-│  OpenCASCADE.js WASM (~30MB)            │
-│  B-Rep ops → tessellation → render mesh │
-└─────────────────────────────────────────┘
-```
+- One canonical document graph. No parallel app/document/command state.
+- OpenCASCADE B-Rep is the modeling source of truth.
+- `.americad` files preserve feature history, sketches, parameters, and metadata.
+- The app works offline and does not require an account.
+- Every promoted feature has a Playwright or browser-harness regression test.
+- Design QA covers desktop and narrow viewports before commit.
 
-## Phase 1: Foundation (Current)
+## Phase 0: Stabilize The Existing App
 
-- [x] Basic Three.js visualization
-- [x] Primitive creation (mesh-based)
-- [x] Transform controls
-- [ ] **Module extraction** - Break app.js into ES modules
-- [ ] **Command pattern** - Undo/redo system
-- [ ] **Test harness** - Browser-native tests
+- [x] Stop silent boot fallback when command palette wiring breaks.
+- [x] Add boot/design QA coverage for runtime errors and mobile overflow.
+- [ ] Expose and test the public command surface for scripting and docs.
+- [ ] Make status, command line, and feature tree report real document state.
+- [ ] Remove fake inspector data when nothing is selected.
 
-## Phase 2: Kernel Integration
+## Phase 1: One Document Spine
 
-- [ ] OpenCASCADE.js setup in Web Worker
-- [ ] Primitive creation via kernel (B-Rep)
-- [ ] Tessellation pipeline (kernel → Three.js)
-- [ ] Topology ID mapping
+- [ ] Choose `DocumentModel` as the only CAD state owner.
+- [ ] Move primitive creation through typed feature creation.
+- [ ] Make commands return document mutations, not ad hoc scene mutations.
+- [ ] Make the feature tree render document features only.
+- [ ] Save/load the exact same graph used by the evaluator.
 
-## Phase 3: Parametric Operations
+## Phase 2: Golden CAD Workflow
 
-- [ ] Feature tree / Document Model
-- [ ] Extrude operation
-- [ ] Boolean operations (Union/Subtract/Intersect)
-- [ ] Fillet/Chamfer
-- [ ] Parameter editing with regeneration
+- [ ] New document starts empty and ready.
+- [ ] Create sketch on XY/XZ/YZ/custom construction plane.
+- [ ] Draw line, rectangle, circle, arc.
+- [ ] Add coincident, horizontal, vertical, distance, radius constraints.
+- [ ] Detect closed profiles.
+- [ ] Extrude a profile into a B-Rep body.
+- [ ] Edit sketch dimensions and regenerate the body.
+- [ ] Reopen saved file with the same editable timeline.
 
-## Phase 4: File I/O & Polish
+## Phase 3: Core Modeling
 
-- [ ] Native JSON format save/load
-- [ ] STEP export
-- [ ] STL export
-- [ ] Crash recovery system
-- [ ] CI/CD pipeline
+- [ ] Kernel-native box, cylinder, sphere, cone, torus.
+- [ ] Extrude, revolve, sweep, loft.
+- [ ] Boolean union, subtract, intersect.
+- [ ] Fillet, chamfer, shell, draft.
+- [ ] Hole wizard with counterbore, countersink, tapped holes.
+- [ ] Linear, circular, mirror, and path patterns.
+- [ ] Mass properties and interference checks.
 
-## v1.0 Feature Set
+## Phase 4: Product-Grade UX
 
-| Category       | Features                                        |
-| -------------- | ----------------------------------------------- |
-| **Primitives** | Box, Cylinder, Sphere, Cone (kernel-native)     |
-| **Operations** | Extrude, Booleans, Fillet/Chamfer               |
-| **Parametric** | Feature tree, editable dimensions, regeneration |
-| **Export**     | STL + STEP + Native JSON                        |
+- [ ] Replace symbolic clutter with clear tool groups and compact labels.
+- [ ] Inspector only shows real selected feature/body data.
+- [ ] Timeline supports edit, suppress, reorder, roll back.
+- [ ] Command palette lists all commands with searchable aliases.
+- [ ] Keyboard shortcuts are editable and visible in tooltips.
+- [ ] Design QA screenshot script captures desktop and mobile states.
 
-## File Structure (Target)
+## Phase 5: Local Professional CAD
 
-```
-americad/
-├── index.html
-├── styles.css
-├── src/
-│   ├── app.js              # Main orchestration
-│   ├── core/
-│   │   ├── math.js         # Pure geometry functions
-│   │   ├── transforms.js   # Matrix operations
-│   │   └── primitives.js   # Shape generation
-│   ├── state/
-│   │   ├── document.js     # Feature tree / DAG
-│   │   ├── history.js      # Command pattern undo/redo
-│   │   └── selection.js    # Selection management
-│   ├── kernel/
-│   │   ├── worker.js       # Web Worker for OCCT
-│   │   ├── bridge.js       # Main thread ↔ Worker comms
-│   │   └── operations.js   # Kernel operation wrappers
-│   └── ui/
-│       ├── viewport.js     # Three.js setup
-│       ├── panels.js       # UI panels
-│       └── tree.js         # Feature tree UI
-├── tests/
-│   ├── runner.html         # Browser test harness
-│   ├── math.test.js
-│   ├── primitives.test.js
-│   └── history.test.js
-└── .github/
-    └── workflows/
-        └── test.yml        # CI pipeline
-```
+- [ ] Assembly documents with components and joints.
+- [ ] Drawing workspace with projected 2D views and dimensions.
+- [ ] STEP, STL, and native export/import confidence tests.
+- [ ] Plugin/scripting API for local automation.
+- [ ] Optional collaboration/versioning without cloud lock-in.
+
+## Current Definition Of "Real"
+
+A feature is real only when it:
+
+1. Creates or edits typed document graph data.
+2. Rebuilds through the evaluator.
+3. Renders in the viewport from evaluated geometry.
+4. Survives save/load.
+5. Has focused regression coverage.
