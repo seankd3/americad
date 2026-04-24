@@ -774,6 +774,46 @@ function updateStatusBar() {
   }
 }
 
+function reconcileDocumentWithScene() {
+  const docModel = System.americad?.document || americadApp?.document;
+  if (!docModel) return;
+
+  const sceneFeatureIds = new Set();
+
+  for (const obj of System.objects) {
+    const featureId = obj.userData?.id || obj.uuid;
+    sceneFeatureIds.add(featureId);
+
+    if (!docModel.getFeature(featureId)) {
+      docModel.trackExternalFeature(
+        {
+          id: featureId,
+          kernelId: obj.userData?.kernelId,
+          type: obj.userData?.bodyType || obj.userData?.type || 'body',
+          name: obj.userData?.name || obj.name || featureId,
+          mesh: obj,
+        },
+        false
+      );
+    }
+  }
+
+  for (const feature of Array.from(docModel.features.values())) {
+    if (feature.params?.external && !sceneFeatureIds.has(feature.id)) {
+      docModel.untrackExternalFeature(feature.id, false);
+    }
+  }
+
+  updateFeatureTree();
+  updateMaterialsPanel();
+  updateTimeline();
+  updateStatusBar();
+
+  if (!selectionManager.getSelected()) {
+    propertyPanel?.clear();
+  }
+}
+
 function selectTimelineFeatureByIndex(index) {
   const featureIds = getTimelineFeatureIds();
   const featureId = featureIds[index];
@@ -1407,6 +1447,7 @@ function undo() {
     log(`UNDO: ${cmd.name}`, 'info');
     // Re-select if the object still exists
     selectionManager.deselect(transformControl);
+    reconcileDocumentWithScene();
   } else {
     log('NOTHING TO UNDO', 'warn');
   }
@@ -1417,6 +1458,7 @@ function redo() {
   if (cmd) {
     log(`REDO: ${cmd.name}`, 'info');
     selectionManager.deselect(transformControl);
+    reconcileDocumentWithScene();
   } else {
     log('NOTHING TO REDO', 'warn');
   }

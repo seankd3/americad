@@ -65,6 +65,20 @@ test.describe('Ameri-CAD command surface', () => {
     expect(created.bodyCount).toBe('1');
     expect(created.selectionStatus).toContain('BODY_');
 
+    await page.evaluate(() => window.AmericaD.executeCommand('undo'));
+    await page.waitForFunction(() => window.AmericaD.System.objects.length === 0);
+    await expect(page.locator('#body-count')).toHaveText('0');
+    await expect(page.locator('#selection-status')).toHaveText('NONE');
+    await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
+    await page.locator('[data-tab="materials"]').click();
+    await expect(page.locator('#materials-empty')).toContainText('NO MATERIALS IN DOCUMENT');
+
+    await page.evaluate(() => window.AmericaD.executeCommand('redo'));
+    await page.waitForFunction(() => window.AmericaD.System.objects.length === 1);
+    await expect(page.locator('#body-count')).toHaveText('1');
+    await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
+    await page.locator('[data-tab="properties"]').click();
+
     await page.locator('[data-tab="browser"]').click();
     await expect(page.locator('#panel-browser')).toHaveClass(/active/);
     await page.locator('#feature-tree .tree-node').first().click({ button: 'right' });
