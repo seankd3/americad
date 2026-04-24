@@ -325,6 +325,14 @@ async function initKernelSystem() {
 /**
  * Initialize the Feature Tree UI and wire callbacks
  */
+function getFeatureUserDataParams(feature) {
+  const params = { ...(feature?.params || {}) };
+  delete params.name;
+  delete params.external;
+  delete params.meshRef;
+  return params;
+}
+
 function initFeatureTreeUI() {
   // Add feature tree styles
   addFeatureTreeStyles();
@@ -509,7 +517,11 @@ function initFeatureTreeUI() {
 
         case 'param':
           // Update geometry with new parameters
+          const previousMesh = System.objects.find(obj => obj.userData?.id === featureId);
           feature.updateParams(value);
+          if (previousMesh?.userData?.params) {
+            previousMesh.userData.params = { ...previousMesh.userData.params, ...value };
+          }
 
           // Regenerate geometry using the unified architecture
           if (System.americad?.kernelReady && System.americad?.evaluator) {
@@ -518,9 +530,35 @@ function initFeatureTreeUI() {
             // Refresh property panel with new geometry info
             const updatedMesh = System.americad.evaluator.getMesh(featureId);
             if (propertyPanel && updatedMesh) {
+              updatedMesh.userData = {
+                ...(previousMesh?.userData || {}),
+                ...updatedMesh.userData,
+                type: 'body',
+                id: featureId,
+                name: feature.name,
+                bodyType: feature.type,
+                kernelId: feature.kernelId,
+                isKernelGeometry: true,
+                params: getFeatureUserDataParams(feature),
+              };
+
+              const objectIndex = System.objects.findIndex(obj => obj.userData?.id === featureId);
+              if (objectIndex >= 0) {
+                if (System.objects[objectIndex] !== updatedMesh) {
+                  scene.remove(System.objects[objectIndex]);
+                }
+                System.objects[objectIndex] = updatedMesh;
+              } else {
+                System.objects.push(updatedMesh);
+              }
+
+              selectObject(updatedMesh);
               propertyPanel.bind(feature, updatedMesh);
             }
           }
+          updateMaterialsPanel();
+          updateTimeline();
+          updateStatusBar();
           log(`UPDATED: ${feature.name} params`, 'info');
           break;
 

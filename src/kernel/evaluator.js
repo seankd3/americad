@@ -5,6 +5,14 @@
 
 import { kernel, meshToThreeGeometry } from './bridge.js';
 
+function getPublicFeatureParams(params = {}) {
+  const cleanParams = { ...params };
+  delete cleanParams.name;
+  delete cleanParams.external;
+  delete cleanParams.meshRef;
+  return cleanParams;
+}
+
 /**
  * Evaluator - converts feature tree to rendered geometry
  */
@@ -242,8 +250,17 @@ export class Evaluator {
       const mesh = new this.THREE.Mesh(geometry, this.defaultMaterial.clone());
 
       // Store feature reference
-      mesh.userData.featureId = featureId;
-      mesh.userData.faceIds = result.mesh.faceIds;
+      mesh.userData = {
+        type: 'body',
+        id: featureId,
+        featureId,
+        name: feature.name,
+        bodyType: feature.type,
+        kernelId: result.id,
+        isKernelGeometry: true,
+        params: getPublicFeatureParams(feature.params),
+        faceIds: result.mesh.faceIds,
+      };
       mesh.name = feature.name;
 
       // Remove old mesh if exists

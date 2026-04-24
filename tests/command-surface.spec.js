@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Ameri-CAD command surface', () => {
   test('exposes public command execution and creates geometry', async ({ page }) => {
+    test.setTimeout(60000);
+
     const consoleErrors = [];
     page.on('console', message => {
       if (message.type() === 'error') {
@@ -117,6 +119,27 @@ test.describe('Ameri-CAD command surface', () => {
     await expect(page.locator('#body-count')).toHaveText('1');
     await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
     await expect(page.locator('#selection-status')).toContainText('BODY_');
+
+    await page.locator('[data-tab="properties"]').click();
+    await page.locator('#param-radius').fill('11');
+    await page.waitForFunction(
+      () => {
+        const object = window.AmericaD.System.objects[0];
+        const featureId = object?.userData?.id;
+        const feature = featureId ? window.AmericaD.document?.getFeature(featureId) : null;
+        return (
+          window.AmericaD.System.objects.length === 1 &&
+          object?.userData?.bodyType === 'cylinder' &&
+          object?.userData?.params?.radius === 11 &&
+          feature?.params?.radius === 11 &&
+          window.AmericaD.selectionManager.getSelected()?.uuid === object.uuid
+        );
+      },
+      null,
+      { timeout: 10000 }
+    );
+    await expect(page.locator('#body-count')).toHaveText('1');
+    await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
     expect(consoleErrors).toEqual([]);
   });
 });

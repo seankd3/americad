@@ -26,6 +26,16 @@ export class PropertyPanel {
     this.init();
   }
 
+  configure(options = {}) {
+    if (options.document !== undefined) {
+      this.document = options.document;
+    }
+
+    if (typeof options.onPropertyChange === 'function') {
+      this.onPropertyChange = options.onPropertyChange;
+    }
+  }
+
   /**
    * Initialize the property panel
    */
@@ -853,6 +863,8 @@ let panelInstance = null;
 export function getPropertyPanel(options = {}) {
   if (!panelInstance) {
     panelInstance = new PropertyPanel(options);
+  } else {
+    panelInstance.configure(options);
   }
   return panelInstance;
 }
