@@ -1241,8 +1241,7 @@ body {
 .timeline-handle {
   position: absolute;
   top: 50%;
-  right: 0;
-  transform: translate(50%, -50%);
+  transform: translate(-50%, -50%);
   width: 10px;
   height: 14px;
   background: var(--accent-primary);

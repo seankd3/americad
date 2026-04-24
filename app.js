@@ -261,12 +261,14 @@ async function initKernelSystem() {
         selectObject(mesh);
         updateFeatureTree();
         updateMaterialsPanel();
+        updateTimeline();
       },
       onBodyDeleted: id => {
         // Remove from objects array
         System.objects = System.objects.filter(o => o.userData?.kernelId !== id);
         updateFeatureTree();
         updateMaterialsPanel();
+        updateTimeline();
       },
       log: log,
     });
@@ -333,6 +335,17 @@ function initFeatureTreeUI() {
 
   // Create the feature tree UI
   featureTreeUI = new FeatureTreeUI('#feature-tree', docModel);
+
+  const updateDocumentDrivenUI = () => {
+    updateFeatureTree();
+    updateMaterialsPanel();
+    updateTimeline();
+  };
+
+  docModel.onFeatureAdded = updateDocumentDrivenUI;
+  docModel.onFeatureRemoved = updateDocumentDrivenUI;
+  docModel.onFeatureModified = updateDocumentDrivenUI;
+  docModel.onDocumentChanged = updateDocumentDrivenUI;
 
   // Wire selection: clicking tree item selects object in 3D viewport
   featureTreeUI.onFeatureSelect = featureId => {
@@ -547,6 +560,7 @@ function initCommandPalette() {
       // Update feature tree if command might have created/modified features
       updateFeatureTree();
       updateMaterialsPanel();
+      updateTimeline();
     },
   });
 
@@ -608,6 +622,7 @@ function setupHistoryCallbacks() {
       }
 
       updateMaterialsPanel();
+      updateTimeline();
       log(`SELECTED: ${selected.userData.name}`, 'info');
     } else {
       // Clear property panel when nothing is selected
@@ -616,6 +631,7 @@ function setupHistoryCallbacks() {
       }
 
       updateMaterialsPanel();
+      updateTimeline();
     }
   });
 }
@@ -623,6 +639,107 @@ function setupHistoryCallbacks() {
 function updateMaterialsPanel() {
   if (materialsPanel) {
     materialsPanel.render();
+  }
+}
+
+function getTimelineFeatureIds() {
+  const docModel = System.americad?.document || americadApp?.document;
+  if (!docModel) return [];
+
+  if (typeof docModel.getTopologicalOrder === 'function') {
+    return docModel.getTopologicalOrder().filter(id => docModel.getFeature(id));
+  }
+
+  return Array.from(docModel.features?.keys?.() || []);
+}
+
+function getSelectedFeatureId() {
+  const selected = selectionManager.getSelected();
+  if (!selected) return null;
+
+  const docModel = System.americad?.document || americadApp?.document;
+  const candidates = [selected.userData?.id, selected.userData?.kernelId, selected.uuid].filter(
+    Boolean
+  );
+
+  return candidates.find(id => docModel?.getFeature?.(id)) || selected.userData?.id || null;
+}
+
+function updateTimeline() {
+  const featureIds = getTimelineFeatureIds();
+  const total = featureIds.length;
+  const selectedId = getSelectedFeatureId();
+  const selectedIndex = selectedId ? featureIds.indexOf(selectedId) : -1;
+  const position = total === 0 ? 0 : selectedIndex >= 0 ? selectedIndex + 1 : total;
+  const percent = total === 0 ? 0 : (position / total) * 100;
+
+  const counter = document.querySelector('.timeline-counter');
+  if (counter) {
+    counter.textContent = `${position} / ${total}`;
+  }
+
+  const progress = document.querySelector('.timeline-progress');
+  if (progress) {
+    progress.style.width = `${percent}%`;
+  }
+
+  const handle = document.querySelector('.timeline-handle');
+  if (handle) {
+    handle.style.left = `${percent}%`;
+  }
+
+  document.querySelectorAll('.timeline-btn').forEach(btn => {
+    const action = btn.dataset.action;
+    const disabled =
+      total === 0 ||
+      (action === 'rollback' && position <= 1) ||
+      (action === 'prev' && position <= 1) ||
+      (action === 'next' && position >= total);
+    btn.disabled = disabled;
+    btn.setAttribute('aria-disabled', String(disabled));
+  });
+}
+
+function selectTimelineFeatureByIndex(index) {
+  const featureIds = getTimelineFeatureIds();
+  const featureId = featureIds[index];
+  if (!featureId) return;
+
+  const docModel = System.americad?.document || americadApp?.document;
+  const feature = docModel?.getFeature(featureId);
+  if (!feature) return;
+
+  const mesh = System.objects.find(
+    obj =>
+      obj.userData?.id === featureId ||
+      obj.userData?.kernelId === feature.kernelId ||
+      obj.uuid === feature.meshId
+  );
+
+  if (mesh) {
+    selectObject(mesh);
+    log(`TIMELINE: ${feature.name}`, 'info');
+  }
+}
+
+function handleTimelineAction(action) {
+  const featureIds = getTimelineFeatureIds();
+  if (featureIds.length === 0) return;
+
+  const selectedId = getSelectedFeatureId();
+  const selectedIndex = selectedId ? featureIds.indexOf(selectedId) : featureIds.length - 1;
+  const currentIndex = selectedIndex >= 0 ? selectedIndex : featureIds.length - 1;
+
+  switch (action) {
+    case 'rollback':
+      selectTimelineFeatureByIndex(0);
+      break;
+    case 'prev':
+      selectTimelineFeatureByIndex(Math.max(0, currentIndex - 1));
+      break;
+    case 'next':
+      selectTimelineFeatureByIndex(Math.min(featureIds.length - 1, currentIndex + 1));
+      break;
   }
 }
 
@@ -1024,6 +1141,7 @@ async function createKernelPrimitive(type, options = {}) {
   scene.add(mesh);
   System.objects.push(mesh);
   updateMaterialsPanel();
+  updateTimeline();
 
   // Record in history with descriptive name (e.g., "Create Box")
   const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
@@ -1114,6 +1232,7 @@ function createFallbackPrimitive(type, options = {}) {
   scene.add(mesh);
   System.objects.push(mesh);
   updateMaterialsPanel();
+  updateTimeline();
 
   // Record in history with descriptive name (e.g., "Create Box")
   const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
@@ -2391,6 +2510,7 @@ async function extrudeProfile(profile, sketch, height) {
       scene.add(mesh);
       System.objects.push(mesh);
       updateMaterialsPanel();
+      updateTimeline();
 
       // Track in DocumentModel
       if (System.americad?.document) {
@@ -2606,6 +2726,7 @@ async function revolveProfile(profile, sketch, angle, axisName) {
       scene.add(mesh);
       System.objects.push(mesh);
       updateMaterialsPanel();
+      updateTimeline();
 
       // Track in DocumentModel
       if (System.americad?.document) {
@@ -2696,6 +2817,10 @@ function initUI() {
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => setTab(btn.dataset.tab));
+  });
+
+  document.querySelectorAll('.timeline-btn').forEach(btn => {
+    btn.addEventListener('click', () => handleTimelineAction(btn.dataset.action));
   });
 
   document.querySelectorAll('.section-header').forEach(header => {
@@ -3622,6 +3747,7 @@ function clearScene() {
   selectionManager.deselect(transformControl);
   commandManager.clear();
   updateMaterialsPanel();
+  updateTimeline();
   log('SCENE CLEARED', 'warn');
 }
 

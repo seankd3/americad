@@ -19,6 +19,7 @@ test.describe('Ameri-CAD command surface', () => {
 
     await page.evaluate(() => window.AmericaD.executeCommand('clear'));
     await page.waitForFunction(() => window.AmericaD.System.objects.length === 0);
+    await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
     await page.locator('[data-tab="materials"]').click();
     await expect(page.locator('#materials-empty')).toContainText('NO MATERIALS IN DOCUMENT');
     await page.locator('[data-tab="properties"]').click();
@@ -40,6 +41,8 @@ test.describe('Ameri-CAD command surface', () => {
         materialName: document.querySelector('.material-name')?.textContent,
         materialDetail: document.querySelector('.material-detail')?.textContent,
         materialSummary: document.querySelector('#materials-summary')?.textContent,
+        timelineCounter: document.querySelector('.timeline-counter')?.textContent,
+        timelineProgress: document.querySelector('.timeline-progress')?.style.width,
       };
     });
 
@@ -53,6 +56,8 @@ test.describe('Ameri-CAD command surface', () => {
     expect(created.materialName).toBe('Generic');
     expect(created.materialDetail).toContain('selected');
     expect(created.materialSummary).toBe('1 BODY / 1 MATERIAL');
+    expect(created.timelineCounter).toBe('1 / 1');
+    expect(created.timelineProgress).toBe('100%');
     expect(consoleErrors).toEqual([]);
   });
 });
