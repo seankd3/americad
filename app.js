@@ -659,6 +659,53 @@ function updateLoadingStatus(text) {
   if (DOM.loadingStatus) DOM.loadingStatus.textContent = text;
 }
 
+function getObjectDocumentTransform(object) {
+  return {
+    position: {
+      x: object.position.x,
+      y: object.position.y,
+      z: object.position.z,
+    },
+    rotation: {
+      x: radToDeg(object.rotation.x),
+      y: radToDeg(object.rotation.y),
+      z: radToDeg(object.rotation.z),
+    },
+    scale: {
+      x: object.scale.x,
+      y: object.scale.y,
+      z: object.scale.z,
+    },
+  };
+}
+
+function persistObjectTransform(object, { refreshPanels = false } = {}) {
+  const featureId = object?.userData?.id;
+  const docModel = System.americad?.document || americadApp?.document;
+  const feature = featureId ? docModel?.getFeature(featureId) : null;
+
+  if (!object || !feature || !docModel) return null;
+
+  const transform = getObjectDocumentTransform(object);
+  feature.updateParams({ transform });
+  object.userData.transform = transform;
+  object.userData.params = {
+    ...(object.userData.params || {}),
+    transform,
+  };
+  docModel.modifiedAt = Date.now();
+
+  if (refreshPanels) {
+    propertyPanel?.bind(feature, object);
+    updateFeatureTree();
+    updateMaterialsPanel();
+    updateTimeline();
+    updateStatusBar();
+  }
+
+  return transform;
+}
+
 // ========================================
 // HISTORY CALLBACKS
 // ========================================
@@ -853,6 +900,8 @@ function reconcileDocumentWithScene() {
         },
         false
       );
+    } else {
+      persistObjectTransform(obj);
     }
   }
 
@@ -990,6 +1039,7 @@ async function initThreeJS() {
             System.transformMode
           );
           commandManager.push(cmd);
+          persistObjectTransform(selected, { refreshPanels: true });
           log(`${cmd.name.toUpperCase()} RECORDED`, 'info');
         }
         System.transformStartMatrix = null;
@@ -1026,12 +1076,13 @@ async function initThreeJS() {
       const startMatrix = new THREE.Matrix4();
       startMatrix.compose(
         data.startPosition || mesh.position.clone(),
-        mesh.quaternion.clone(),
+        new THREE.Quaternion().setFromEuler(data.startRotation || mesh.rotation),
         data.startScale || mesh.scale.clone()
       );
       const endMatrix = getObjectMatrix4(mesh);
       const cmd = new TransformCommand(mesh, startMatrix, endMatrix, data.mode);
       commandManager.push(cmd);
+      persistObjectTransform(mesh, { refreshPanels: true });
       log(`${data.mode.toUpperCase()} COMPLETED`, 'success');
     },
     onTransformCancel: () => {
@@ -3542,6 +3593,10 @@ function onKeyDown(e) {
         openDocument();
         return;
     }
+  }
+
+  if (modalTransformManager?.handleKeyDown(e)) {
+    return;
   }
 
   // Skip tool shortcuts when in input

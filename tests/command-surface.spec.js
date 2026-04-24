@@ -157,6 +157,26 @@ test.describe('Ameri-CAD command surface', () => {
       { timeout: 10000 }
     );
 
+    await page.evaluate(() => {
+      const object = window.AmericaD.System.objects[0];
+      window.AmericaD.selectObject(object);
+      document.activeElement?.blur();
+    });
+    await page.keyboard.press('g');
+    await page.keyboard.press('x');
+    await page.keyboard.press('2');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(
+      () => {
+        const object = window.AmericaD.System.objects[0];
+        const featureId = object?.userData?.id;
+        const feature = featureId ? window.AmericaD.document?.getFeature(featureId) : null;
+        return object?.position?.x === 7 && feature?.params?.transform?.position?.x === 7;
+      },
+      null,
+      { timeout: 10000 }
+    );
+
     const serialized = await page.evaluate(async () => {
       const { serialize } = await import('/src/io/file-format.js');
       return serialize(window.AmericaD.document, { name: 'Reloaded Command Surface' });
@@ -172,7 +192,7 @@ test.describe('Ameri-CAD command surface', () => {
         window.AmericaD.propertyPanel?.document === window.AmericaD.document &&
         window.AmericaD.System.objects.length === 1 &&
         window.AmericaD.System.objects[0].userData?.params?.radius === 11 &&
-        window.AmericaD.System.objects[0].position?.x === 5 &&
+        window.AmericaD.System.objects[0].position?.x === 7 &&
         (window.AmericaD.document?.features?.size ?? 0) === 1
     );
     await expect(page.locator('#body-count')).toHaveText('1');
