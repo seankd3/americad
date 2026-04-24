@@ -19,6 +19,9 @@ test.describe('Ameri-CAD command surface', () => {
 
     await page.evaluate(() => window.AmericaD.executeCommand('clear'));
     await page.waitForFunction(() => window.AmericaD.System.objects.length === 0);
+    await page.locator('[data-tab="materials"]').click();
+    await expect(page.locator('#materials-empty')).toContainText('NO MATERIALS IN DOCUMENT');
+    await page.locator('[data-tab="properties"]').click();
 
     await page.evaluate(() => window.AmericaD.executeCommand('box 12 14 16'));
     await page.waitForFunction(() => window.AmericaD.System.objects.length === 1);
@@ -34,6 +37,9 @@ test.describe('Ameri-CAD command surface', () => {
         inspectorType: document.querySelector('#prop-type')?.textContent,
         inspectorEmptyVisible:
           getComputedStyle(document.querySelector('#prop-empty')).display !== 'none',
+        materialName: document.querySelector('.material-name')?.textContent,
+        materialDetail: document.querySelector('.material-detail')?.textContent,
+        materialSummary: document.querySelector('#materials-summary')?.textContent,
       };
     });
 
@@ -44,6 +50,9 @@ test.describe('Ameri-CAD command surface', () => {
     expect(created.inspectorName).toContain('BODY_');
     expect(created.inspectorType).toBe('BOX / SOLID');
     expect(created.inspectorEmptyVisible).toBe(false);
+    expect(created.materialName).toBe('Generic');
+    expect(created.materialDetail).toContain('selected');
+    expect(created.materialSummary).toBe('1 BODY / 1 MATERIAL');
     expect(consoleErrors).toEqual([]);
   });
 });

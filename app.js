@@ -43,6 +43,7 @@ import { app as americadApp } from './src/main.js';
 
 // Feature tree UI
 import { FeatureTreeUI, addFeatureTreeStyles } from './src/ui/feature-tree.js';
+import { initMaterialsPanel } from './src/ui/materials-panel.js';
 import { initPropertyPanel } from './src/ui/property-panel.js';
 
 // Command palette (Ctrl+Shift+P / F3)
@@ -133,6 +134,8 @@ const System = {
   suggestions: [],
 };
 
+const DEFAULT_MATERIAL_NAME = 'Generic';
+
 // ========================================
 // THREE.JS CORE
 // ========================================
@@ -141,6 +144,7 @@ let gridHelper, axesHelper;
 let sketchRenderer; // For 2D sketch visualization
 let featureTreeUI; // Feature tree UI component
 let propertyPanel; // Property panel UI component
+let materialsPanel; // Materials panel UI component
 let viewportModes; // Viewport display mode manager
 let modalTransformManager; // Blender-style G/R/S modal transforms
 let cameraPresetManager; // Orthographic view presets
@@ -256,11 +260,13 @@ async function initKernelSystem() {
         System.objects.push(mesh);
         selectObject(mesh);
         updateFeatureTree();
+        updateMaterialsPanel();
       },
       onBodyDeleted: id => {
         // Remove from objects array
         System.objects = System.objects.filter(o => o.userData?.kernelId !== id);
         updateFeatureTree();
+        updateMaterialsPanel();
       },
       log: log,
     });
@@ -509,6 +515,13 @@ function initFeatureTreeUI() {
   });
 
   console.log('[Ameri-CAD] Property panel initialized');
+
+  materialsPanel = initMaterialsPanel({
+    getObjects: () => System.objects,
+    getSelected: () => selectionManager.getSelected(),
+  });
+
+  console.log('[Ameri-CAD] Materials panel initialized');
 }
 
 /**
@@ -533,6 +546,7 @@ function initCommandPalette() {
 
       // Update feature tree if command might have created/modified features
       updateFeatureTree();
+      updateMaterialsPanel();
     },
   });
 
@@ -593,14 +607,23 @@ function setupHistoryCallbacks() {
         }
       }
 
+      updateMaterialsPanel();
       log(`SELECTED: ${selected.userData.name}`, 'info');
     } else {
       // Clear property panel when nothing is selected
       if (propertyPanel) {
         propertyPanel.clear();
       }
+
+      updateMaterialsPanel();
     }
   });
+}
+
+function updateMaterialsPanel() {
+  if (materialsPanel) {
+    materialsPanel.render();
+  }
 }
 
 // ========================================
@@ -993,13 +1016,14 @@ async function createKernelPrimitive(type, options = {}) {
     id: generateId(),
     kernelId: result.id,
     bodyType: type,
-    material: 'AL-6061-T6',
+    material: options.material ?? DEFAULT_MATERIAL_NAME,
     created: Date.now(),
     isKernelGeometry: true,
   };
 
   scene.add(mesh);
   System.objects.push(mesh);
+  updateMaterialsPanel();
 
   // Record in history with descriptive name (e.g., "Create Box")
   const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
@@ -1082,13 +1106,14 @@ function createFallbackPrimitive(type, options = {}) {
     name: options.name ?? `BODY_${String(System.objects.length + 1).padStart(3, '0')}`,
     id: generateId(),
     bodyType: type,
-    material: 'AL-6061-T6',
+    material: options.material ?? DEFAULT_MATERIAL_NAME,
     created: Date.now(),
     isKernelGeometry: false,
   };
 
   scene.add(mesh);
   System.objects.push(mesh);
+  updateMaterialsPanel();
 
   // Record in history with descriptive name (e.g., "Create Box")
   const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
@@ -2356,7 +2381,7 @@ async function extrudeProfile(profile, sketch, height) {
         id: generateId(),
         kernelId: result.id,
         bodyType: 'extrude',
-        material: 'AL-6061-T6',
+        material: DEFAULT_MATERIAL_NAME,
         created: Date.now(),
         isKernelGeometry: true,
         sourceProfile: profile.type,
@@ -2365,6 +2390,7 @@ async function extrudeProfile(profile, sketch, height) {
 
       scene.add(mesh);
       System.objects.push(mesh);
+      updateMaterialsPanel();
 
       // Track in DocumentModel
       if (System.americad?.document) {
@@ -2568,7 +2594,7 @@ async function revolveProfile(profile, sketch, angle, axisName) {
         id: generateId(),
         kernelId: result.id,
         bodyType: 'revolve',
-        material: 'AL-6061-T6',
+        material: DEFAULT_MATERIAL_NAME,
         created: Date.now(),
         isKernelGeometry: true,
         sourceProfile: profile.type,
@@ -2579,6 +2605,7 @@ async function revolveProfile(profile, sketch, angle, axisName) {
 
       scene.add(mesh);
       System.objects.push(mesh);
+      updateMaterialsPanel();
 
       // Track in DocumentModel
       if (System.americad?.document) {
@@ -3594,6 +3621,7 @@ function clearScene() {
   System.objects = [];
   selectionManager.deselect(transformControl);
   commandManager.clear();
+  updateMaterialsPanel();
   log('SCENE CLEARED', 'warn');
 }
 
@@ -3935,6 +3963,9 @@ window.AmericaD = {
   },
   get propertyPanel() {
     return propertyPanel;
+  },
+  get materialsPanel() {
+    return materialsPanel;
   },
   get viewportManager() {
     return System.viewportManager;
