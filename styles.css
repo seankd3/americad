@@ -1655,16 +1655,162 @@ body {
 
 @media (max-width: 1024px) {
   .data-panel {
-    position: absolute;
+    position: fixed;
     right: 0;
     top: var(--header-height);
     bottom: calc(var(--status-height) + var(--timeline-height) + var(--command-height));
     transform: translateX(100%);
     transition: transform var(--transition-slow);
+    z-index: 900;
   }
   
   .data-panel.visible {
     transform: translateX(0);
+  }
+}
+
+@media (max-width: 700px) {
+  :root {
+    --toolbar-width: 52px;
+    --command-height: 44px;
+    --timeline-height: 40px;
+  }
+
+  .system-header {
+    padding: 0 var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .header-left {
+    min-width: 0;
+    gap: var(--space-2);
+  }
+
+  .brand {
+    width: 42px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .menu-bar,
+  .header-right {
+    display: none;
+  }
+
+  .header-center {
+    position: static;
+    transform: none;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .doc-title {
+    justify-content: center;
+    min-width: 0;
+    padding: var(--space-2);
+  }
+
+  .doc-title span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .viewport-toolbar {
+    padding: 0 var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .toolbar-left-group,
+  .toolbar-right-group {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .view-btn:not(.active),
+  .toggle-btn[data-toggle='shadows'],
+  .render-select {
+    display: none;
+  }
+
+  .viewcube-container {
+    top: var(--space-3);
+    right: var(--space-3);
+    transform: scale(0.78);
+    transform-origin: top right;
+  }
+
+  .viewport-overlay {
+    top: var(--space-3);
+    left: var(--space-3);
+  }
+
+  .data-readout {
+    padding: var(--space-2);
+  }
+
+  .nav-gizmo {
+    bottom: var(--space-4);
+    transform: scale(0.85);
+    transform-origin: bottom left;
+  }
+
+  .command-line {
+    padding: 0 var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .command-hint {
+    display: none;
+  }
+
+  .timeline {
+    padding: 0 var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .timeline-info {
+    gap: var(--space-2);
+  }
+
+  .timeline-info > span:first-child,
+  .timeline-info .badge {
+    display: none;
+  }
+
+  .status-bar {
+    padding: 0 var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .status-left,
+  .status-center,
+  .status-right {
+    min-width: 0;
+    gap: var(--space-3);
+  }
+
+  .status-left .status-item:nth-child(2),
+  .status-center,
+  .status-right .status-item {
+    display: none;
+  }
+
+  .status-left {
+    flex: 1;
+  }
+
+  .status-right {
+    gap: var(--space-2);
+  }
+
+  .status-btn {
+    white-space: nowrap;
+  }
+
+  .data-panel {
+    width: min(320px, calc(100vw - var(--toolbar-width)));
   }
 }
 

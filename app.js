@@ -46,8 +46,8 @@ import { FeatureTreeUI, addFeatureTreeStyles } from './src/ui/feature-tree.js';
 import { initPropertyPanel } from './src/ui/property-panel.js';
 
 // Command palette (Ctrl+Shift+P / F3)
-import { CommandPalette } from './src/ui/command-palette.js';
-// registerPaletteCommands, registerCommand - reserved for future palette customization
+import { CommandPalette, registerPaletteCommands } from './src/ui/command-palette.js';
+import { registerCommand } from './src/core/commands.js';
 
 // Sketch system
 import {
