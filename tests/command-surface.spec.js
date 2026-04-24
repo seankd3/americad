@@ -20,6 +20,8 @@ test.describe('Ameri-CAD command surface', () => {
     await page.evaluate(() => window.AmericaD.executeCommand('clear'));
     await page.waitForFunction(() => window.AmericaD.System.objects.length === 0);
     await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
+    await expect(page.locator('#body-count')).toHaveText('0');
+    await expect(page.locator('#selection-status')).toHaveText('NONE');
     await page.locator('[data-tab="materials"]').click();
     await expect(page.locator('#materials-empty')).toContainText('NO MATERIALS IN DOCUMENT');
     await page.locator('[data-tab="properties"]').click();
@@ -43,6 +45,8 @@ test.describe('Ameri-CAD command surface', () => {
         materialSummary: document.querySelector('#materials-summary')?.textContent,
         timelineCounter: document.querySelector('.timeline-counter')?.textContent,
         timelineProgress: document.querySelector('.timeline-progress')?.style.width,
+        bodyCount: document.querySelector('#body-count')?.textContent,
+        selectionStatus: document.querySelector('#selection-status')?.textContent,
       };
     });
 
@@ -58,6 +62,8 @@ test.describe('Ameri-CAD command surface', () => {
     expect(created.materialSummary).toBe('1 BODY / 1 MATERIAL');
     expect(created.timelineCounter).toBe('1 / 1');
     expect(created.timelineProgress).toBe('100%');
+    expect(created.bodyCount).toBe('1');
+    expect(created.selectionStatus).toContain('BODY_');
     expect(consoleErrors).toEqual([]);
   });
 });

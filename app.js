@@ -228,6 +228,7 @@ async function initialize() {
         if (DOM.app) DOM.app.classList.remove('hidden');
 
         onResize();
+        updateStatusBar();
         console.log('[Ameri-CAD] SYSTEM READY');
         log('SYSTEM READY // KERNEL LOADING IN BACKGROUND', 'success');
       } catch (e) {
@@ -262,6 +263,7 @@ async function initKernelSystem() {
         updateFeatureTree();
         updateMaterialsPanel();
         updateTimeline();
+        updateStatusBar();
       },
       onBodyDeleted: id => {
         // Remove from objects array
@@ -269,6 +271,7 @@ async function initKernelSystem() {
         updateFeatureTree();
         updateMaterialsPanel();
         updateTimeline();
+        updateStatusBar();
       },
       log: log,
     });
@@ -340,6 +343,7 @@ function initFeatureTreeUI() {
     updateFeatureTree();
     updateMaterialsPanel();
     updateTimeline();
+    updateStatusBar();
   };
 
   docModel.onFeatureAdded = updateDocumentDrivenUI;
@@ -561,6 +565,7 @@ function initCommandPalette() {
       updateFeatureTree();
       updateMaterialsPanel();
       updateTimeline();
+      updateStatusBar();
     },
   });
 
@@ -623,6 +628,7 @@ function setupHistoryCallbacks() {
 
       updateMaterialsPanel();
       updateTimeline();
+      updateStatusBar();
       log(`SELECTED: ${selected.userData.name}`, 'info');
     } else {
       // Clear property panel when nothing is selected
@@ -632,6 +638,7 @@ function setupHistoryCallbacks() {
 
       updateMaterialsPanel();
       updateTimeline();
+      updateStatusBar();
     }
   });
 }
@@ -698,6 +705,63 @@ function updateTimeline() {
     btn.disabled = disabled;
     btn.setAttribute('aria-disabled', String(disabled));
   });
+}
+
+function getDisplayToolMode() {
+  if (System.inSketchMode) {
+    const sketchMode = sketchManager?.mode;
+    return sketchMode && sketchMode !== SketchMode.NONE
+      ? `SKETCH: ${sketchMode.toUpperCase()}`
+      : 'SKETCH';
+  }
+
+  return (System.tool || 'select').toUpperCase();
+}
+
+function updateStatusBar() {
+  const selected = selectionManager.getSelected();
+  const systemLabel = document.getElementById('system-status');
+  const indicator = document.querySelector('.status-indicator');
+  const toolMode = document.getElementById('tool-mode');
+  const bodyCount = document.getElementById('body-count');
+  const selectionStatus = document.getElementById('selection-status');
+  const snapToggle = document.getElementById('snap-toggle');
+  const gridToggle = document.getElementById('grid-toggle');
+
+  if (systemLabel) {
+    systemLabel.textContent = System.inSketchMode
+      ? `SKETCH ${System.sketchPlane.toUpperCase()}`
+      : System.ready
+        ? 'SYSTEM READY'
+        : 'LOADING';
+  }
+
+  if (indicator) {
+    indicator.classList.toggle('warn', !System.ready);
+    indicator.style.backgroundColor = System.inSketchMode ? '#0088ff' : '';
+  }
+
+  if (toolMode) {
+    toolMode.textContent = getDisplayToolMode();
+  }
+
+  if (bodyCount) {
+    bodyCount.textContent = String(System.objects.length);
+  }
+
+  if (selectionStatus) {
+    selectionStatus.textContent = selected?.userData?.name || 'NONE';
+  }
+
+  if (snapToggle) {
+    snapToggle.classList.toggle('active', System.snap);
+    snapToggle.textContent = `SNAP: ${System.snap ? 'ON' : 'OFF'}`;
+  }
+
+  if (gridToggle) {
+    gridToggle.classList.toggle('active', System.grid);
+    gridToggle.textContent = `GRID: ${System.grid ? 'ON' : 'OFF'}`;
+  }
 }
 
 function selectTimelineFeatureByIndex(index) {
@@ -913,6 +977,7 @@ async function initThreeJS() {
         modeEl.textContent = `SKETCH: ${mode.toUpperCase()}`;
       }
     }
+    updateStatusBar();
   };
 }
 
@@ -1142,6 +1207,7 @@ async function createKernelPrimitive(type, options = {}) {
   System.objects.push(mesh);
   updateMaterialsPanel();
   updateTimeline();
+  updateStatusBar();
 
   // Record in history with descriptive name (e.g., "Create Box")
   const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
@@ -1233,6 +1299,7 @@ function createFallbackPrimitive(type, options = {}) {
   System.objects.push(mesh);
   updateMaterialsPanel();
   updateTimeline();
+  updateStatusBar();
 
   // Record in history with descriptive name (e.g., "Create Box")
   const cmd = new CreatePrimitiveCommand(scene, System.objects, mesh, type);
@@ -1275,6 +1342,7 @@ function selectObject(object) {
     if (featureTreeUI && object?.userData?.id) {
       featureTreeUI.selectFeature(object.userData.id);
     }
+    updateStatusBar();
   } finally {
     isSelectingObject = false;
   }
@@ -1292,6 +1360,7 @@ function deselectObject() {
       featureTreeUI.selectedFeatureId = null;
       featureTreeUI.render();
     }
+    updateStatusBar();
   } finally {
     isSelectingObject = false;
   }
@@ -1314,6 +1383,7 @@ function deleteSelected() {
   }
 
   selectionManager.deselect(transformControl);
+  updateStatusBar();
 
   log(`DELETED: ${name}`, 'warn');
 }
@@ -1640,6 +1710,7 @@ function setTool(tool) {
       document.querySelectorAll('.tool-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tool === tool);
       });
+      updateStatusBar();
       return;
     }
   }
@@ -1674,6 +1745,7 @@ function setTool(tool) {
 
   const toolMode = document.getElementById('tool-mode');
   if (toolMode) toolMode.textContent = tool.toUpperCase();
+  updateStatusBar();
 
   log(`TOOL: ${tool.toUpperCase()}`, 'info');
 }
@@ -2361,6 +2433,7 @@ function updateSketchUI(inSketch) {
   if (statusIndicator) {
     statusIndicator.style.backgroundColor = inSketch ? '#0088ff' : 'var(--success)';
   }
+  updateStatusBar();
 }
 
 /**
@@ -2511,6 +2584,7 @@ async function extrudeProfile(profile, sketch, height) {
       System.objects.push(mesh);
       updateMaterialsPanel();
       updateTimeline();
+      updateStatusBar();
 
       // Track in DocumentModel
       if (System.americad?.document) {
@@ -2727,6 +2801,7 @@ async function revolveProfile(profile, sketch, angle, axisName) {
       System.objects.push(mesh);
       updateMaterialsPanel();
       updateTimeline();
+      updateStatusBar();
 
       // Track in DocumentModel
       if (System.americad?.document) {
@@ -2822,6 +2897,7 @@ function initUI() {
   document.querySelectorAll('.timeline-btn').forEach(btn => {
     btn.addEventListener('click', () => handleTimelineAction(btn.dataset.action));
   });
+  updateStatusBar();
 
   document.querySelectorAll('.section-header').forEach(header => {
     header.addEventListener('click', () => {
@@ -2868,8 +2944,7 @@ function initUI() {
   if (snapToggle) {
     snapToggle.addEventListener('click', () => {
       System.snap = !System.snap;
-      snapToggle.classList.toggle('active', System.snap);
-      snapToggle.textContent = `SNAP: ${System.snap ? 'ON' : 'OFF'}`;
+      updateStatusBar();
     });
   }
 
@@ -2877,9 +2952,8 @@ function initUI() {
   if (gridToggle) {
     gridToggle.addEventListener('click', () => {
       System.grid = !System.grid;
-      gridToggle.classList.toggle('active', System.grid);
-      gridToggle.textContent = `GRID: ${System.grid ? 'ON' : 'OFF'}`;
       if (gridHelper) gridHelper.visible = System.grid;
+      updateStatusBar();
     });
   }
 
@@ -2895,6 +2969,7 @@ function handleToggle(toggle, active) {
     case 'grid':
       System.grid = active;
       if (gridHelper) gridHelper.visible = active;
+      updateStatusBar();
       break;
     case 'axes':
       if (axesHelper) axesHelper.visible = active;
@@ -3617,20 +3692,12 @@ async function executeCommand(cmd) {
     case 'grid':
       System.grid = !System.grid;
       if (gridHelper) gridHelper.visible = System.grid;
-      const gridBtn = document.getElementById('grid-toggle');
-      if (gridBtn) {
-        gridBtn.classList.toggle('active', System.grid);
-        gridBtn.textContent = `GRID: ${System.grid ? 'ON' : 'OFF'}`;
-      }
+      updateStatusBar();
       log(`GRID: ${System.grid ? 'ON' : 'OFF'}`, 'info');
       break;
     case 'snap':
       System.snap = !System.snap;
-      const snapBtn = document.getElementById('snap-toggle');
-      if (snapBtn) {
-        snapBtn.classList.toggle('active', System.snap);
-        snapBtn.textContent = `SNAP: ${System.snap ? 'ON' : 'OFF'}`;
-      }
+      updateStatusBar();
       log(`SNAP: ${System.snap ? 'ON' : 'OFF'}`, 'info');
       break;
     case 'kernel':
@@ -3748,6 +3815,7 @@ function clearScene() {
   commandManager.clear();
   updateMaterialsPanel();
   updateTimeline();
+  updateStatusBar();
   log('SCENE CLEARED', 'warn');
 }
 
