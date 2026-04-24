@@ -30,6 +30,10 @@ test.describe('Ameri-CAD command surface', () => {
         bodyType: mesh.userData?.bodyType,
         selected: window.AmericaD.selectionManager.getSelected()?.uuid === mesh.uuid,
         featureCount: window.AmericaD.document?.features?.size ?? 0,
+        inspectorName: document.querySelector('#prop-name')?.value,
+        inspectorType: document.querySelector('#prop-type')?.textContent,
+        inspectorEmptyVisible:
+          getComputedStyle(document.querySelector('#prop-empty')).display !== 'none',
       };
     });
 
@@ -37,6 +41,9 @@ test.describe('Ameri-CAD command surface', () => {
     expect(created.bodyType).toBe('box');
     expect(created.selected).toBe(true);
     expect(created.featureCount).toBeGreaterThan(0);
+    expect(created.inspectorName).toContain('BODY_');
+    expect(created.inspectorType).toBe('BOX / SOLID');
+    expect(created.inspectorEmptyVisible).toBe(false);
     expect(consoleErrors).toEqual([]);
   });
 });
