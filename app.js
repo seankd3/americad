@@ -706,6 +706,62 @@ function persistObjectTransform(object, { refreshPanels = false } = {}) {
   return transform;
 }
 
+function syncCommandSelection(object = selectionManager.getSelected()) {
+  const context = getContext();
+  if (!context) return;
+  context.selection = object?.userData?.id ? [object.userData.id] : [];
+}
+
+function applySelectedTransformCommand(action, args) {
+  const command = action.toLowerCase();
+  const transformCommands = ['move', 'mv', 'translate', 'rotate', 'rot', 'scale', 'resize'];
+  if (!transformCommands.includes(command)) {
+    return false;
+  }
+
+  const selected = selectionManager.getSelected();
+  if (!selected) {
+    log('ERROR: Select an object first', 'error');
+    return true;
+  }
+
+  const startMatrix = getObjectMatrix4(selected);
+
+  if (['move', 'mv', 'translate'].includes(command)) {
+    const dx = parseFloat(args[0]) || 0;
+    const dy = parseFloat(args[1]) || 0;
+    const dz = parseFloat(args[2]) || 0;
+    selected.position.x += dx;
+    selected.position.y += dy;
+    selected.position.z += dz;
+  } else if (['rotate', 'rot'].includes(command)) {
+    const angle = parseFloat(args[0]) || 0;
+    const axis = (args[1] || 'z').toLowerCase();
+    if (!['x', 'y', 'z'].includes(axis)) {
+      log('ERROR: Axis must be x, y, or z', 'error');
+      return true;
+    }
+    selected.rotation[axis] += THREE.MathUtils.degToRad(angle);
+  } else if (['scale', 'resize'].includes(command)) {
+    const factor = parseFloat(args[0]);
+    if (!Number.isFinite(factor) || factor <= 0) {
+      log('ERROR: Scale factor must be positive', 'error');
+      return true;
+    }
+    selected.scale.multiplyScalar(factor);
+  } else {
+    return false;
+  }
+
+  const endMatrix = getObjectMatrix4(selected);
+  const transformType = command === 'rotate' || command === 'rot' ? 'rotate' : command;
+  commandManager.push(new TransformCommand(selected, startMatrix, endMatrix, transformType));
+  persistObjectTransform(selected, { refreshPanels: true });
+  updateProperties();
+  log(`${command.toUpperCase()} APPLIED`, 'success');
+  return true;
+}
+
 // ========================================
 // HISTORY CALLBACKS
 // ========================================
@@ -1538,6 +1594,7 @@ function selectObject(object) {
 
   try {
     selectionManager.select(object, transformControl, System.transformMode);
+    syncCommandSelection(object);
     updateProperties();
 
     // Sync selection with feature tree (won't trigger callback loop due to guard)
@@ -1556,6 +1613,7 @@ function deselectObject() {
 
   try {
     selectionManager.deselect(transformControl);
+    syncCommandSelection(null);
 
     // Clear feature tree selection
     if (featureTreeUI) {
@@ -3806,6 +3864,10 @@ async function executeCommand(cmd) {
     const angle = parseFloat(args[0]) || 360;
     const axis = args[1] || 'y';
     await revolveSketch(angle, axis);
+    return;
+  }
+
+  if (applySelectedTransformCommand(action, args)) {
     return;
   }
 
