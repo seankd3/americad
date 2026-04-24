@@ -36,9 +36,8 @@ import {
   validate,
   FILE_EXTENSION,
 } from './io/file-format.js';
-// Reserved for welcome screen integration
-// import { getRecentFilesManager } from './core/recent-files.js';
-// import { WelcomeScreen, addWelcomeScreenStyles } from './ui/welcome-screen.js';
+import { getRecentFilesManager } from './core/recent-files.js';
+import { WelcomeScreen, addWelcomeScreenStyles } from './ui/welcome-screen.js';
 
 /**
  * Ameri-CAD Application
