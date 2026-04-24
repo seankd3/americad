@@ -162,6 +162,18 @@ test.describe('Ameri-CAD command surface', () => {
     await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
     await page.locator('[data-tab="browser"]').click();
     await expect(page.locator('#feature-tree .tree-node')).toHaveCount(1);
+
+    await page.evaluate(() => window.AmericaD.app.newDocument());
+    await page.waitForFunction(
+      () =>
+        window.AmericaD.System.objects.length === 0 &&
+        (window.AmericaD.document?.features?.size ?? 0) === 0 &&
+        window.AmericaD.featureTree?.document === window.AmericaD.document &&
+        window.AmericaD.propertyPanel?.document === window.AmericaD.document
+    );
+    await expect(page.locator('#body-count')).toHaveText('0');
+    await expect(page.locator('.timeline-counter')).toHaveText('0 / 0');
+    await expect(page.locator('#feature-tree .tree-node')).toHaveCount(0);
     expect(consoleErrors).toEqual([]);
   });
 });

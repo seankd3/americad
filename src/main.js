@@ -944,7 +944,18 @@ export class AmericaD {
     this.document.clear();
     this.evaluator.clear();
     this.selectFeature(null);
+    this.treeUI?.render();
+    this.propertyPanel?.clear();
     CrashGuard.clear();
+
+    window.dispatchEvent(
+      new CustomEvent('americad:document-cleared', {
+        detail: {
+          app: this,
+          document: this.document,
+        },
+      })
+    );
   }
 
   // ==================== Welcome Screen ====================

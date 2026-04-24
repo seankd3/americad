@@ -3202,6 +3202,7 @@ function closeModals() {
 function setupEvents() {
   window.addEventListener('resize', onResize);
   window.addEventListener('americad:document-loaded', refreshDocumentShell);
+  window.addEventListener('americad:document-cleared', refreshDocumentShell);
 
   if (DOM.canvas) {
     DOM.canvas.addEventListener('mousedown', onMouseDown);
