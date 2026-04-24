@@ -3201,6 +3201,7 @@ function closeModals() {
 // ========================================
 function setupEvents() {
   window.addEventListener('resize', onResize);
+  window.addEventListener('americad:document-loaded', refreshDocumentShell);
 
   if (DOM.canvas) {
     DOM.canvas.addEventListener('mousedown', onMouseDown);
@@ -4020,9 +4021,6 @@ async function openDocument() {
         const info = System.americad.getDocumentInfo();
         log(`LOADED: ${info.name} (${info.featureCount} features)`, 'success');
 
-        // Sync loaded features with System.objects
-        syncObjectsFromDocument();
-
         // Update UI
         const titleEl = document.querySelector('.doc-title span[contenteditable]');
         if (titleEl) titleEl.textContent = info.name + '.AD';
@@ -4058,6 +4056,18 @@ function syncObjectsFromDocument() {
   }
 
   console.log(`[Ameri-CAD] Synced ${System.objects.length} objects from document`);
+}
+
+function refreshDocumentShell() {
+  if (!System.americad?.document) return;
+
+  syncObjectsFromDocument();
+  initFeatureTreeUI();
+  propertyPanel?.clear();
+  updateFeatureTree();
+  updateMaterialsPanel();
+  updateTimeline();
+  updateStatusBar();
 }
 
 /**
@@ -4289,6 +4299,7 @@ window.AmericaD = {
   exportScene,
   saveDocument,
   openDocument,
+  refreshDocumentShell,
   enterSketchMode,
   exitSketchMode,
   extrudeSketch,

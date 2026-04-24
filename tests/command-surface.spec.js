@@ -140,6 +140,28 @@ test.describe('Ameri-CAD command surface', () => {
     );
     await expect(page.locator('#body-count')).toHaveText('1');
     await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
+
+    const serialized = await page.evaluate(async () => {
+      const { serialize } = await import('/src/io/file-format.js');
+      return serialize(window.AmericaD.document, { name: 'Reloaded Command Surface' });
+    });
+
+    await page.evaluate(
+      json => window.AmericaD.app.loadDocument(json, 'reloaded.americad'),
+      serialized
+    );
+    await page.waitForFunction(
+      () =>
+        window.AmericaD.featureTree?.document === window.AmericaD.document &&
+        window.AmericaD.propertyPanel?.document === window.AmericaD.document &&
+        window.AmericaD.System.objects.length === 1 &&
+        window.AmericaD.System.objects[0].userData?.params?.radius === 11 &&
+        (window.AmericaD.document?.features?.size ?? 0) === 1
+    );
+    await expect(page.locator('#body-count')).toHaveText('1');
+    await expect(page.locator('.timeline-counter')).toHaveText('1 / 1');
+    await page.locator('[data-tab="browser"]').click();
+    await expect(page.locator('#feature-tree .tree-node')).toHaveCount(1);
     expect(consoleErrors).toEqual([]);
   });
 });

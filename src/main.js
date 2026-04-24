@@ -684,6 +684,16 @@ export class AmericaD {
     const jsonContent = typeof json === 'string' ? json : JSON.stringify(json);
     this.recentFiles.add(fullFilename, docName, { content: jsonContent });
 
+    window.dispatchEvent(
+      new CustomEvent('americad:document-loaded', {
+        detail: {
+          app: this,
+          document: this.document,
+          filename: fullFilename,
+        },
+      })
+    );
+
     console.log(`[Ameri-CAD] Loaded document with ${this.document.features.size} features`);
   }
 

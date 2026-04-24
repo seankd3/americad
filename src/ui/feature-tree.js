@@ -577,7 +577,12 @@ export class FeatureTreeUI {
  * Add feature tree styles
  */
 export function addFeatureTreeStyles() {
+  if (document.getElementById('feature-tree-styles')) {
+    return;
+  }
+
   const style = document.createElement('style');
+  style.id = 'feature-tree-styles';
   style.textContent = `
         .feature-tree {
             font-family: 'Berkeley Mono', monospace;
