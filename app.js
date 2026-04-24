@@ -3918,6 +3918,7 @@ window.AmericaD = {
   applyDimensionConstraint,
   applyRadiusConstraint,
   updateSketchView,
+  executeCommand,
   log,
   // Unified architecture access
   get app() {
