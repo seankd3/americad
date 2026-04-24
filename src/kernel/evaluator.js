@@ -13,6 +13,34 @@ function getPublicFeatureParams(params = {}) {
   return cleanParams;
 }
 
+function applyFeatureTransform(mesh, transform = null) {
+  if (!mesh || !transform) return;
+
+  if (transform.position) {
+    mesh.position.set(
+      transform.position.x ?? mesh.position.x,
+      transform.position.y ?? mesh.position.y,
+      transform.position.z ?? mesh.position.z
+    );
+  }
+
+  if (transform.rotation) {
+    mesh.rotation.set(
+      ((transform.rotation.x ?? 0) * Math.PI) / 180,
+      ((transform.rotation.y ?? 0) * Math.PI) / 180,
+      ((transform.rotation.z ?? 0) * Math.PI) / 180
+    );
+  }
+
+  if (transform.scale) {
+    mesh.scale.set(
+      transform.scale.x ?? mesh.scale.x,
+      transform.scale.y ?? mesh.scale.y,
+      transform.scale.z ?? mesh.scale.z
+    );
+  }
+}
+
 /**
  * Evaluator - converts feature tree to rendered geometry
  */
@@ -259,9 +287,11 @@ export class Evaluator {
         kernelId: result.id,
         isKernelGeometry: true,
         params: getPublicFeatureParams(feature.params),
+        transform: feature.params.transform || null,
         faceIds: result.mesh.faceIds,
       };
       mesh.name = feature.name;
+      applyFeatureTransform(mesh, feature.params.transform);
 
       // Remove old mesh if exists
       this.removeFeatureMesh(featureId);

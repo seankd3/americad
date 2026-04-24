@@ -575,6 +575,8 @@ function initFeatureTreeUI() {
 
         case 'transform':
           // Apply transform to mesh
+          feature.updateParams({ transform: value });
+
           const objMesh = System.objects.find(obj => obj.userData?.id === featureId);
           if (objMesh) {
             objMesh.position.set(value.position.x, value.position.y, value.position.z);
@@ -584,7 +586,13 @@ function initFeatureTreeUI() {
               (value.rotation.z * Math.PI) / 180
             );
             objMesh.scale.set(value.scale.x, value.scale.y, value.scale.z);
+            objMesh.userData.transform = value;
           }
+          docModel.modifiedAt = Date.now();
+          updateFeatureTree();
+          updateMaterialsPanel();
+          updateTimeline();
+          updateStatusBar();
           break;
       }
     },

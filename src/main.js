@@ -473,6 +473,8 @@ export class AmericaD {
         break;
 
       case 'transform':
+        feature.updateParams({ transform: value });
+
         // Apply transform to mesh
         const mesh = this.evaluator.getMesh(featureId);
         if (mesh) {
@@ -483,7 +485,9 @@ export class AmericaD {
             (value.rotation.z * Math.PI) / 180
           );
           mesh.scale.set(value.scale.x, value.scale.y, value.scale.z);
+          mesh.userData.transform = value;
         }
+        this.document.modifiedAt = Date.now();
         break;
     }
   }
